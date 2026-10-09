@@ -1,0 +1,56 @@
+# Emberfall local development overrides for AzerothCore.
+#
+# - Host networking: no Docker bridge needed, services reach each other on 127.0.0.1.
+#   MySQL is bound to 127.0.0.1 so it is not exposed to the LAN.
+# - Client data comes from ./var/serverdata, extracted locally from the developer's
+#   own 3.3.5a install (see EMBERFALL.md). The upstream ac-client-data-init service,
+#   which downloads a prebuilt data bundle, is never started.
+# - Warden off (spec 5.2). vmaps/mmaps off until we extract or generate them.
+
+x-ac-db: &ac-db
+  AC_LOGIN_DATABASE_INFO: "127.0.0.1;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_auth"
+  AC_WORLD_DATABASE_INFO: "127.0.0.1;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_world"
+  AC_CHARACTER_DATABASE_INFO: "127.0.0.1;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_characters"
+
+services:
+  ac-database:
+    network_mode: host
+    networks: !reset []
+    ports: !reset []
+    command: ["--bind-address=127.0.0.1", "--port=3306"]
+
+  ac-db-import:
+    network_mode: host
+    networks: !reset []
+    environment:
+      <<: *ac-db
+
+  ac-authserver:
+    network_mode: host
+    networks: !reset []
+    ports: !reset []
+    environment:
+      <<: *ac-db
+
+  ac-worldserver:
+    network_mode: host
+    networks: !reset []
+    ports: !reset []
+    environment:
+      <<: *ac-db
+      AC_WARDEN_ENABLED: "0"
+      AC_VMAP_ENABLE_LOS: "0"
+      AC_VMAP_ENABLE_HEIGHT: "0"
+      AC_MOVE_MAPS_ENABLE: "0"
+    volumes: !override
+      - ${DOCKER_VOL_ETC:-./env/dist/etc}:/azerothcore/env/dist/etc
+      - ${DOCKER_VOL_LOGS:-./env/dist/logs}:/azerothcore/env/dist/logs
+      - ./var/serverdata:/azerothcore/env/dist/data:ro
+    depends_on: !override
+      ac-database:
+        condition: service_healthy
+      ac-db-import:
+        condition: service_completed_successfully
+
+  ac-client-data-init:
+    profiles: [never]
