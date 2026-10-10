@@ -21,6 +21,7 @@ the server behaves exactly like upstream.
 | 5 | Wintergrasp setup creates map 571 and ASSERTs | `src/server/game/Battlefield/BattlefieldMgr.cpp:48` | not set up when Map.dbc has no 571 (the profile also sets `Wintergrasp.Enable = 2`) |
 | 6 | `outdoorpvp_template`: every type is a stock zone and ASSERTs on its AreaTable row | `src/server/game/OutdoorPvP/OutdoorPvPMgr.cpp:47` | outdoor PvP is not loaded |
 | 7 | `CMSG_SET_RAID_DIFFICULTY` creates maps 571 and 0 and ASSERTs (client-triggerable by any group leader) | `src/server/game/Handlers/MiscHandler.cpp:1393` | when Map.dbc lacks 571 or 0: the home maps are not created; the change is refused if a member is inside a shared-difficulty raid map (the only case that needs them) |
+| 10 | Spirit healer: the gossip option casts spell 17251, and only the stock spell script on it (`spell_gen_spirit_healer_res`) sends `SMSG_SPIRIT_HEALER_CONFIRM`; a worldserver built with `SCRIPTS=none` never offers the resurrection (Emberfall WP D4) | `src/server/game/Entities/Player/PlayerGossip.cpp:325` | the gossip option sends the confirm itself (the cast stays, for its visual) |
 
 ## Unconditional fixes (no behaviour change with valid stock data)
 

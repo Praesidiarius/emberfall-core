@@ -23,6 +23,7 @@
 #include "OutdoorPvPMgr.h"
 #include "Pet.h"
 #include "Player.h"
+#include "World.h"
 #include "WorldSession.h"
 
 /*********************************************************/
@@ -319,7 +320,17 @@ void Player::OnGossipSelect(WorldObject* source, uint32 gossipListId, uint32 men
             break;
         case GOSSIP_OPTION_SPIRITHEALER:
             if (isDead())
+            {
                 source->ToCreature()->CastSpell(source->ToCreature(), 17251, true, nullptr, nullptr, GetGUID());
+                // EMBERFALL: own data (PATCHES.md) - the confirm comes from a spell script on 17251, which a
+                // worldserver built without the stock scripts (SCRIPTS=none) does not have; send it here.
+                if (sWorld->getBoolConfig(CONFIG_EMBERFALL_OWN_DATA))
+                {
+                    WorldPacket data(SMSG_SPIRIT_HEALER_CONFIRM, 8);
+                    data << source->GetGUID();
+                    SendDirectMessage(&data);
+                }
+            }
             break;
         case GOSSIP_OPTION_QUESTGIVER:
             PrepareQuestMenu(guid);
