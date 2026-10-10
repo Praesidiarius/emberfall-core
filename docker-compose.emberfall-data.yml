@@ -112,11 +112,13 @@ services:
       AC_DBC_LOCALE: "0"
       AC_EXPANSION: "2"
       AC_WARDEN_ENABLED: "0"
-      AC_MOVE_MAPS_ENABLE: "0"
-      AC_VMAP_ENABLE_LOS: "0"
-      AC_VMAP_ENABLE_HEIGHT: "0"
-      AC_VMAP_ENABLE_INDOOR_CHECK: "0"
-      AC_VMAP_PET_LOS: "0"
+      # Emberfall WP X2: vmaps (line of sight, heights, indoor check) and mmaps (pathfinding) from
+      # var/serverdata-ef/{vmaps,mmaps}, built by Emberfall's tools/server/extract.sh --full.
+      AC_MOVE_MAPS_ENABLE: "1"
+      AC_VMAP_ENABLE_LOS: "1"
+      AC_VMAP_ENABLE_HEIGHT: "1"
+      AC_VMAP_ENABLE_INDOOR_CHECK: "1"
+      AC_VMAP_PET_LOS: "1"
       AC_PRELOAD_ALL_NON_INSTANCED_MAP_GRIDS: "0"
       AC_PLAYER_START_ALL_REPUTATION: "0"
       AC_PLAYER_START_CUSTOM_SPELLS: "0"

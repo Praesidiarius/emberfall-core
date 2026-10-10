@@ -36,6 +36,7 @@ the server behaves exactly like upstream.
 |---|---|
 | The docker build passes `CMAKE_EXTRA_OPTIONS` to CMake (the arg was declared but unused), so the profile's worldserver can be built with `SCRIPTS=none` + `SCRIPTS_COMMANDS=static` (no unbound stock content scripts) | `apps/docker/Dockerfile:105` |
 | The `emberfall-data` server profile: own compose project, containers `ef-data-*`, MySQL 127.0.0.1:3320, authserver 3725, worldserver 8086, data `var/serverdata-ef`, config/logs `var/emberfall-data`, images `emberfall/ac-wotlk-*:own-data` | `docker-compose.emberfall-data.yml`, `apps/docker/emberfall-data/initdb/01-world-schema.sql` |
+| The `emberfall-data` profile runs with vmaps and mmaps (Emberfall WP X2): `MoveMaps.Enable`, `vmap.enableLOS`, `vmap.enableHeight`, `vmap.enableIndoorCheck` and `vmap.petLOS` = 1 (they were 0 until Emberfall extracted its own vmaps/mmaps with `tools/server/extract.sh --full`). No code change | `docker-compose.emberfall-data.yml` (`AC_MOVE_MAPS_ENABLE`, `AC_VMAP_*`) |
 | The stock dev server's local overrides (host networking, local data, Warden off) | `docker-compose.override.yml` |
 
 The profile is driven from the Emberfall repository: `tools/server/ef_server.sh` (build, up, data,
