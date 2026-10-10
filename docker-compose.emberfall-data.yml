@@ -1,0 +1,148 @@
+# Emberfall "own data" server profile (Emberfall pipeline-plan.md WP S2).
+#
+# A second, fully separate server next to the stock dev server (docker-compose.yml +
+# docker-compose.override.yml). It runs on Emberfall's own data only:
+#
+#   - DBC/maps/vmaps/mmaps from ./var/serverdata-ef (filled by Emberfall's tools/server/ef_server.sh data)
+#   - world database acore_world_ef, built by Emberfall's tools/server/make_clean_world.sh
+#     (AzerothCore's schema with no stock content) plus Emberfall's SQL
+#   - worldserver built from this fork with SCRIPTS=none + SCRIPTS_COMMANDS=static and run with
+#     Emberfall.OwnData = 1 (PATCHES.md)
+#
+# Nothing is shared with the stock profile: own compose project, container names, ports, MySQL
+# server and volume, config/log directories and images.
+#
+#   service            container             port (host network, 127.0.0.1 unless noted)
+#   ef-database        ef-data-database      MySQL 3320 (X protocol off)
+#   ef-db-import       ef-data-db-import     - (auth + characters schema; the world DB is not touched)
+#   ef-authserver      ef-data-authserver    3725 (all interfaces, like the stock authserver)
+#   ef-worldserver     ef-data-worldserver   8086 (all interfaces)
+#
+# Build the images (tags never collide with the stock acore/* images; Emberfall's
+# `tools/server/ef_server.sh build` does this):
+#   docker build -f apps/docker/Dockerfile --target worldserver -t emberfall/ac-wotlk-worldserver:own-data \
+#     --build-arg CSCRIPTS=none --build-arg CTOOLS_BUILD=db-only \
+#     --build-arg CMAKE_EXTRA_OPTIONS=-DSCRIPTS_COMMANDS=static .
+#   (the same with --target authserver / db-import and the matching tag)
+# Start/stop: Emberfall's tools/server/ef_server.sh (wraps
+#   docker compose -f docker-compose.emberfall-data.yml ...).
+
+name: emberfall-data
+
+x-ef-db: &ef-db
+  AC_LOGIN_DATABASE_INFO: "127.0.0.1;${EF_DB_PORT:-3320};root;${EF_DB_ROOT_PASSWORD:-efdata};acore_auth"
+  AC_WORLD_DATABASE_INFO: "127.0.0.1;${EF_DB_PORT:-3320};root;${EF_DB_ROOT_PASSWORD:-efdata};acore_world_ef"
+  AC_CHARACTER_DATABASE_INFO: "127.0.0.1;${EF_DB_PORT:-3320};root;${EF_DB_ROOT_PASSWORD:-efdata};acore_characters"
+
+services:
+  ef-database:
+    container_name: ef-data-database
+    image: mysql:8.4
+    network_mode: host
+    command: ["--bind-address=127.0.0.1", "--port=${EF_DB_PORT:-3320}", "--mysqlx=OFF"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${EF_DB_ROOT_PASSWORD:-efdata}
+    volumes:
+      - ef-database:/var/lib/mysql
+      # Creates the (empty) world schema on first start so that dbimport and the worldserver can
+      # connect before make_clean_world.sh has filled it.
+      - ./apps/docker/emberfall-data/initdb:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: "/usr/bin/mysql -h127.0.0.1 -P${EF_DB_PORT:-3320} --user=root --password=$$MYSQL_ROOT_PASSWORD --execute \"SHOW DATABASES;\""
+      interval: 5s
+      timeout: 10s
+      retries: 40
+
+  ef-db-import:
+    container_name: ef-data-db-import
+    image: emberfall/ac-wotlk-db-import:own-data
+    network_mode: host
+    environment:
+      <<: *ef-db
+      AC_DATA_DIR: "/azerothcore/env/dist/data"
+      AC_LOGS_DIR: "/azerothcore/env/dist/logs"
+      # auth (1) + characters (2) only: the world DB is ours (engine-ids.md §10).
+      AC_UPDATES_ENABLE_DATABASES: "3"
+    volumes:
+      - ./var/emberfall-data/etc:/azerothcore/env/dist/etc
+      - ./var/emberfall-data/logs:/azerothcore/env/dist/logs
+    depends_on:
+      ef-database:
+        condition: service_healthy
+
+  ef-authserver:
+    container_name: ef-data-authserver
+    image: emberfall/ac-wotlk-authserver:own-data
+    network_mode: host
+    tty: true
+    restart: unless-stopped
+    environment:
+      AC_LOGIN_DATABASE_INFO: "127.0.0.1;${EF_DB_PORT:-3320};root;${EF_DB_ROOT_PASSWORD:-efdata};acore_auth"
+      AC_LOGS_DIR: "/azerothcore/env/dist/logs"
+      AC_TEMP_DIR: "/azerothcore/env/dist/temp"
+      AC_REALM_SERVER_PORT: "${EF_AUTH_PORT:-3725}"
+      AC_STRICT_VERSION_CHECK: "0"
+    volumes:
+      - ./var/emberfall-data/etc:/azerothcore/env/dist/etc
+      - ./var/emberfall-data/logs:/azerothcore/env/dist/logs
+    depends_on:
+      ef-database:
+        condition: service_healthy
+      ef-db-import:
+        condition: service_completed_successfully
+
+  ef-worldserver:
+    container_name: ef-data-worldserver
+    image: emberfall/ac-wotlk-worldserver:own-data
+    network_mode: host
+    stdin_open: true
+    tty: true
+    restart: "no"
+    environment:
+      <<: *ef-db
+      AC_DATA_DIR: "/azerothcore/env/dist/data"
+      AC_LOGS_DIR: "/azerothcore/env/dist/logs"
+      AC_WORLD_SERVER_PORT: "${EF_WORLD_PORT:-8086}"
+      AC_REALM_ID: "1"
+      # Patches in PATCHES.md.
+      AC_EMBERFALL_OWN_DATA: "1"
+      # engine-ids.md §10/§11.
+      AC_UPDATES_ENABLE_DATABASES: "0"
+      AC_DBC_LOCALE: "0"
+      AC_EXPANSION: "2"
+      AC_WARDEN_ENABLED: "0"
+      AC_MOVE_MAPS_ENABLE: "0"
+      AC_VMAP_ENABLE_LOS: "0"
+      AC_VMAP_ENABLE_HEIGHT: "0"
+      AC_VMAP_ENABLE_INDOOR_CHECK: "0"
+      AC_VMAP_PET_LOS: "0"
+      AC_PRELOAD_ALL_NON_INSTANCED_MAP_GRIDS: "0"
+      AC_PLAYER_START_ALL_REPUTATION: "0"
+      AC_PLAYER_START_CUSTOM_SPELLS: "0"
+      AC_HEROIC_CHARACTERS_PER_REALM: "0"
+      AC_SKIP_CINEMATICS: "2"
+      AC_DBC_ENFORCE_ITEM_ATTRIBUTES: "1"
+      AC_CREATURES_CUSTOM_IDS: ""
+      AC_DUNGEON_FINDER_OPTIONS_MASK: "0"
+      AC_WINTERGRASP_ENABLE: "2"
+      AC_CHANNEL_RESTRICTED_LFG: "0"
+      AC_MINIGOB_MANABONK_ENABLE: "0"
+      AC_RA_ENABLE: "0"
+      AC_SOAP_ENABLED: "0"
+      AC_CONSOLE_ENABLE: "0"
+      # Level and category prefix on every console line ("ERROR [sql.sql] ..."), for Emberfall's
+      # log check (emberfall_content.checks.server_log).
+      AC_APPENDER_CONSOLE: "1,4,6"
+    volumes:
+      - ./var/emberfall-data/etc:/azerothcore/env/dist/etc
+      - ./var/emberfall-data/logs:/azerothcore/env/dist/logs
+      - ./var/serverdata-ef:/azerothcore/env/dist/data:ro
+    depends_on:
+      ef-database:
+        condition: service_healthy
+      ef-db-import:
+        condition: service_completed_successfully
+
+volumes:
+  ef-database:

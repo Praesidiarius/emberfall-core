@@ -649,7 +649,10 @@ void LoadDBCStores(std::string const& dataPath)
     }
 
     // Check loaded DBC files proper version
-    if (!sAreaTableStore.LookupEntry(4987)             ||       // last area added in 3.3.5a
+    // EMBERFALL: own data (PATCHES.md) - our DBCs carry no stock sentinel rows.
+    if (sWorld->getBoolConfig(CONFIG_EMBERFALL_OWN_DATA))
+        LOG_INFO("server.loading", ">> Emberfall.OwnData: stock DBC version sentinels not checked");
+    else if (!sAreaTableStore.LookupEntry(4987)             ||       // last area added in 3.3.5a
             !sCharTitlesStore.LookupEntry(177)         ||       // last char title added in 3.3.5a
             !sGemPropertiesStore.LookupEntry(1629)     ||       // last added spell in 3.3.5a
             !sItemStore.LookupEntry(56806)             ||       // last client known item added in 3.3.5a

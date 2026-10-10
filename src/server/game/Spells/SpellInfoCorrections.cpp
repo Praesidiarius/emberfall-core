@@ -20,6 +20,7 @@
 #include "GameGraveyard.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
+#include "World.h"
 
 inline void ApplySpellFix(std::initializer_list<uint32> spellIds, void(*fix)(SpellInfo*))
 {
@@ -28,7 +29,9 @@ inline void ApplySpellFix(std::initializer_list<uint32> spellIds, void(*fix)(Spe
         SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
         if (!spellInfo)
         {
-            LOG_ERROR("sql.sql", "Spell info correction specified for non-existing spell {}", spellId);
+            // EMBERFALL: own data (PATCHES.md) - a stock spell we do not author is not an error.
+            if (!sWorld->getBoolConfig(CONFIG_EMBERFALL_OWN_DATA))
+                LOG_ERROR("sql.sql", "Spell info correction specified for non-existing spell {}", spellId);
             continue;
         }
 
@@ -5348,6 +5351,15 @@ void SpellMgr::LoadSpellInfoCorrections()
             else if (areaEntry->ID == 2102)
                 areaEntry->flags |= AREA_FLAG_REST_ZONE_ALLIANCE;
         }
+
+    // EMBERFALL: own data (PATCHES.md) - everything below patches stock DBC rows and stock
+    // graveyards by ID without checking that they exist; our data does not have them.
+    if (sWorld->getBoolConfig(CONFIG_EMBERFALL_OWN_DATA))
+    {
+        LOG_INFO("server.loading", ">> Loading spell dbc data corrections  in {} ms (Emberfall.OwnData: stock DBC row fixes skipped)", GetMSTimeDiffToNow(oldMSTime));
+        LOG_INFO("server.loading", " ");
+        return;
+    }
 
     // Xinef: fix for something?
     SummonPropertiesEntry* properties = const_cast<SummonPropertiesEntry*>(sSummonPropertiesStore.LookupEntry(121));

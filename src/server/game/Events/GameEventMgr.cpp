@@ -136,6 +136,14 @@ void GameEventMgr::StartInternalEvent(uint16 eventId)
 
 bool GameEventMgr::StartEvent(uint16 eventId, bool overwrite)
 {
+    // EMBERFALL: bounds check (PATCHES.md) - WorldState starts stock events (101, 116) at boot;
+    // the event vector is sized by MAX(eventEntry) of game_event, which is empty in our world DB.
+    if (eventId >= _gameEvent.size())
+    {
+        LOG_DEBUG("gameevent", "GameEventMgr::StartEvent: event {} does not exist", eventId);
+        return false;
+    }
+
     if (sDisableMgr->IsDisabledFor(DISABLE_TYPE_GAME_EVENT, eventId, nullptr) && !overwrite)
         return false;
 
@@ -193,6 +201,13 @@ bool GameEventMgr::StartEvent(uint16 eventId, bool overwrite)
 
 void GameEventMgr::StopEvent(uint16 eventId, bool overwrite)
 {
+    // EMBERFALL: bounds check (PATCHES.md), see StartEvent.
+    if (eventId >= _gameEvent.size())
+    {
+        LOG_DEBUG("gameevent", "GameEventMgr::StopEvent: event {} does not exist", eventId);
+        return;
+    }
+
     GameEventData& data = _gameEvent[eventId];
     bool serverwide_evt = data.State != GAMEEVENT_NORMAL && data.State != GAMEEVENT_INTERNAL;
 

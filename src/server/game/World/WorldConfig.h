@@ -519,6 +519,8 @@ enum ServerConfigs
 
     CONFIG_CAIS_ENABLED,
 
+    CONFIG_EMBERFALL_OWN_DATA, // EMBERFALL: own data (PATCHES.md)
+
     MAX_NUM_SERVER_CONFIGS
 };
 

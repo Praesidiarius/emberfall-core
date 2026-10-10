@@ -364,6 +364,9 @@ void WorldConfig::BuildConfigCache()
 
     SetConfigValue<bool>(CONFIG_CAIS_ENABLED, "CAIS.Enable", false);
 
+    // EMBERFALL: own data (PATCHES.md)
+    SetConfigValue<bool>(CONFIG_EMBERFALL_OWN_DATA, "Emberfall.OwnData", false);
+
     SetConfigValue<uint32>(CONFIG_EVENT_ANNOUNCE, "Event.Announce", 0);
 
     SetConfigValue<float>(CONFIG_CREATURE_LEASH_RADIUS, "CreatureLeashRadius", 30.0f);
