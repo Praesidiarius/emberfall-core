@@ -1,0 +1,580 @@
+{
+ "schema": 1,
+ "source": "the talents example (tools/py/tests/data/talents/example.yaml); written by python -m emberfall_content.talents vectors",
+ "trees": [
+  {
+   "id": 810,
+   "nodes": [
+    {
+     "id": 9001,
+     "row": 1,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 1,
+     "parents": []
+    },
+    {
+     "id": 9002,
+     "row": 2,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "parents": [
+      0
+     ]
+    },
+    {
+     "id": 9003,
+     "row": 2,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "parents": [
+      0
+     ]
+    },
+    {
+     "id": 9004,
+     "row": 3,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "parents": [
+      1,
+      2
+     ]
+    }
+   ],
+   "gates": [
+    {
+     "row": 3,
+     "points": 4
+    }
+   ]
+  },
+  {
+   "id": 811,
+   "nodes": [
+    {
+     "id": 9101,
+     "row": 1,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "parents": []
+    },
+    {
+     "id": 9102,
+     "row": 2,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "parents": [
+      0
+     ]
+    },
+    {
+     "id": 9103,
+     "row": 2,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "parents": [
+      0
+     ]
+    },
+    {
+     "id": 9104,
+     "row": 3,
+     "kind": 3,
+     "maxRank": 1,
+     "numOptions": 2,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "parents": [
+      1,
+      2
+     ]
+    },
+    {
+     "id": 9105,
+     "row": 4,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 30,
+     "freeSpecMask": 0,
+     "parents": [
+      3
+     ]
+    }
+   ],
+   "gates": [
+    {
+     "row": 4,
+     "points": 6
+    }
+   ]
+  }
+ ],
+ "cases": [
+  {
+   "name": "nothing spent",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 10,
+   "classBudget": 1,
+   "specBudget": 0,
+   "loadout": "0000.00000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "a free node given explicitly",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 10,
+   "classBudget": 1,
+   "specBudget": 0,
+   "loadout": "1000.00000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "a free node above its max rank is still free",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 10,
+   "classBudget": 1,
+   "specBudget": 0,
+   "loadout": "2000.00000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "a non-free node above its max rank",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 2,
+   "level": 10,
+   "classBudget": 1,
+   "specBudget": 0,
+   "loadout": "2000.00000",
+   "code": "RANK",
+   "detail": 9001
+  },
+  {
+   "name": "two class points at level 10",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 10,
+   "classBudget": 1,
+   "specBudget": 0,
+   "loadout": "0200.00000",
+   "code": "BUDGET_C",
+   "detail": 0
+  },
+  {
+   "name": "two class points at level 12",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 12,
+   "classBudget": 2,
+   "specBudget": 1,
+   "loadout": "0200.00000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "rank above max",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0300.00000",
+   "code": "RANK",
+   "detail": 9002
+  },
+  {
+   "name": "no full parent",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0001.00000",
+   "code": "PATH",
+   "detail": 9004
+  },
+  {
+   "name": "a parent that is not full does not open",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0101.00000",
+   "code": "PATH",
+   "detail": 9004
+  },
+  {
+   "name": "the gate counts the free node but needs four",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0011.00000",
+   "code": "GATE",
+   "detail": 3
+  },
+  {
+   "name": "through the class gate",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0211.00000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "another spec: the free node is not free",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 2,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0211.00000",
+   "code": "PATH",
+   "detail": 9002
+  },
+  {
+   "name": "another spec buys the entry node",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 2,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "1211.00000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "another spec pays for the entry node",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 2,
+   "level": 10,
+   "classBudget": 1,
+   "specBudget": 0,
+   "loadout": "1000.00000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "another spec: two points at level 10",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 2,
+   "level": 10,
+   "classBudget": 1,
+   "specBudget": 0,
+   "loadout": "1100.00000",
+   "code": "BUDGET_C",
+   "detail": 0
+  },
+  {
+   "name": "spec tree: entry node and a child",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 20,
+   "classBudget": 6,
+   "specBudget": 5,
+   "loadout": "0000.21000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "spec points at level 20",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 20,
+   "classBudget": 6,
+   "specBudget": 5,
+   "loadout": "0000.23100",
+   "code": "BUDGET_S",
+   "detail": 0
+  },
+  {
+   "name": "spec points at level 30",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.23100",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "choice through the first parent",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.230a0",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "choice through the second parent",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.201b0",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "choice with no full parent",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.220a0",
+   "code": "PATH",
+   "detail": 9104
+  },
+  {
+   "name": "a digit on a choice node",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.23110",
+   "code": "CHOICE",
+   "detail": 9104
+  },
+  {
+   "name": "an option the node does not have",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.231c0",
+   "code": "CHOICE",
+   "detail": 9104
+  },
+  {
+   "name": "a letter on a normal node",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.2a000",
+   "code": "DECODE",
+   "detail": 0
+  },
+  {
+   "name": "a letter outside a-c",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.231d0",
+   "code": "DECODE",
+   "detail": 0
+  },
+  {
+   "name": "a node below its required level",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 29,
+   "classBudget": 10,
+   "specBudget": 10,
+   "loadout": "0000.231a1",
+   "code": "LEVEL",
+   "detail": 9105
+  },
+  {
+   "name": "through the spec gate at level 30",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.231a1",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "the spec gate not reached",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.211a1",
+   "code": "GATE",
+   "detail": 4
+  },
+  {
+   "name": "the class tree is checked first",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0300.30000",
+   "code": "RANK",
+   "detail": 9002
+  },
+  {
+   "name": "both budgets exceeded: class first",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 10,
+   "classBudget": 1,
+   "specBudget": 0,
+   "loadout": "0200.10000",
+   "code": "BUDGET_C",
+   "detail": 0
+  },
+  {
+   "name": "rank above max in the spec tree",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.30000",
+   "code": "RANK",
+   "detail": 9101
+  },
+  {
+   "name": "class string too short",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "000.00000",
+   "code": "DECODE",
+   "detail": 0
+  },
+  {
+   "name": "spec string too long",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.000000",
+   "code": "DECODE",
+   "detail": 0
+  },
+  {
+   "name": "no separator",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "000000000",
+   "code": "DECODE",
+   "detail": 0
+  },
+  {
+   "name": "two separators",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0000.00.000",
+   "code": "DECODE",
+   "detail": 0
+  },
+  {
+   "name": "whole build at level 30",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 30,
+   "classBudget": 11,
+   "specBudget": 10,
+   "loadout": "0211.231a1",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "whole build at level 80",
+   "classTree": 810,
+   "specTree": 811,
+   "specBit": 1,
+   "level": 80,
+   "classBudget": 36,
+   "specBudget": 35,
+   "loadout": "1211.231b1",
+   "code": "OK",
+   "detail": 0
+  }
+ ]
+}

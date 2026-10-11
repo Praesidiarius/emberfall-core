@@ -18,6 +18,47 @@ config file; this one has none (see below), so look for `mod-emberfall` in CMake
 | `emberfall_own_data_world` | `WorldScript::OnAfterConfigLoad` | `Wintergrasp.Enable` forced to 2 (no Wintergrasp in our data; the profile sets 2 anyway) | core patch #5 (`BattlefieldMgr.cpp`) |
 | `emberfall_own_data_server` | `ServerScript::CanPacketReceive` | `MSG_SET_RAID_DIFFICULTY` from a group leader is refused when Map.dbc lacks map 571 or 0 (the core would create both and assert); with Emberfall's placeholder rows (the default) nothing changes | core patch #7 (`MiscHandler.cpp`) |
 
+## Specs and talents (Emberfall `docs/design/talents.md` §3, WPs T3, M1-M3)
+
+The spec and talent system: Emberfall's own class trees, and generated trees for stock classes on the
+stock-test profile. Switch `Emberfall.Talents.Enable` (default 0; `AC_EMBERFALL_TALENTS_ENABLE`, read
+through `sConfigMgr` like `Emberfall.OwnData` and independent of it; both Emberfall compose profiles set 1).
+For a class the system is active only when `ef_spec` has rows for it; every other class keeps the stock
+talent system untouched.
+
+| File | What |
+|---|---|
+| `data/sql/db-world/mod_emberfall_2026_10_11_00_talents.sql` | the ten `ef_*` tree tables (schema only; Emberfall's compiler writes the rows: `world.sql`, or `dist/test-talents/talents.sql` for the generated stock trees) and the help texts of the GM commands |
+| `data/sql/db-characters/mod_emberfall_2026_10_11_00_talents.sql` | `ef_character_spec`, `ef_character_loadout`, `ef_character_actions`, `ef_character_granted` |
+| `src/talents/TalentRules.h` | a **verbatim copy** of Emberfall's `client/src/data/TalentRules.h` (Apache-2.0): the rules of the trees; client preview and server validation run the same JSON vectors |
+| `src/talents/EftProtocol.h` | the `EFT` addon-message protocol as plain functions: parse, chunking both ways, names, stored `nodeID:rank` pairs, reassembly, rate limit |
+| `src/talents/EfTalentModel.h` | the loaded trees and the pure functions over them: budgets, wire strings <-> pairs, re-mapping after a data change, the expected spell set, the structural checks, the canonical JSON of the data hash |
+| `src/talents/EfTalents.{h,cpp}` | loading (`ef_*` -> model; refuses inconsistent data, e.g. a hash that does not match the rows), per-character state (on the `Player`'s `CustomData`), the protocol handlers, validation, the reconcile, persistence |
+| `src/emberfall_talents.cpp` | the hooks and the GM commands |
+| `tests/` | `run_tests.sh`: a standalone build (no core) of the rules vectors (`tests/data/talent_rules_example.json`, a copy of Emberfall's), the model, the protocol and a decode fuzz |
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_talents_world` | `WorldScript::OnAfterConfigLoad`, `OnBeforeWorldInitialized` | reads the switch; loads and checks the `ef_*` tables; the boot log lists the trees (`>> Emberfall talents: class 1: class tree 901 ...`) |
+| `emberfall_talents_player` | `OnPlayerLogin` | loads the character's state, re-validates every loadout (data hash, level; resets what fails, `RESET` notices for the next `HELLO`) and reconciles the spells |
+| | `OnPlayerLevelChanged` | re-validates (level loss), reconciles (baseline spells), pushes `STATE` |
+| | `OnPlayerCalculateTalentsPoints`, `OnPlayerCanLearnTalent` | 0 stock talent points and no stock talent learning for a class with trees |
+| | `OnPlayerCanUseChat` (whisper) | consumes every `EFT\t` addon whisper; answers the player's own (to itself) |
+| | `OnPlayerDeleteFromDB` | deletes the `ef_character_*` rows in the deletion transaction |
+| `emberfall_talents_commands` | `CommandScript` | `.ef talents dump`, `.ef talents reset`, `.ef talents reload` (admin), `.ef spec ID` (instant, no switch cast), `.ef send BODY` (a body as if sent by the GM's own client) |
+
+Protocol (`EFT\t<ver>;<seq>;<cmd>;...`, talents.md §4): `HELLO` -> `STATE`, every `LOADOUT`, pending `RESET`s,
+`OK`; `SPEC` (the first choice; a switch answers `ERR STATE` until the switch cast, WP M4); `APPLY` (chunked,
+validated with `TalentRules.h` after the protocol, hash and player-state checks, then saved and reconciled:
+`STATE`, `LOADOUT`, `OK`); `RESET` (class/spec/both trees of the active loadout). `SAVE`/`LOAD`/`DEL` are WP
+M4 and get no answer yet. Limits: 20 requests per 10 s (one `THROTTLE` answer per window), `SPEC` once per 2 s,
+one reassembly of at most 8 x 251 bytes.
+
+Spells: learned with `Player::learnSpell` (saved in `character_spell`), removed with `removeSpell` plus the
+auras they own or triggered; `ef_character_granted` records exactly what the module taught, so a spell the core
+or a GM taught is never taken. Stock talent spells (generated trees only) leave a no-talent-group entry behind
+`removeSpell` that the core's rank logic would revive; the reconcile drops those (`DropLeftover`).
+
 The switch `Emberfall.OwnData` (default 0) is read through `src/server/game/World/EmberfallOwnData.h`
 (`Emberfall::OwnData()`, shared with the remaining core hunks) from `worldserver.conf` or the
 environment variable `AC_EMBERFALL_OWN_DATA` (the emberfall-data profile sets it). The module ships

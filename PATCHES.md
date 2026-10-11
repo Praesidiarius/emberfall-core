@@ -47,6 +47,13 @@ it never conflicts on a rebase. `/modules/*` is in upstream's `.gitignore`: add 
 | #5 (`BattlefieldMgr.cpp`) | `emberfall_own_data_world` (`WorldScript::OnAfterConfigLoad`) | `Wintergrasp.Enable` forced to 2 (a WARN when it was not) |
 | #7 (`MiscHandler.cpp`) | `emberfall_own_data_server` (`ServerScript::CanPacketReceive`) | when Map.dbc lacks map 571 or 0: a group leader's raid difficulty change is refused (`SendRaidDifficulty`) instead of the core creating both maps and asserting. With Emberfall's placeholder rows (`dbc_placeholders.sql`, loaded by default) both maps exist and the stock handler runs, as with the old patch |
 
+The spec and talent system (Emberfall talents.md §3; switch `Emberfall.Talents.Enable`, default 0,
+independent of `Emberfall.OwnData`) is module code only, on hooks that exist upstream: `OnPlayerCanUseChat`
+(the addon-whisper protocol), `OnPlayerLogin`, `OnPlayerLevelChanged`, `OnPlayerCalculateTalentsPoints`,
+`OnPlayerCanLearnTalent`, `OnPlayerDeleteFromDB`, `WorldScript` loading and a `CommandScript`; its tables come
+from the module's `data/sql/db-world` and `db-characters` (applied by dbimport). No core hunk. See
+`modules/mod-emberfall/README.md`.
+
 Why the rest stays in the core: #1, #3 and #4 run inside `LoadDBCStores` / `LoadSpellInfoCorrections`
 and #2's skip at the start of `SetInitialWorldSettings`, all before the first hook a module gets
 (`OnLoadCustomDatabaseTable` comes before the DBCs, the next one after them is far later); #8 is
@@ -60,6 +67,7 @@ reached from `WorldState::Load` and `DisableMgr` with no hook in between; #9 is 
 | The `emberfall-data` server profile: own compose project, containers `ef-data-*`, MySQL 127.0.0.1:3320, authserver 3725, worldserver 8086, data `var/serverdata-ef`, config/logs `var/emberfall-data`, images `emberfall/ac-wotlk-*:own-data` | `docker-compose.emberfall-data.yml`, `apps/docker/emberfall-data/initdb/01-world-schema.sql` |
 | The `emberfall-data` profile runs with vmaps and mmaps (Emberfall WP X2): `MoveMaps.Enable`, `vmap.enableLOS`, `vmap.enableHeight`, `vmap.enableIndoorCheck` and `vmap.petLOS` = 1 (they were 0 until Emberfall extracted its own vmaps/mmaps with `tools/server/extract.sh --full`). No code change | `docker-compose.emberfall-data.yml` (`AC_MOVE_MAPS_ENABLE`, `AC_VMAP_*`) |
 | The profile's compose file takes `EF_PREFIX` (container names), `EF_IMAGE_TAG`, `EF_VAR_DIR` and `EF_SERVERDATA_DIR` (defaults: the values above), so Emberfall's `tools/server/upstream_check.sh` can run a throwaway stack (`ef-check-*`, compose project `ef-check`) from the same file | `docker-compose.emberfall-data.yml` |
+| The profile's compose file also takes `EF_WORLD_DB`, `EF_DBIMPORT_DATABASES`, `EF_OWN_DATA`, `EF_TALENTS_ENABLE` and `EF_MOVE_MAPS` (defaults: the emberfall-data values), so Emberfall's `ef_server.sh` can run the "stock-test" profile (`ef-stock-*`, MySQL 3340, auth 3727, world 8088, stock world DB and the stock `var/serverdata` read-only, images `:stock-test` with the full stock scripts) from the same file | `docker-compose.emberfall-data.yml` |
 | The stock dev server's local overrides (host networking, local data, Warden off) | `docker-compose.override.yml` |
 
 The profile is driven from the Emberfall repository: `tools/server/ef_server.sh` (build, up, data,

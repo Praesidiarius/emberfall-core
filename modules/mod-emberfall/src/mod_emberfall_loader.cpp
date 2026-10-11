@@ -19,8 +19,10 @@
 // directory mod-emberfall (Add<directory with _ for ->Scripts()).
 
 void AddEmberfallOwnDataScripts();
+void AddEmberfallTalentsScripts();
 
 void Addmod_emberfallScripts()
 {
     AddEmberfallOwnDataScripts();
+    AddEmberfallTalentsScripts();
 }
