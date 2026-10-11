@@ -15,9 +15,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// Emberfall talents (docs/design/talents.md §3, §4; WPs M1-M3). See EfTalents.h.
+// Emberfall talents (docs/design/talents.md §3, §4; WPs M1-M5). See EfTalents.h.
 
 #include "EfTalents.h"
+#include "EfLoadouts.h"
 
 #include "Chat.h"
 #include "Config.h"
@@ -27,6 +28,7 @@
 #include "Log.h"
 #include "Player.h"
 #include "SharedDefines.h"
+#include "Spell.h"
 #include "SpellAuras.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
@@ -34,6 +36,7 @@
 #include "WorldPacket.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <ctime>
@@ -57,8 +60,13 @@ namespace Emberfall::Talents
         constexpr char const* kDefaultLoadoutName = "Default";
 
         constexpr uint32 kStateFlagChoiceAvailable = 0x1;
-        // 0x2: a switch cast is pending (WP M4)
+        constexpr uint32 kStateFlagSwitchPending = 0x2;
         constexpr uint32 kStateFlagDisabled = 0x4;
+
+        constexpr uint32 kSpecFlagStockWiped = 0x1; // ef_character_spec.flags bit 0 (§3.5)
+
+        // Players with a switch cast running: a cheap filter for the per-tick hooks (OnUpdate, OnEnterCombat).
+        std::atomic<uint32> s_pendingSwitches{0};
 
         uint64 NowMs()
         {
@@ -90,10 +98,30 @@ namespace Emberfall::Talents
             uint32 updated = 0;
         };
 
+        // A spec switch whose cast runs (§1.5, §3.2): started by SPEC, finished in OnUpdate once the cast went
+        // off (OnSpellCast sets `cast`), failed when the cast ended without it (moved, interrupted, combat).
+        struct PendingSwitch
+        {
+            uint32 spec = 0; // 0 = none
+            uint32 seq = 0;
+            uint32 spell = 0;
+            bool cast = false;   // the switch spell went off
+            bool combat = false; // cancelled by entering combat
+        };
+
         // The per-character state, kept on the Player (DataMap) while it is online.
         class PlayerState : public DataMap::Base
         {
         public:
+            PlayerState() = default;
+            PlayerState(PlayerState const&) = default;
+            PlayerState& operator=(PlayerState const&) = default;
+            ~PlayerState() override
+            {
+                if (pending.spec)
+                    --s_pendingSwitches;
+            }
+
             bool loaded = false;
             uint32 generation = 0;
             uint32 activeSpec = 0;
@@ -107,6 +135,8 @@ namespace Emberfall::Talents
             eft::RateLimit requests{kRequestsPerWindow, kRequestWindowMs};
             eft::RateLimit specRequests{1, kSpecWindowMs};
             uint64 throttleAnsweredAt = 0;
+            PendingSwitch pending;
+            std::map<uint32, std::vector<BarButton>> bars;         // spec -> bars of the inactive specs (§3.6)
 
             Loadout* Active(uint32 spec)
             {
@@ -114,6 +144,30 @@ namespace Emberfall::Talents
                     if (l.spec == spec && l.active)
                         return &l;
                 return nullptr;
+            }
+
+            Loadout* Find(uint32 spec, uint32 id)
+            {
+                for (Loadout& l : loadouts)
+                    if (l.spec == spec && l.id == id)
+                        return &l;
+                return nullptr;
+            }
+
+            void StartSwitch(PendingSwitch const& p)
+            {
+                if (!pending.spec)
+                    ++s_pendingSwitches;
+                pending = p;
+            }
+
+            PendingSwitch EndSwitch()
+            {
+                PendingSwitch const p = pending;
+                if (pending.spec)
+                    --s_pendingSwitches;
+                pending = PendingSwitch{};
+                return p;
             }
         };
 
@@ -132,6 +186,35 @@ namespace Emberfall::Talents
             trans->Append("REPLACE INTO `ef_character_loadout` (`guid`, `spec`, `loadout`, `name`, `ranks`, `data_hash`, `active`, `updated`) "
                 "VALUES ({}, {}, {}, '{}', '{}', '{}', {}, {})", guid, l.spec, l.id, name, eft::encodePairs(l.pairs), l.hash,
                 l.active ? 1 : 0, l.updated);
+        }
+
+        // The bars of an inactive spec (§3.6): ef_character_actions holds exactly them.
+        void SaveBars(CharacterDatabaseTransaction trans, uint32 guid, uint32 spec, std::vector<BarButton> const& bars)
+        {
+            trans->Append("DELETE FROM `ef_character_actions` WHERE `guid` = {} AND `spec` = {}", guid, spec);
+            for (BarButton const& b : bars)
+                trans->Append("INSERT INTO `ef_character_actions` (`guid`, `spec`, `button`, `action`, `type`) VALUES ({}, {}, {}, {}, {})",
+                    guid, spec, b.button, b.action, b.type);
+        }
+
+        // The player's current 144 buttons (the core's active set).
+        std::vector<BarButton> CurrentBars(Player* player)
+        {
+            std::vector<BarButton> out;
+            for (uint32 button = 0; button < kMaxActionButtons; ++button)
+                if (ActionButton const* ab = player->GetActionButton(static_cast<uint8>(button)))
+                    out.push_back(BarButton{button, ab->GetAction(), static_cast<uint32>(ab->GetType())});
+            return out;
+        }
+
+        // Replaces the core's active set; addActionButton validates each button (a spell the player does not know
+        // is skipped). The core saves the set into character_action at the next save.
+        void SetBars(Player* player, std::vector<BarButton> const& bars)
+        {
+            for (uint32 button = 0; button < kMaxActionButtons; ++button)
+                player->removeActionButton(static_cast<uint8>(button));
+            for (BarButton const& b : bars)
+                player->addActionButton(static_cast<uint8>(b.button), b.action, static_cast<uint8>(b.type));
         }
 
         // One transaction per request (§3.7); nothing to write, nothing sent to the database.
@@ -337,6 +420,41 @@ namespace Emberfall::Talents
             }
         }
 
+        // §3.5: the first time a character of a class with trees is loaded under the system, its stock talents go
+        // (free of charge, in every talent group) and a second talent group is dropped (stock dual specialization;
+        // the core's ActivateSpec/UpdateSpecCount). Glyphs stay. Once per character (ef_character_spec.flags bit
+        // 0); runs before the module's own spells are reconciled, as ActivateSpec swaps talent-group spells.
+        void MigrateStock(Player* player, PlayerState& st)
+        {
+            if (st.flags & kSpecFlagStockWiped)
+                return;
+            uint8 const groups = player->GetSpecsCount();
+            uint8 const wasActive = player->GetActiveSpec();
+            size_t talentsBefore = 0; // stock talent entries in any group
+            for (auto const& [spell, talent] : player->GetTalentMap())
+                if (talent->State != PLAYERSPELL_REMOVED)
+                    ++talentsBefore;
+            bool reset = false;
+            for (uint8 group = 0; group < groups; ++group)
+            {
+                player->ActivateSpec(group);
+                reset = player->resetTalents(true) || reset;
+            }
+            if (player->GetActiveSpec() != 0)
+                player->ActivateSpec(0);
+            if (groups > 1)
+                player->UpdateSpecCount(1);
+            st.flags |= kSpecFlagStockWiped;
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            SaveSpecRow(trans, player->GetGUID().GetCounter(), st);
+            Commit(trans);
+            if (reset || groups > 1)
+                player->SendTalentsInfoData(false); // the login sent the talents before this reset
+            if (reset || groups > 1)
+                LOG_INFO("module", "Emberfall talents: {} ({}): stock talents reset ({} talent groups, group {} was active, {} talent "
+                    "entries) and one talent group kept", player->GetName(), player->GetGUID().GetCounter(), groups, wasActive, talentsBefore);
+        }
+
         void LoadState(Player* player, PlayerState& st, EfTalentModel const& data)
         {
             uint32 const guid = player->GetGUID().GetCounter();
@@ -381,8 +499,20 @@ namespace Emberfall::Talents
                     st.granted[f[0].Get<uint32>()] = f[1].Get<uint8>();
                 } while (r->NextRow());
             }
+            if (QueryResult r = CharacterDatabase.Query("SELECT `spec`, `button`, `action`, `type` FROM `ef_character_actions` WHERE `guid` = {} "
+                "ORDER BY `spec`, `button`", guid))
+            {
+                do
+                {
+                    Field* f = r->Fetch();
+                    uint32 const spec = f[0].Get<uint16>();
+                    if (spec != st.activeSpec) // the active spec's bars are the core's (character_action)
+                        st.bars[spec].push_back(BarButton{f[1].Get<uint8>(), f[2].Get<uint32>(), f[3].Get<uint8>()});
+                } while (r->NextRow());
+            }
             st.loaded = true;
             st.generation = s_generation;
+            MigrateStock(player, st);
             Revalidate(player, st, data, false);
         }
 
@@ -417,6 +547,8 @@ namespace Emberfall::Talents
             else
             {
                 active = st->activeSpec;
+                if (st->pending.spec)
+                    flags |= kStateFlagSwitchPending;
                 if (active)
                     std::tie(classBudget, specBudget) = data->Budget(player->getClass(), level);
                 else if (level >= data->specLevel)
@@ -436,9 +568,12 @@ namespace Emberfall::Talents
                 SendBody(player, body);
         }
 
-        // Player state checks of §3.4: alive, not in combat, not casting, not on a taxi (no switch cast yet: M4).
-        char const* StateError(Player* player)
+        // Player state checks of §3.4: no switch cast running (BUSY, checked first: the switch cast is a cast), alive,
+        // not in combat, not casting, not on a taxi.
+        char const* StateError(Player* player, PlayerState const& st)
         {
+            if (st.pending.spec)
+                return "BUSY";
             if (!player->IsAlive())
                 return "STATE";
             if (player->IsInCombat())
@@ -465,11 +600,23 @@ namespace Emberfall::Talents
             return st.loadouts.back();
         }
 
-        // Makes `spec` the active spec (the first choice, or a GM's instant switch) and reconciles.
-        void SetSpec(Player* player, PlayerState& st, EfTalentModel const& data, uint32 spec)
+        // Makes `spec` the active spec: the first choice, the end of a switch cast, or a GM's instant switch (§1.6,
+        // §3.6). The old spec's bars go to ef_character_actions; the spells are reconciled (the old spec's baseline
+        // and node spells go, the new spec's come); then the new spec's stored bars are loaded, or, the first time
+        // the spec is entered, the current bars without the spells it does not know plus its baseline spells in the
+        // empty buttons of the first bar. The client gets SMSG_ACTION_BUTTONS 2 (clear) and 1 (the new set).
+        void EnterSpec(Player* player, PlayerState& st, EfTalentModel const& data, uint32 spec)
         {
             uint32 const guid = player->GetGUID().GetCounter();
+            uint32 const old = st.activeSpec;
             CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            std::vector<BarButton> const current = CurrentBars(player);
+            if (old && old != spec)
+            {
+                st.bars[old] = current;
+                SaveBars(trans, guid, old, current);
+            }
+            player->SendActionButtons(2);
             st.activeSpec = spec;
             st.dataHash = data.dataHash;
             Loadout& l = ActiveLoadout(st, spec);
@@ -478,7 +625,28 @@ namespace Emberfall::Talents
             SaveSpecRow(trans, guid, st);
             SaveLoadoutRow(trans, guid, l);
             Reconcile(player, st, data, trans);
+            std::vector<BarButton> next;
+            auto stored = st.bars.find(spec);
+            if (stored != st.bars.end())
+            {
+                next = stored->second;
+                st.bars.erase(stored);
+            }
+            else if (EfSpec const* s = data.Spec(spec))
+            {
+                std::vector<std::pair<uint32, uint32>> baseline = s->baseline;
+                std::stable_sort(baseline.begin(), baseline.end(), [](auto const& a, auto const& b) { return a.second < b.second; });
+                std::vector<uint32> spells;
+                for (auto const& [spell, level] : baseline)
+                    if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spell); info && !info->IsPassive())
+                        spells.push_back(spell);
+                next = FirstBars(current, [player](uint32 spell) { return player->HasSpell(spell); }, spells);
+            }
+            trans->Append("DELETE FROM `ef_character_actions` WHERE `guid` = {} AND `spec` = {}", guid, spec);
+            SetBars(player, next);
+            player->SendActionButtons(1);
             Commit(trans);
+            LOG_DEBUG("module", "Emberfall talents: {} ({}): spec {} -> {}, {} buttons", player->GetName(), guid, old, spec, next.size());
         }
 
         // Applies validated pairs to the active loadout of the active spec: save, reconcile.
@@ -535,7 +703,7 @@ namespace Emberfall::Talents
             auto const specId = eft::number(req.fields[0], 65535);
             if (!specId)
                 return SendErr(player, req.seq, "DECODE");
-            if (char const* code = StateError(player))
+            if (char const* code = StateError(player, st))
                 return SendErr(player, req.seq, code);
             EfSpec const* spec = data.Spec(*specId);
             if (!spec || spec->classId != player->getClass())
@@ -545,12 +713,224 @@ namespace Emberfall::Talents
                 return SendErr(player, req.seq, "LEVEL", std::to_string(*specId));
             if (st.activeSpec == *specId)
                 return SendOk(player, req.seq); // idempotent
-            if (st.activeSpec != 0)
-                return SendErr(player, req.seq, "STATE"); // the switch cast is WP M4 (`.ef spec` switches instantly)
-            SetSpec(player, st, data, *specId);
-            SendState(player, &st, &data);
-            if (Loadout const* l = st.Active(*specId))
-                SendLoadout(player, data, *l);
+            if (st.activeSpec == 0)
+            {
+                // The first choice: free and instant (§1.1).
+                EnterSpec(player, st, data, *specId);
+                SendState(player, &st, &data);
+                if (Loadout const* l = st.Active(*specId))
+                    SendLoadout(player, data, *l);
+                return SendOk(player, req.seq);
+            }
+            // A switch: the switch cast (§1.5). SWITCH now; at its end STATE, LOADOUT, OK, or ERR when it fails.
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(data.switchSpell);
+            if (!info)
+                return SendErr(player, req.seq, "STATE");
+            SpellCastResult const result = player->CastSpell(player, data.switchSpell, false);
+            Spell const* cast = player->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+            if (result != SPELL_CAST_OK || !cast || cast->GetSpellInfo()->Id != data.switchSpell)
+                return SendErr(player, req.seq, "STATE", std::to_string(static_cast<uint32>(result)));
+            st.StartSwitch(PendingSwitch{*specId, req.seq, data.switchSpell, false, false});
+            SendBody(player, eft::body(0, "SWITCH", {std::to_string(*specId), std::to_string(std::max(cast->GetCastTime(), 0))}));
+        }
+
+        // The end of a switch cast (OnUpdate): switch when the spell went off, else ERR COMBAT / STATE.
+        void FinishSwitch(Player* player, PlayerState& st)
+        {
+            PendingSwitch const p = st.EndSwitch();
+            std::shared_ptr<EfTalentModel const> data = Data();
+            if (!p.cast)
+                return SendErr(player, p.seq, p.combat || player->IsInCombat() ? "COMBAT" : "STATE");
+            if (!data || !data->HasClass(player->getClass()))
+                return SendErr(player, p.seq, "DISABLED");
+            EfSpec const* spec = data->Spec(p.spec);
+            if (!spec || spec->classId != player->getClass())
+                return SendErr(player, p.seq, "SPEC", std::to_string(p.spec));
+            if (char const* code = StateError(player, st))
+                return SendErr(player, p.seq, code);
+            EnterSpec(player, st, *data, p.spec);
+            SendState(player, &st, data.get());
+            if (Loadout const* l = st.Active(p.spec))
+                SendLoadout(player, *data, *l);
+            SendOk(player, p.seq);
+        }
+
+        // The checks SAVE, LOAD and DEL share: the client synced, a spec chosen, `specId` a spec of the class.
+        EfSpec const* LoadoutSpec(Player* player, PlayerState& st, EfTalentModel const& data, eft::Request const& req, uint32 specId)
+        {
+            if (!st.hello)
+                return SendErr(player, req.seq, "DATA"), nullptr;
+            if (!st.activeSpec)
+                return SendErr(player, req.seq, "NOSPEC"), nullptr;
+            EfSpec const* spec = data.Spec(specId);
+            if (!spec || spec->classId != player->getClass())
+                return SendErr(player, req.seq, "SPEC", std::to_string(specId)), nullptr;
+            return spec;
+        }
+
+        // SAVE;specId;loadoutId;name;part/total;ranks (§4.4): validated at the player's level, stored, not applied.
+        // loadoutId 0 makes a new one (ERR LIMIT past max_loadouts per spec, the active one included; a spec's
+        // first loadout becomes its active one); another ID overwrites that loadout's name and ranks. The active
+        // loadout of the active spec is the one exception: SAVE to it is an APPLY plus the name.
+        void HandleSave(Player* player, PlayerState& st, EfTalentModel const& data, eft::Request const& req)
+        {
+            if (req.fields.size() < 5)
+                return SendErr(player, req.seq, "DECODE");
+            auto const specId = eft::number(req.fields[0], 65535);
+            auto const loadoutId = eft::number(req.fields[1], kMaxLoadoutId);
+            auto const name = eft::decodeName(req.fields[2]);
+            auto const part = eft::partOf(req.fields[3]);
+            if (!specId || !loadoutId || !name)
+                return SendErr(player, req.seq, "DECODE");
+            if (!part)
+                return SendErr(player, req.seq, "CHUNK");
+            std::string loadout;
+            switch (st.chunks.feed(req.seq, part->first, part->second, req.fields[4], NowMs()))
+            {
+                case eft::Reassembly::Status::Incomplete:
+                    return;
+                case eft::Reassembly::Status::Error:
+                    return SendErr(player, req.seq, "CHUNK");
+                case eft::Reassembly::Status::Complete:
+                    loadout = st.chunks.payload();
+                    break;
+            }
+            EfSpec const* spec = LoadoutSpec(player, st, data, req, *specId);
+            if (!spec)
+                return;
+            if (!eft::validName(*name))
+                return SendErr(player, req.seq, "NAME");
+            uint32 const level = player->GetLevel();
+            if (level < data.specLevel || level < spec->availableLevel)
+                return SendErr(player, req.seq, "LEVEL", std::to_string(*specId));
+            Loadout* target = nullptr;
+            if (*loadoutId)
+            {
+                target = st.Find(*specId, *loadoutId);
+                if (!target)
+                    return SendErr(player, req.seq, "LOADOUT", std::to_string(*loadoutId));
+            }
+            bool const live = target && target->active && *specId == st.activeSpec;
+            if (live)
+                if (char const* code = StateError(player, st))
+                    return SendErr(player, req.seq, code);
+            RuleResult const result = data.Validate(*spec, loadout, level);
+            if (!result.ok())
+                return SendErr(player, req.seq, errorCode(result.code), result.code == RuleError::Decode || result.code == RuleError::BudgetClass ||
+                    result.code == RuleError::BudgetSpec ? std::string() : std::to_string(result.detail));
+            std::optional<eft::Pairs> pairs = data.PairsOf(*spec, loadout);
+            if (!pairs)
+                return SendErr(player, req.seq, "DECODE");
+            if (!target)
+            {
+                std::set<uint32> used;
+                for (Loadout const& l : st.loadouts)
+                    if (l.spec == *specId)
+                        used.insert(l.id);
+                uint32 const id = NewLoadoutId(used, data.maxLoadouts);
+                if (!id)
+                    return SendErr(player, req.seq, "LIMIT", std::to_string(data.maxLoadouts));
+                Loadout l;
+                l.spec = *specId;
+                l.id = id;
+                l.active = st.Active(*specId) == nullptr;
+                st.loadouts.push_back(l);
+                target = &st.loadouts.back();
+            }
+            target->name = *name;
+            if (live)
+            {
+                ApplyPairs(player, st, data, std::move(*pairs)); // saves the row, name included
+                SendState(player, &st, &data);
+            }
+            else
+            {
+                target->pairs = std::move(*pairs);
+                target->hash = data.dataHash;
+                target->updated = static_cast<uint32>(std::time(nullptr));
+                CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+                SaveLoadoutRow(trans, player->GetGUID().GetCounter(), *target);
+                Commit(trans);
+            }
+            SendLoadout(player, data, *target);
+            SendOk(player, req.seq);
+        }
+
+        // LOAD;specId;loadoutId: makes a saved loadout the spec's active one; for the active spec that is an APPLY
+        // (player state checked, spells reconciled, STATE), for another spec only the mark for its next switch.
+        // Answers: STATE (active spec), LOADOUT of the old and the new active loadout, OK.
+        void HandleLoad(Player* player, PlayerState& st, EfTalentModel const& data, eft::Request const& req)
+        {
+            if (req.fields.size() < 2)
+                return SendErr(player, req.seq, "DECODE");
+            auto const specId = eft::number(req.fields[0], 65535);
+            auto const loadoutId = eft::number(req.fields[1], kMaxLoadoutId);
+            if (!specId || !loadoutId)
+                return SendErr(player, req.seq, "DECODE");
+            EfSpec const* spec = LoadoutSpec(player, st, data, req, *specId);
+            if (!spec)
+                return;
+            Loadout* target = st.Find(*specId, *loadoutId);
+            if (!target)
+                return SendErr(player, req.seq, "LOADOUT", std::to_string(*loadoutId));
+            if (target->active)
+            {
+                SendLoadout(player, data, *target);
+                return SendOk(player, req.seq); // idempotent
+            }
+            uint32 const level = player->GetLevel();
+            bool const live = *specId == st.activeSpec;
+            if (live)
+            {
+                if (char const* code = StateError(player, st))
+                    return SendErr(player, req.seq, code);
+                RuleResult const result = data.Validate(*spec, data.LoadoutString(*spec, target->pairs), level);
+                if (!result.ok())
+                    return SendErr(player, req.seq, errorCode(result.code), std::to_string(result.detail));
+            }
+            uint32 const guid = player->GetGUID().GetCounter();
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            Loadout* old = st.Active(*specId);
+            if (old)
+            {
+                old->active = false;
+                SaveLoadoutRow(trans, guid, *old);
+            }
+            target->active = true;
+            target->hash = data.dataHash;
+            target->updated = static_cast<uint32>(std::time(nullptr));
+            SaveLoadoutRow(trans, guid, *target);
+            if (live)
+                Reconcile(player, st, data, trans);
+            Commit(trans);
+            if (live)
+                SendState(player, &st, &data);
+            if (old)
+                SendLoadout(player, data, *old);
+            SendLoadout(player, data, *target);
+            SendOk(player, req.seq);
+        }
+
+        // DEL;specId;loadoutId: deletes a saved loadout, never a spec's active one (ERR LOADOUT). GONE, OK.
+        void HandleDel(Player* player, PlayerState& st, EfTalentModel const& data, eft::Request const& req)
+        {
+            if (req.fields.size() < 2)
+                return SendErr(player, req.seq, "DECODE");
+            auto const specId = eft::number(req.fields[0], 65535);
+            auto const loadoutId = eft::number(req.fields[1], kMaxLoadoutId);
+            if (!specId || !loadoutId)
+                return SendErr(player, req.seq, "DECODE");
+            if (!LoadoutSpec(player, st, data, req, *specId))
+                return;
+            Loadout* target = st.Find(*specId, *loadoutId);
+            if (!target || target->active)
+                return SendErr(player, req.seq, "LOADOUT", std::to_string(*loadoutId));
+            st.loadouts.erase(st.loadouts.begin() + (target - st.loadouts.data()));
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            trans->Append("DELETE FROM `ef_character_loadout` WHERE `guid` = {} AND `spec` = {} AND `loadout` = {}", player->GetGUID().GetCounter(),
+                *specId, *loadoutId);
+            Commit(trans);
+            SendBody(player, eft::body(0, "GONE", {std::to_string(*specId), std::to_string(*loadoutId)}));
             SendOk(player, req.seq);
         }
 
@@ -593,7 +973,7 @@ namespace Emberfall::Talents
             }
             if (!st.hello)
                 return SendErr(player, req.seq, "DATA");
-            if (char const* code = StateError(player))
+            if (char const* code = StateError(player, st))
                 return SendErr(player, req.seq, code);
             if (!st.activeSpec)
                 return SendErr(player, req.seq, "NOSPEC");
@@ -638,9 +1018,17 @@ namespace Emberfall::Talents
 
     bool Enabled() { return s_enabled; }
 
-    void ReadConfig()
+    void ReadConfig(bool reload)
     {
+        bool const was = s_enabled;
         s_enabled = sConfigMgr->GetOption<bool>("Emberfall.Talents.Enable", false, false);
+        // `.reload config` that turns the system on or off: (un)load the trees now (at startup Load() runs in
+        // OnBeforeWorldInitialized). Online players follow at their next request (generation).
+        if (reload && was != s_enabled)
+        {
+            LOG_INFO("server.loading", ">> Emberfall talents: Emberfall.Talents.Enable {} -> {} (config reload)", was ? 1 : 0, s_enabled ? 1 : 0);
+            Load();
+        }
     }
 
     std::shared_ptr<EfTalentModel const> Data() { return s_enabled ? s_data : nullptr; }
@@ -845,6 +1233,16 @@ namespace Emberfall::Talents
             for (auto const& [spell, level] : spec.baseline)
                 if (!sSpellMgr->GetSpellInfo(spell))
                     problems.push_back("spec " + std::to_string(id) + ": baseline spell " + std::to_string(spell) + " does not exist");
+        // The switch cast (§1.5): our content's spells/engine.yaml, or the stock-test profile's spell_dbc row.
+        if (!data->specs.empty())
+        {
+            SpellInfo const* sw = data->switchSpell ? sSpellMgr->GetSpellInfo(data->switchSpell) : nullptr;
+            if (!sw)
+                problems.push_back("switch_spell " + std::to_string(data->switchSpell) + " does not exist (Spell.dbc or spell_dbc)");
+            else if (sw->CastTimeEntry && static_cast<uint32>(std::max(sw->CastTimeEntry->CastTime, 0)) != data->switchCastMs)
+                LOG_WARN("server.loading", ">> Emberfall talents: switch_spell {} casts {} ms, switch_cast_ms says {} (the spell's time is used)",
+                    data->switchSpell, sw->CastTimeEntry->CastTime, data->switchCastMs);
+        }
         data->Finish(problems);
 
         if (data->specs.empty() && data->trees.empty())
@@ -929,9 +1327,9 @@ namespace Emberfall::Talents
         eft::Request const& req = parsed.request;
         if (req.cmd == "HELLO")
             return HandleHello(player, st, data.get(), req);
-        if (req.cmd != "SPEC" && req.cmd != "APPLY" && req.cmd != "RESET")
+        if (req.cmd != "SPEC" && req.cmd != "APPLY" && req.cmd != "RESET" && req.cmd != "SAVE" && req.cmd != "LOAD" && req.cmd != "DEL")
         {
-            // Unknown (or not yet implemented: SAVE/LOAD/DEL are WP M4) commands get no answer (§4.5).
+            // Unknown commands get no answer (§4.5).
             LOG_DEBUG("module", "Emberfall talents: {} sent an unknown EFT command '{}'", player->GetName(), req.cmd);
             return;
         }
@@ -945,7 +1343,51 @@ namespace Emberfall::Talents
                 return SendErr(player, req.seq, "DATA");
             return HandleSpec(player, *st, *data, req);
         }
+        if (req.cmd == "SAVE")
+            return HandleSave(player, *st, *data, req);
+        if (req.cmd == "LOAD")
+            return HandleLoad(player, *st, *data, req);
+        if (req.cmd == "DEL")
+            return HandleDel(player, *st, *data, req);
         return HandleApply(player, *st, *data, req, req.cmd == "RESET");
+    }
+
+    void OnUpdate(Player* player)
+    {
+        if (!s_pendingSwitches.load(std::memory_order_relaxed))
+            return;
+        PlayerState* st = player->CustomData.Get<PlayerState>(kStateKey);
+        if (!st || !st->pending.spec)
+            return;
+        if (!st->pending.cast)
+        {
+            Spell const* cast = player->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+            if (cast && cast->GetSpellInfo()->Id == st->pending.spell)
+                return; // still casting
+        }
+        FinishSwitch(player, *st);
+    }
+
+    void OnSpellCast(Player* player, uint32 spellId)
+    {
+        if (!s_pendingSwitches.load(std::memory_order_relaxed))
+            return;
+        PlayerState* st = player->CustomData.Get<PlayerState>(kStateKey);
+        if (st && st->pending.spec && st->pending.spell == spellId && !player->IsInCombat())
+            st->pending.cast = true; // switched at the next OnUpdate, outside the spell's own processing
+    }
+
+    void OnEnterCombat(Player* player)
+    {
+        if (!s_pendingSwitches.load(std::memory_order_relaxed))
+            return;
+        PlayerState* st = player->CustomData.Get<PlayerState>(kStateKey);
+        if (!st || !st->pending.spec || st->pending.cast)
+            return;
+        st->pending.combat = true;
+        Spell const* cast = player->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+        if (cast && cast->GetSpellInfo()->Id == st->pending.spell)
+            player->InterruptSpell(CURRENT_GENERIC_SPELL, false);
     }
 
     void Dump(Player* player, std::vector<std::string>& out)
@@ -976,6 +1418,45 @@ namespace Emberfall::Talents
         for (auto const& [spell, source] : st->granted)
             granted += fmt::format("{}{}{}", granted.empty() ? "" : ",", spell, source == 1 ? "b" : "");
         out.push_back(fmt::format("  granted ({}): {}", st->granted.size(), granted.empty() ? "-" : granted));
+        // Auras the player owns from any spell of the class's trees or baselines (every spec), or triggered by one:
+        // after an apply or a switch only the active loadout's may be left (§3.3).
+        std::set<uint32> classSpells;
+        if (EfClass const* cls = data->Class(player->getClass()))
+        {
+            std::vector<uint32> trees{cls->classTree};
+            for (uint32 s : cls->specs)
+                if (EfSpec const* spec = data->Spec(s))
+                {
+                    trees.push_back(spec->treeId);
+                    for (auto const& [spell, level] : spec->baseline)
+                        classSpells.insert(spell);
+                }
+            for (uint32 t : trees)
+                if (EfTree const* tree = data->Tree(t))
+                    for (EfNode const& n : tree->nodes)
+                    {
+                        for (auto const& set : n.ranks)
+                            classSpells.insert(set.begin(), set.end());
+                        for (auto const& set : n.options)
+                            classSpells.insert(set.begin(), set.end());
+                    }
+        }
+        std::set<uint32> auras;
+        for (auto const& [id, aura] : player->GetOwnedAuras())
+        {
+            SpellInfo const* by = aura->GetTriggeredByAuraSpellInfo();
+            if (classSpells.count(id) || (by && classSpells.count(by->Id)))
+                auras.insert(id);
+        }
+        std::string auraList;
+        for (uint32 id : auras)
+            auraList += fmt::format("{}{}", auraList.empty() ? "" : ",", id);
+        out.push_back(fmt::format("  auras ({}): {}", auras.size(), auraList.empty() ? "-" : auraList));
+        std::string bars;
+        for (auto const& [spec, buttons] : st->bars)
+            bars += fmt::format("{}spec {} {} buttons", bars.empty() ? "" : ", ", spec, buttons.size());
+        out.push_back(fmt::format("  flags {}, switch {}, stored bars: {}", st->flags,
+            st->pending.spec ? fmt::format("to {} (seq {})", st->pending.spec, st->pending.seq) : std::string("none"), bars.empty() ? "-" : bars));
     }
 
     bool GmSetSpec(Player* player, uint32 specId, std::string& out)
@@ -993,7 +1474,16 @@ namespace Emberfall::Talents
             out = fmt::format("spec {} is not a spec of class {}", specId, player->getClass());
             return false;
         }
-        SetSpec(player, *st, *data, specId);
+        if (st->pending.spec)
+        {
+            // A GM switch replaces a running switch cast (its request gets ERR STATE).
+            PendingSwitch const p = st->EndSwitch();
+            if (Spell const* cast = player->GetCurrentSpell(CURRENT_GENERIC_SPELL); cast && cast->GetSpellInfo()->Id == p.spell)
+                player->InterruptSpell(CURRENT_GENERIC_SPELL, false);
+            if (st->hello)
+                SendErr(player, p.seq, "STATE");
+        }
+        EnterSpec(player, *st, *data, specId);
         if (st->hello)
         {
             SendState(player, st, data.get());

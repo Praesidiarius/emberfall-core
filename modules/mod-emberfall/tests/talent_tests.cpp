@@ -22,10 +22,12 @@
 //      the module's copy of TalentRules.h: every case's first error and detail, as the client's Catch2 test does;
 //   2. EfTalentModel over the vectors' trees: wire strings <-> stored pairs round trips, Remap;
 //   3. the EFT protocol (EftProtocol.h): parse, chunking both ways, names, stored pairs, rate limit; and a
-//      decode fuzz: random and mutated bodies never crash and always give a defined result.
+//      decode fuzz: random and mutated bodies never crash and always give a defined result;
+//   4. saved loadouts and per-spec bars (EfLoadouts.h): new loadout IDs and the limit, a spec's first bars.
 //
 //   talent_tests VECTORS.json...    exit status 0 when everything passed
 
+#include "EfLoadouts.h"
 #include "EfTalentModel.h"
 #include "EftProtocol.h"
 #include "TalentRules.h"
@@ -480,6 +482,34 @@ namespace
     }
 }
 
+namespace
+{
+    void loadoutTests()
+    {
+        using namespace ef::talents;
+        check(NewLoadoutId({}, 5) == 1, "loadouts: the first ID is 1");
+        check(NewLoadoutId({1, 2, 4}, 5) == 3, "loadouts: the smallest unused ID");
+        check(NewLoadoutId({1, 2, 3, 4}, 5) == 5, "loadouts: the fifth of five");
+        check(NewLoadoutId({1, 2, 3, 4, 5}, 5) == 0, "loadouts: past the limit -> 0 (ERR LIMIT)");
+        check(NewLoadoutId({2, 3, 4, 5, 6}, 5) == 0, "loadouts: the limit counts loadouts, not IDs");
+        check(NewLoadoutId({1}, 1) == 0, "loadouts: a limit of 1");
+
+        auto known = [](uint32_t spell) { return spell != 200 && spell != 999; };
+        std::vector<BarButton> const current{{0, 100, 0}, {1, 200, 0}, {2, 5, 0x80}, {3, 300, 0x40}, {13, 999, 0}};
+        // spell 200 and 999 unknown: their buttons go; the item (0x80) and macro (0x40) buttons stay; baseline 400
+        // into the first empty button of the first bar (1), 100 is on a button already, 999 is unknown
+        std::vector<BarButton> const bars = FirstBars(current, known, {100, 400, 999});
+        std::vector<BarButton> const want{{0, 100, 0}, {1, 400, 0}, {2, 5, 0x80}, {3, 300, 0x40}};
+        check(bars == want, "bars: first bars = current without unknown spells + baseline in the first empty button");
+        std::vector<BarButton> full;
+        for (uint32_t b = 0; b < kFirstBarButtons; ++b)
+            full.push_back({b, 1000 + b, 0});
+        check(FirstBars(full, known, {400}).size() == kFirstBarButtons, "bars: a full first bar takes no baseline spell");
+        check(FirstBars({}, known, {400, 401}) == std::vector<BarButton>{{0, 400, 0}, {1, 401, 0}}, "bars: empty bars get the baseline in order");
+        check(FirstBars({{200, 1, 0}}, known, {}).empty(), "bars: a button past 143 is dropped");
+    }
+}
+
 int main(int argc, char** argv)
 {
     try
@@ -487,6 +517,7 @@ int main(int argc, char** argv)
         for (int i = 1; i < argc; ++i)
             runVectors(argv[i]);
         protocolTests();
+        loadoutTests();
         fuzz();
     }
     catch (std::exception const& e)

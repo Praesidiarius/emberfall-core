@@ -15,10 +15,11 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// Emberfall talents (docs/design/talents.md §3.2; WPs M1-M3): the hooks and GM commands of the spec and
+// Emberfall talents (docs/design/talents.md §3.2; WPs M1-M5): the hooks and GM commands of the spec and
 // talent system (src/talents/EfTalents.h). Everything is inert unless Emberfall.Talents.Enable = 1, and for
 // a class only when ef_spec has rows for it; independent of Emberfall.OwnData.
 
+#include "AllSpellScript.h"
 #include "Chat.h"
 #include "ChatCommand.h"
 #include "CommandScript.h"
@@ -27,6 +28,8 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "SharedDefines.h"
+#include "Spell.h"
+#include "SpellInfo.h"
 #include "WorldScript.h"
 
 using namespace Acore::ChatCommands;
@@ -39,7 +42,7 @@ namespace
         emberfall_talents_world() : WorldScript("emberfall_talents_world",
             { WORLDHOOK_ON_AFTER_CONFIG_LOAD, WORLDHOOK_ON_BEFORE_WORLD_INITIALIZED }) { }
 
-        void OnAfterConfigLoad(bool /*reload*/) override { Emberfall::Talents::ReadConfig(); }
+        void OnAfterConfigLoad(bool reload) override { Emberfall::Talents::ReadConfig(reload); }
 
         void OnBeforeWorldInitialized() override { Emberfall::Talents::Load(); }
     };
@@ -49,7 +52,7 @@ namespace
     public:
         emberfall_talents_player() : PlayerScript("emberfall_talents_player", {
             PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_CALCULATE_TALENTS_POINTS, PLAYERHOOK_CAN_LEARN_TALENT,
-            PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_DELETE_FROM_DB }) { }
+            PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_DELETE_FROM_DB, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_PLAYER_ENTER_COMBAT }) { }
 
         void OnPlayerLogin(Player* player) override { Emberfall::Talents::OnLogin(player); }
 
@@ -80,10 +83,32 @@ namespace
             return false;
         }
 
+        // §1.5: the switch cast finishes (or fails) here, outside the spell's own processing ...
+        void OnPlayerUpdate(Player* player, uint32 /*diff*/) override { Emberfall::Talents::OnUpdate(player); }
+
+        // ... and entering combat cancels it (§1.6).
+        void OnPlayerEnterCombat(Player* player, Unit* /*enemy*/) override { Emberfall::Talents::OnEnterCombat(player); }
+
         void OnPlayerDeleteFromDB(CharacterDatabaseTransaction trans, uint32 guid) override
         {
             for (char const* table : { "ef_character_spec", "ef_character_loadout", "ef_character_actions", "ef_character_granted" })
                 trans->Append("DELETE FROM `{}` WHERE `guid` = {}", table, guid);
+        }
+    };
+
+    // The switch spell went off (Spell::_cast's end, after its last check). An AllSpellScript instead of the
+    // SpellScript §3.2 planned: it needs no spell_script_names row, so the same code serves our content's switch
+    // spell and the stock-test profile's spell_dbc row.
+    class emberfall_talents_spells : public AllSpellScript
+    {
+    public:
+        emberfall_talents_spells() : AllSpellScript("emberfall_talents_spells", { ALLSPELLHOOK_ON_CAST }) { }
+
+        void OnSpellCast(Spell* /*spell*/, Unit* caster, SpellInfo const* spellInfo, bool /*skipCheck*/) override
+        {
+            if (caster && spellInfo)
+                if (Player* player = caster->ToPlayer())
+                    Emberfall::Talents::OnSpellCast(player, spellInfo->Id);
         }
     };
 
@@ -187,5 +212,6 @@ void AddEmberfallTalentsScripts()
 {
     new emberfall_talents_world();
     new emberfall_talents_player();
+    new emberfall_talents_spells();
     new emberfall_talents_commands();
 }
