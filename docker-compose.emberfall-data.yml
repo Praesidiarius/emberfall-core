@@ -26,6 +26,10 @@
 #   (the same with --target authserver / db-import and the matching tag)
 # Start/stop: Emberfall's tools/server/ef_server.sh (wraps
 #   docker compose -f docker-compose.emberfall-data.yml ...).
+#
+# Throwaway stacks (Emberfall's tools/server/upstream_check.sh) reuse this file under another compose
+# project (-p) with EF_PREFIX (container names), EF_IMAGE_TAG, EF_VAR_DIR, EF_SERVERDATA_DIR and the
+# EF_*_PORT variables; the defaults are the profile above.
 
 name: emberfall-data
 
@@ -36,7 +40,7 @@ x-ef-db: &ef-db
 
 services:
   ef-database:
-    container_name: ef-data-database
+    container_name: ${EF_PREFIX:-ef-data}-database
     image: mysql:8.4
     network_mode: host
     command: ["--bind-address=127.0.0.1", "--port=${EF_DB_PORT:-3320}", "--mysqlx=OFF"]
@@ -55,8 +59,8 @@ services:
       retries: 40
 
   ef-db-import:
-    container_name: ef-data-db-import
-    image: emberfall/ac-wotlk-db-import:own-data
+    container_name: ${EF_PREFIX:-ef-data}-db-import
+    image: emberfall/ac-wotlk-db-import:${EF_IMAGE_TAG:-own-data}
     network_mode: host
     environment:
       <<: *ef-db
@@ -65,15 +69,15 @@ services:
       # auth (1) + characters (2) only: the world DB is ours (engine-ids.md §10).
       AC_UPDATES_ENABLE_DATABASES: "3"
     volumes:
-      - ./var/emberfall-data/etc:/azerothcore/env/dist/etc
-      - ./var/emberfall-data/logs:/azerothcore/env/dist/logs
+      - ${EF_VAR_DIR:-./var/emberfall-data}/etc:/azerothcore/env/dist/etc
+      - ${EF_VAR_DIR:-./var/emberfall-data}/logs:/azerothcore/env/dist/logs
     depends_on:
       ef-database:
         condition: service_healthy
 
   ef-authserver:
-    container_name: ef-data-authserver
-    image: emberfall/ac-wotlk-authserver:own-data
+    container_name: ${EF_PREFIX:-ef-data}-authserver
+    image: emberfall/ac-wotlk-authserver:${EF_IMAGE_TAG:-own-data}
     network_mode: host
     tty: true
     restart: unless-stopped
@@ -84,8 +88,8 @@ services:
       AC_REALM_SERVER_PORT: "${EF_AUTH_PORT:-3725}"
       AC_STRICT_VERSION_CHECK: "0"
     volumes:
-      - ./var/emberfall-data/etc:/azerothcore/env/dist/etc
-      - ./var/emberfall-data/logs:/azerothcore/env/dist/logs
+      - ${EF_VAR_DIR:-./var/emberfall-data}/etc:/azerothcore/env/dist/etc
+      - ${EF_VAR_DIR:-./var/emberfall-data}/logs:/azerothcore/env/dist/logs
     depends_on:
       ef-database:
         condition: service_healthy
@@ -93,8 +97,8 @@ services:
         condition: service_completed_successfully
 
   ef-worldserver:
-    container_name: ef-data-worldserver
-    image: emberfall/ac-wotlk-worldserver:own-data
+    container_name: ${EF_PREFIX:-ef-data}-worldserver
+    image: emberfall/ac-wotlk-worldserver:${EF_IMAGE_TAG:-own-data}
     network_mode: host
     stdin_open: true
     tty: true
@@ -137,9 +141,9 @@ services:
       # log check (emberfall_content.checks.server_log).
       AC_APPENDER_CONSOLE: "1,4,6"
     volumes:
-      - ./var/emberfall-data/etc:/azerothcore/env/dist/etc
-      - ./var/emberfall-data/logs:/azerothcore/env/dist/logs
-      - ./var/serverdata-ef:/azerothcore/env/dist/data:ro
+      - ${EF_VAR_DIR:-./var/emberfall-data}/etc:/azerothcore/env/dist/etc
+      - ${EF_VAR_DIR:-./var/emberfall-data}/logs:/azerothcore/env/dist/logs
+      - ${EF_SERVERDATA_DIR:-./var/serverdata-ef}:/azerothcore/env/dist/data:ro
     depends_on:
       ef-database:
         condition: service_healthy
