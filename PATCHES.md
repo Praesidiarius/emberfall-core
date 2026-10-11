@@ -8,20 +8,22 @@ Each hunk is marked in the source with a comment starting `EMBERFALL:`
 
 Lets the worldserver run on Emberfall's own DBC/map/world data, which has none of the stock
 3.3.5a rows the core assumes (Emberfall `docs/content/engine-ids.md` §1, §2, §14). Switch:
-`Emberfall.OwnData` in `worldserver.conf` (default `0`, env `AC_EMBERFALL_OWN_DATA`). With `0`
-the server behaves exactly like upstream.
+`Emberfall.OwnData` in `worldserver.conf` or the environment variable `AC_EMBERFALL_OWN_DATA`
+(default `0`; the emberfall-data profile sets `1`). With `0` the server behaves exactly like upstream.
+What a script hook can do lives in the module `modules/mod-emberfall` (section "Module" below);
+the core keeps only what runs before or outside any hook.
 
 | # | What | Where | With `Emberfall.OwnData = 1` |
 |---|---|---|---|
-| 0 | The switch | `src/server/game/World/WorldConfig.h:522` (`CONFIG_EMBERFALL_OWN_DATA`), `WorldConfig.cpp:367`, `src/server/apps/worldserver/worldserver.conf.dist:4955` | — |
-| 1 | DBC version sentinels (AreaTable 4987, CharTitles 177, GemProperties 1629, Item 56806, ItemExtendedCost 2997, Map 724, Spell 80864) | `src/server/game/DataStores/DBCStores.cpp:652` | not checked (logged once) |
-| 2 | Start-area map files: eight stock coordinates on maps 0/1/530 | `src/server/game/World/World.cpp:331` | skipped; instead, after `LoadPlayerInfo`, every `playercreateinfo` position is checked and a missing `.map` file is a WARN, not an exit (`World.cpp:705`) |
+| 0 | The switch: `Emberfall::OwnData()` reads the key through `sConfigMgr` (no `WorldConfig` enum entry, no `worldserver.conf.dist` block: both are upstream hot spots) | `src/server/game/World/EmberfallOwnData.h` (new file), included by the files below | — |
+| 1 | DBC version sentinels (AreaTable 4987, CharTitles 177, GemProperties 1629, Item 56806, ItemExtendedCost 2997, Map 724, Spell 80864); runs inside `LoadDBCStores`, before any hook | `src/server/game/DataStores/DBCStores.cpp:653` | not checked (logged once) |
+| 2 | Start-area map files: eight stock coordinates on maps 0/1/530, an `exit(1)` early in `SetInitialWorldSettings` | `src/server/game/World/World.cpp:332` | skipped; the module checks every `playercreateinfo` position instead (a missing `.map` file is a WARN, not an exit) |
 | 3 | `SpellInfoCorrections`: ERROR per missing stock spell | `src/server/game/Spells/SpellInfoCorrections.cpp:32` | a missing spell is skipped silently (fixes still apply to the stock IDs we author, e.g. 3286, 15007) |
 | 4 | `SpellInfoCorrections` tail: unchecked writes into stock SummonProperties, CreatureDisplayInfo, Faction(Template), VehicleSeat, Achievement, Lock rows and `game_graveyard` 1364/1365 (segfault) | `SpellInfoCorrections.cpp:5380` | the tail is skipped (it only patches stock rows) |
-| 5 | Wintergrasp setup creates map 571 and ASSERTs | `src/server/game/Battlefield/BattlefieldMgr.cpp:48` | not set up when Map.dbc has no 571 (the profile also sets `Wintergrasp.Enable = 2`) |
-| 6 | `outdoorpvp_template`: every type is a stock zone and ASSERTs on its AreaTable row | `src/server/game/OutdoorPvP/OutdoorPvPMgr.cpp:47` | outdoor PvP is not loaded |
-| 7 | `CMSG_SET_RAID_DIFFICULTY` creates maps 571 and 0 and ASSERTs (client-triggerable by any group leader) | `src/server/game/Handlers/MiscHandler.cpp:1393` | when Map.dbc lacks 571 or 0: the home maps are not created; the change is refused if a member is inside a shared-difficulty raid map (the only case that needs them) |
-| 10 | Spirit healer: the gossip option casts spell 17251, and only the stock spell script on it (`spell_gen_spirit_healer_res`) sends `SMSG_SPIRIT_HEALER_CONFIRM`; a worldserver built with `SCRIPTS=none` never offers the resurrection (Emberfall WP D4) | `src/server/game/Entities/Player/PlayerGossip.cpp:325` | the gossip option sends the confirm itself (the cast stays, for its visual) |
+| 5 | *(moved to the module, then config)* Wintergrasp setup creates map 571 and ASSERTs | — | the profile sets `Wintergrasp.Enable = 2`; the module forces 2 under `Emberfall.OwnData` |
+| 6 | *(removed: data)* `outdoorpvp_template`: every type is a stock zone and ASSERTs on its AreaTable row | — | Emberfall's clean world has an empty `outdoorpvp_template`, so `InitOutdoorPvP` returns at its start (one WARN "Loaded 0 outdoor PvP definitions") |
+| 7 | *(moved to the module)* `MSG_SET_RAID_DIFFICULTY` creates maps 571 and 0 and ASSERTs (client-triggerable by any group leader) | — | see "Module" |
+| 10 | *(moved to the module)* Spirit healer confirm without the stock spell script (`SCRIPTS=none`, Emberfall WP D4) | — | see "Module" |
 
 ## Unconditional fixes (no behaviour change with valid stock data)
 
@@ -29,6 +31,26 @@ the server behaves exactly like upstream.
 |---|---|---|---|
 | 8 | `GameEventMgr::StartEvent`/`StopEvent` index the event vector (sized by `MAX(eventEntry)` of `game_event`) without a bounds check; `WorldState::Load` starts the stock events 101 and 116 at every boot (out-of-bounds write with an empty `game_event`) | `src/server/game/Events/GameEventMgr.cpp:139`, `:204` | an unknown event ID returns (debug log) |
 | 9 | `PlayerInfo::displayId_m/_f` were `uint16`, so a ChrRaces player display ID above 65535 was truncated and the next position update ASSERTed in `Unit::GetCollisionHeight` (`sCreatureDisplayInfoStore.AssertEntry`). Emberfall's display IDs start at 90001 | `src/server/game/Entities/Player/Player.h:332` | `uint32` |
+
+## Module (`modules/mod-emberfall`)
+
+A standard AzerothCore module (AzerothCore's `modules/CMakeLists.txt` builds every
+`modules/<name>/src`; the loader is `Addmod_emberfallScripts()`). `SCRIPTS=none` does not affect
+modules; the Dockerfile's `CMODULES=static` default links it into the worldserver. New files only, so
+it never conflicts on a rebase. `/modules/*` is in upstream's `.gitignore`: add new module files with
+`git add -f`. Every script does nothing unless `Emberfall.OwnData = 1`.
+
+| Was | Script (hook) | With `Emberfall.OwnData = 1` |
+|---|---|---|
+| #10 (`PlayerGossip.cpp`) | `emberfall_spirit_healer_confirm` (`AllCreatureScript::CanCreatureGossipSelect`) | a dead player's spirit healer option (`GOSSIP_OPTION_SPIRITHEALER`) sends `SMSG_SPIRIT_HEALER_CONFIRM`; the core still casts 17251 (its visual). The stock spell script on 17251 does this in a full build; `SCRIPTS=none` has none |
+| #2, second half (`World.cpp`) | `emberfall_own_data_world` (`WorldScript::OnBeforeWorldInitialized`) | WARN `Emberfall.OwnData: no map file for the start position of race R class C ...` per `playercreateinfo` position without a `.map` file (Emberfall's log check forbids it once the server has our maps) |
+| #5 (`BattlefieldMgr.cpp`) | `emberfall_own_data_world` (`WorldScript::OnAfterConfigLoad`) | `Wintergrasp.Enable` forced to 2 (a WARN when it was not) |
+| #7 (`MiscHandler.cpp`) | `emberfall_own_data_server` (`ServerScript::CanPacketReceive`) | when Map.dbc lacks map 571 or 0: a group leader's raid difficulty change is refused (`SendRaidDifficulty`) instead of the core creating both maps and asserting. With Emberfall's placeholder rows (`dbc_placeholders.sql`, loaded by default) both maps exist and the stock handler runs, as with the old patch |
+
+Why the rest stays in the core: #1, #3 and #4 run inside `LoadDBCStores` / `LoadSpellInfoCorrections`
+and #2's skip at the start of `SetInitialWorldSettings`, all before the first hook a module gets
+(`OnLoadCustomDatabaseTable` comes before the DBCs, the next one after them is far later); #8 is
+reached from `WorldState::Load` and `DisableMgr` with no hook in between; #9 is a struct field type.
 
 ## Build and deployment
 

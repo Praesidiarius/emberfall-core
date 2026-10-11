@@ -8,6 +8,9 @@ Current changes (every code change is listed in `PATCHES.md`):
   `var/serverdata` instead of the upstream client-data download, Warden off, vmaps/mmaps off.
 - `Emberfall.OwnData` (default off): skips the stock-data checks and fix-ups so the worldserver runs
   on Emberfall's own DBCs, maps and world database (`PATCHES.md`).
+- `modules/mod-emberfall`: the parts of `Emberfall.OwnData` that AzerothCore's script hooks can carry
+  (spirit healer confirm, start-position check, Wintergrasp off, raid-difficulty guard), so the core
+  patch stays small (`PATCHES.md`, "Module").
 - `docker-compose.emberfall-data.yml`: a second, separate server ("emberfall-data" profile) on
   Emberfall's own data, with its own containers (`ef-data-*`), ports (MySQL 3320, auth 3725, world
   8086), volume, data (`var/serverdata-ef`) and images (`emberfall/ac-wotlk-*:own-data`). Driven

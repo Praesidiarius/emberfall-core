@@ -1390,30 +1390,9 @@ void WorldSession::HandleSetRaidDifficultyOpcode(WorldPackets::Instance::SetRaid
                 }
             }
 
-            // EMBERFALL: own data (PATCHES.md) - the home maps below exist only to park players
-            // who are inside a shared-difficulty raid (stock ICC/RS). Without map 571 there is none:
-            // refuse the change if anyone is inside one, otherwise skip creating the maps (which
-            // would ASSERT on the missing Map.dbc row; any group leader can send this opcode).
-            Map* homeMap571 = nullptr;
-            Map* homeMap0 = nullptr;
-            if (sWorld->getBoolConfig(CONFIG_EMBERFALL_OWN_DATA) && (!sMapStore.LookupEntry(MAP_NORTHREND) || !sMapStore.LookupEntry(MAP_EASTERN_KINGDOMS)))
-            {
-                bool sharedInside = currMap != nullptr;
-                for (GroupReference* itr = group->GetFirstMember(); itr != nullptr && !sharedInside; itr = itr->next())
-                    if (Player* groupGuy = itr->GetSource())
-                        sharedInside = IsSharedDifficultyMap(groupGuy->GetMap()->GetId());
-                if (sharedInside)
-                {
-                    _player->SendRaidDifficulty(group != nullptr);
-                    return;
-                }
-            }
-            else
-            {
-                homeMap571 = sMapMgr->CreateMap(MAP_NORTHREND, nullptr);
-                homeMap0 = sMapMgr->CreateMap(MAP_EASTERN_KINGDOMS, nullptr);
-                ASSERT(homeMap0 && homeMap571);
-            }
+            Map* homeMap571 = sMapMgr->CreateMap(MAP_NORTHREND, nullptr);
+            Map* homeMap0 = sMapMgr->CreateMap(MAP_EASTERN_KINGDOMS, nullptr);
+            ASSERT(homeMap0 && homeMap571);
 
             std::map<Player*, Position> playerTeleport;
             // handle here all players in the instance that are not in the group

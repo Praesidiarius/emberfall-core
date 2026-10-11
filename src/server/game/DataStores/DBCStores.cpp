@@ -19,6 +19,7 @@
 #include "BattlegroundMgr.h"
 #include "DBCFileLoader.h"
 #include "DBCfmt.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "Errors.h"
 #include "LFGMgr.h"
 #include "Log.h"
@@ -650,7 +651,7 @@ void LoadDBCStores(std::string const& dataPath)
 
     // Check loaded DBC files proper version
     // EMBERFALL: own data (PATCHES.md) - our DBCs carry no stock sentinel rows.
-    if (sWorld->getBoolConfig(CONFIG_EMBERFALL_OWN_DATA))
+    if (Emberfall::OwnData())
         LOG_INFO("server.loading", ">> Emberfall.OwnData: stock DBC version sentinels not checked");
     else if (!sAreaTableStore.LookupEntry(4987)             ||       // last area added in 3.3.5a
             !sCharTitlesStore.LookupEntry(177)         ||       // last char title added in 3.3.5a

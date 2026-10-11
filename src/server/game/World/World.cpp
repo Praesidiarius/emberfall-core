@@ -46,6 +46,7 @@
 #include "DatabaseEnv.h"
 #include "DisableMgr.h"
 #include "DynamicVisibility.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "GameEventMgr.h"
 #include "GameGraveyard.h"
 #include "GameTime.h"
@@ -328,9 +329,9 @@ void World::SetInitialWorldSettings()
     ///- Init highest guids before any table loading to prevent using not initialized guids in some code.
     sObjectMgr->SetHighestGuids();
 
-    // EMBERFALL: own data (PATCHES.md) - the stock start areas do not exist in our data; the
-    // playercreateinfo positions are checked after LoadPlayerInfo instead.
-    if (!sConfigMgr->isDryRun() && !getBoolConfig(CONFIG_EMBERFALL_OWN_DATA))
+    // EMBERFALL: own data (PATCHES.md) - the stock start areas do not exist in our data;
+    // modules/mod-emberfall checks the playercreateinfo positions instead.
+    if (!sConfigMgr->isDryRun() && !Emberfall::OwnData())
     {
         ///- Check the existence of the map files for all starting areas.
         if (!MapMgr::ExistMapAndVMap(MAP_EASTERN_KINGDOMS, -6240.32f, 331.033f)
@@ -701,15 +702,6 @@ void World::SetInitialWorldSettings()
 
     LOG_INFO("server.loading", "Loading Player Create Data...");
     sObjectMgr->LoadPlayerInfo();
-
-    // EMBERFALL: own data (PATCHES.md) - replaces the stock start-area map check.
-    if (getBoolConfig(CONFIG_EMBERFALL_OWN_DATA))
-        for (uint32 race = 1; race < sRaceMgr->GetMaxRaces(); ++race)
-            for (uint32 cls = 1; cls < MAX_CLASSES; ++cls)
-                if (PlayerInfo const* info = sObjectMgr->GetPlayerInfo(race, cls))
-                    if (!MapMgr::ExistMapAndVMap(info->mapId, info->positionX, info->positionY))
-                        LOG_WARN("server.loading", "Emberfall.OwnData: no map file for the start position of race {} class {} (map {}, {} {})",
-                            race, cls, info->mapId, info->positionX, info->positionY);
 
     LOG_INFO("server.loading", "Loading Exploration BaseXP Data...");
     sObjectMgr->LoadExplorationBaseXP();

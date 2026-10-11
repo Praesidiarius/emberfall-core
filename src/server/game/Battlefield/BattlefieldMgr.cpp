@@ -18,7 +18,6 @@
 #include "BattlefieldMgr.h"
 #include "Player.h"
 #include "ScriptMgr.h"
-#include "World.h"
 #include "Zones/BattlefieldWG.h"
 
 BattlefieldMgr::BattlefieldMgr() : _updateTimer(0)
@@ -42,13 +41,6 @@ void BattlefieldMgr::InitBattlefield()
     if (sWorld->getIntConfig(CONFIG_WINTERGRASP_ENABLE) == 2)
     {
         LOG_INFO("server.loading", "Battlefield: Wintergrasp is disabled.");
-        LOG_INFO("server.loading", " ");
-        return;
-    }
-    // EMBERFALL: own data (PATCHES.md) - setting up Wintergrasp creates map 571 and asserts on it.
-    if (sWorld->getBoolConfig(CONFIG_EMBERFALL_OWN_DATA) && !sMapStore.LookupEntry(MAP_NORTHREND))
-    {
-        LOG_INFO("server.loading", "Battlefield: Wintergrasp is disabled (Emberfall.OwnData, no Northrend map).");
         LOG_INFO("server.loading", " ");
         return;
     }

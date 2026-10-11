@@ -20,7 +20,6 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "ScriptMgr.h"
-#include "World.h"
 
 OutdoorPvPMgr::OutdoorPvPMgr()
 {
@@ -43,15 +42,6 @@ void OutdoorPvPMgr::Die()
 void OutdoorPvPMgr::InitOutdoorPvP()
 {
     uint32 oldMSTime = getMSTime();
-
-    // EMBERFALL: own data (PATCHES.md) - every outdoor PvP type is a stock zone and asserts on
-    // its AreaTable row (OutdoorPvP::SetMapFromZone).
-    if (sWorld->getBoolConfig(CONFIG_EMBERFALL_OWN_DATA))
-    {
-        LOG_INFO("server.loading", ">> Outdoor PvP skipped (Emberfall.OwnData)");
-        LOG_INFO("server.loading", " ");
-        return;
-    }
 
     //                                                 0       1
     QueryResult result = WorldDatabase.Query("SELECT TypeId, ScriptName FROM outdoorpvp_template");

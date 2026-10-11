@@ -4952,21 +4952,3 @@ Cluster.IsCrossrealm=0
 # CLUSTER SETTINGS END                                                                            #
 #                                                                                                 #
 ###################################################################################################
-
-###################################################################################################
-# EMBERFALL
-#
-#    Emberfall.OwnData
-#        Description: Run on Emberfall's own DBC/map/world data instead of the stock 3.3.5a data.
-#                     Skips the stock-data checks and fix-ups that assume Blizzard rows exist:
-#                     the DBC version sentinels, the start-area map file check (replaced by a
-#                     check of the playercreateinfo positions), the stock spell/DBC corrections,
-#                     Wintergrasp and the raid-difficulty home maps when map 571 is missing,
-#                     and the stock outdoor PvP zones. See PATCHES.md.
-#        Default:     0 - (Disabled, stock data)
-#                     1 - (Enabled, Emberfall data)
-
-Emberfall.OwnData = 0
-
-#
-###################################################################################################
