@@ -138,6 +138,9 @@ services:
       AC_PRELOAD_ALL_NON_INSTANCED_MAP_GRIDS: "0"
       AC_PLAYER_START_ALL_REPUTATION: "0"
       AC_PLAYER_START_CUSTOM_SPELLS: "0"
+      # mod-emberfall's class kits (Emberfall docs/design/class-kit-pipeline.md): our class abilities on a world
+      # whose classes would keep their stock kits; on in the ef-classes profile, inactive without ef_class_kit rows.
+      AC_EMBERFALL_CLASS_KIT_ENABLE: "${EF_CLASS_KIT_ENABLE:-0}"
       AC_HEROIC_CHARACTERS_PER_REALM: "0"
       AC_SKIP_CINEMATICS: "2"
       AC_DBC_ENFORCE_ITEM_ATTRIBUTES: "1"

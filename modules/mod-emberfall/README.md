@@ -90,3 +90,25 @@ The switch `Emberfall.OwnData` (default 0) is read through `src/server/game/Worl
 environment variable `AC_EMBERFALL_OWN_DATA` (the emberfall-data profile sets it). The module ships
 no `conf/*.conf.dist`: AzerothCore loads a module's config file as required, and the docker
 entrypoint copies only the `.dist`, so a missing `mod_emberfall.conf` would be logged at boot ("Failed open file", `Config.Policy` missing-file severity).
+
+## Class kits (Emberfall `docs/design/class-kit-pipeline.md`)
+
+Emberfall's own class abilities on a world whose classes would otherwise keep their stock kits (the ef-classes profile:
+the stock world with Emberfall's kits). The kits are data (Emberfall's `python -m emberfall_content.classkit build`
+writes `spell_dbc`, the trainers' lists, the start skill and buttons, the specs and trees for the talent system above,
+and this module's two tables); the module adds what data cannot. Switch `Emberfall.ClassKit.Enable` (default 0;
+`AC_EMBERFALL_CLASS_KIT_ENABLE`, the compose file's `EF_CLASS_KIT_ENABLE`); a class without an `ef_class_kit` row is
+untouched.
+
+| File | What |
+|---|---|
+| `data/sql/db-world/mod_emberfall_2026_10_12_10_classkit.sql` | `ef_class_kit` (class, skill line, the stock family it replaces), `ef_class_kit_spell` (class, spell, level, source); help texts of `.efkit` |
+| `src/classkit/EfClassKit.{h,cpp}` | loading and checks (every spell exists, none in the stock family, the skill line exists; boot line `>> Emberfall class kits: class 1: ...`), the purge, the dump |
+| `src/emberfall_classkit.cpp` | the hooks, `.efkit` / `.efkit purge`, the kits' spell scripts |
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_classkit_world` | `WorldScript::OnAfterConfigLoad`, `OnBeforeWorldInitialized` | reads the switch, loads the kits |
+| `emberfall_classkit_player` | `OnPlayerLogin`, `OnPlayerLevelChanged` | for a kit class: takes away the class's own stock class skill lines (a SkillRaceClassInfo row naming the class alone), spells and auras of the stock family, buttons of spells the character does not know; logs what it took |
+| `emberfall_classkit_commands` | `CommandScript` | `.efkit` (the kit and what the selected player knows of it), `.efkit purge` |
+| `spell_ef_kit_add_stacks`, `spell_ef_kit_shatter`, `spell_ef_kit_absorb_pct_health`, `spell_ef_kit_line_targets`, `spell_ef_kit_interrupt_followup`, `spell_ef_kit_rest_regen` | `SpellScript`/`AuraScript` (`spell_script_names` from the kit) | the kits' generic mechanics, each reading its numbers from the spell's own effects (contracts at the top of `src/emberfall_classkit.cpp`): stacks with thresholds, shatter + one capped shell + mana refund, an absorb in percent of max health, line targets, an interrupt follow-up, out-of-combat mana |
