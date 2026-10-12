@@ -120,6 +120,9 @@ services:
       # mod-emberfall's spec and talent system (Emberfall talents.md §3.1); inactive for a class without
       # trees in the ef_* tables.
       AC_EMBERFALL_TALENTS_ENABLE: "${EF_TALENTS_ENABLE:-1}"
+      # Emberfall stops at level 60 (talents.md §8, Decision 2: the talent point schedule ends there): the stock
+      # MaxPlayerLevel setting (worldserver.conf.dist, default 80), for every stack of this file. Config only.
+      AC_MAX_PLAYER_LEVEL: "${EF_MAX_PLAYER_LEVEL:-60}"
       # engine-ids.md §10/§11.
       AC_UPDATES_ENABLE_DATABASES: "0"
       AC_DBC_LOCALE: "0"

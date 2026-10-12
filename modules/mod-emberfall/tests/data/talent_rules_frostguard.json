@@ -1,0 +1,996 @@
+{
+ "schema": 1,
+ "source": "the Frostguard test tree (tools/py/tests/data/talents/frostguard.yaml); written by python -m emberfall_content.talents vectors",
+ "trees": [
+  {
+   "id": 820,
+   "nodes": [
+    {
+     "id": 8001,
+     "row": 1,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8002,
+     "row": 1,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8003,
+     "row": 2,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 3,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8004,
+     "row": 2,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 3,
+     "auto": [],
+     "parents": [
+      2
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8005,
+     "row": 3,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 6,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8006,
+     "row": 3,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 6,
+     "auto": [],
+     "parents": [
+      4
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8007,
+     "row": 4,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 8,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8008,
+     "row": 4,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 8,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8009,
+     "row": 5,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 10,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8010,
+     "row": 5,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 10,
+     "auto": [],
+     "parents": [
+      8
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8012,
+     "row": 6,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 13,
+     "auto": [],
+     "parents": [
+      2
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8011,
+     "row": 6,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 13,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8013,
+     "row": 7,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 16,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8014,
+     "row": 7,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 16,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8015,
+     "row": 7,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 16,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8016,
+     "row": 8,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 19,
+     "auto": [],
+     "parents": [
+      2
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8017,
+     "row": 8,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 19,
+     "auto": [],
+     "parents": [
+      11
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8018,
+     "row": 9,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 22,
+     "auto": [],
+     "parents": [
+      8
+     ],
+     "parentRanks": [
+      0
+     ]
+    }
+   ],
+   "gates": [
+    {
+     "row": 2,
+     "points": 3
+    },
+    {
+     "row": 3,
+     "points": 6
+    },
+    {
+     "row": 4,
+     "points": 8
+    },
+    {
+     "row": 5,
+     "points": 10
+    },
+    {
+     "row": 6,
+     "points": 13
+    },
+    {
+     "row": 7,
+     "points": 16
+    },
+    {
+     "row": 8,
+     "points": 19
+    },
+    {
+     "row": 9,
+     "points": 22
+    }
+   ]
+  },
+  {
+   "id": 821,
+   "nodes": [
+    {
+     "id": 8101,
+     "row": 1,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [
+      0
+     ],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8102,
+     "row": 1,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [
+      0
+     ],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8103,
+     "row": 1,
+     "kind": 1,
+     "maxRank": 4,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [
+      0,
+      10,
+      20,
+      30
+     ],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8104,
+     "row": 2,
+     "kind": 1,
+     "maxRank": 4,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      1
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8105,
+     "row": 3,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 2,
+     "auto": [],
+     "parents": [
+      3
+     ],
+     "parentRanks": [
+      2
+     ]
+    },
+    {
+     "id": 8106,
+     "row": 3,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 2,
+     "auto": [],
+     "parents": [
+      3
+     ],
+     "parentRanks": [
+      2
+     ]
+    },
+    {
+     "id": 8107,
+     "row": 3,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 2,
+     "auto": [
+      4
+     ],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8108,
+     "row": 4,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 4,
+     "auto": [],
+     "parents": [
+      4
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8109,
+     "row": 4,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 4,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8110,
+     "row": 4,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 4,
+     "auto": [],
+     "parents": [
+      5
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8111,
+     "row": 5,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 6,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8112,
+     "row": 5,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 6,
+     "auto": [],
+     "parents": [
+      5
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8113,
+     "row": 5,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 6,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8114,
+     "row": 6,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 8,
+     "auto": [],
+     "parents": [
+      10
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8115,
+     "row": 6,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 8,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8116,
+     "row": 6,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 8,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8118,
+     "row": 7,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 10,
+     "auto": [],
+     "parents": [
+      17
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8117,
+     "row": 7,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 10,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8119,
+     "row": 7,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 10,
+     "auto": [],
+     "parents": [
+      17
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8120,
+     "row": 8,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 13,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8121,
+     "row": 8,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 13,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8122,
+     "row": 8,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 13,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8123,
+     "row": 9,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 18,
+     "auto": [],
+     "parents": [
+      19
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8124,
+     "row": 9,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 18,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8125,
+     "row": 9,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 18,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8126,
+     "row": 9,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 18,
+     "auto": [],
+     "parents": [
+      10
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8127,
+     "row": 10,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 28,
+     "auto": [],
+     "parents": [
+      13
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8128,
+     "row": 10,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 28,
+     "auto": [],
+     "parents": [
+      17
+     ],
+     "parentRanks": [
+      0
+     ]
+    }
+   ],
+   "gates": [
+    {
+     "row": 3,
+     "points": 2
+    },
+    {
+     "row": 4,
+     "points": 4
+    },
+    {
+     "row": 5,
+     "points": 6
+    },
+    {
+     "row": 6,
+     "points": 8
+    },
+    {
+     "row": 7,
+     "points": 10
+    },
+    {
+     "row": 8,
+     "points": 13
+    },
+    {
+     "row": 9,
+     "points": 18
+    },
+    {
+     "row": 10,
+     "points": 28
+    }
+   ]
+  },
+  {
+   "id": 0,
+   "nodes": [],
+   "gates": []
+  }
+ ],
+ "cases": [
+  {
+   "name": "nothing bought: the granted nodes cost nothing",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 10,
+   "classBudget": 9,
+   "specBudget": 0,
+   "loadout": "000000000000000000.0000000000000000000000000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "s2a opens through its granted parent s1b",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 11,
+   "classBudget": 9,
+   "specBudget": 1,
+   "loadout": "000000000000000000.0001000000000000000000000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "a granted node's digits are ignored",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 11,
+   "classBudget": 9,
+   "specBudget": 1,
+   "loadout": "000000000000000000.1040001000000000000000000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "s3a needs 2 points in s2a, not 1",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 36,
+   "loadout": "000000000000000000.0001100000000000000000000000",
+   "code": "PATH",
+   "detail": 8105
+  },
+  {
+   "name": "s3a with 2 points in s2a",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 36,
+   "loadout": "000000000000000000.0002100000000000000000000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "the row-4 gate: 3 paid points are not 4",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 36,
+   "loadout": "000000000000000000.0002100010000000000000000000",
+   "code": "GATE",
+   "detail": 4
+  },
+  {
+   "name": "the row-4 gate after 4 paid points",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 36,
+   "loadout": "000000000000000000.0002110010000000000000000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "four spec points at level 17 hold s2a 2, s3a, s3b",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 17,
+   "classBudget": 12,
+   "specBudget": 4,
+   "loadout": "000000000000000000.0002110000000000000000000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "a fifth spec point at level 17",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 17,
+   "classBudget": 12,
+   "specBudget": 4,
+   "loadout": "000000000000000000.0003110000000000000000000000",
+   "code": "BUDGET_S",
+   "detail": 0
+  },
+  {
+   "name": "a same-row parent: s7b needs s7a",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 36,
+   "loadout": "000000000000000000.0004110220000000100000000000",
+   "code": "PATH",
+   "detail": 8118
+  },
+  {
+   "name": "a same-row parent: s7b after s7a",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 36,
+   "loadout": "000000000000000000.0004110220000000110000000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "the row-7 gate counts the paid nodes with a lower gate only",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 36,
+   "loadout": "000000000000000000.0004110020000000010000000000",
+   "code": "GATE",
+   "detail": 10
+  },
+  {
+   "name": "pre-spec: the class tree at level 5 (4 points, the row-2 gate of 3)",
+   "classTree": 820,
+   "specTree": 0,
+   "specBit": 0,
+   "level": 5,
+   "classBudget": 4,
+   "specBudget": 0,
+   "loadout": "211000000000000000.",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "pre-spec: the class gate counts paid points",
+   "classTree": 820,
+   "specTree": 0,
+   "specBit": 0,
+   "level": 5,
+   "classBudget": 4,
+   "specBudget": 0,
+   "loadout": "201000000000000000.",
+   "code": "GATE",
+   "detail": 3
+  },
+  {
+   "name": "pre-spec: a fifth class point at level 5",
+   "classTree": 820,
+   "specTree": 0,
+   "specBit": 0,
+   "level": 5,
+   "classBudget": 4,
+   "specBudget": 0,
+   "loadout": "221000000000000000.",
+   "code": "BUDGET_C",
+   "detail": 0
+  },
+  {
+   "name": "pre-spec: c2b needs c2a beside it",
+   "classTree": 820,
+   "specTree": 0,
+   "specBit": 0,
+   "level": 10,
+   "classBudget": 9,
+   "specBudget": 0,
+   "loadout": "210100000000000000.",
+   "code": "PATH",
+   "detail": 8004
+  },
+  {
+   "name": "the class tree at 60: 23 of its 27 points",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 36,
+   "loadout": "221212121121220100.0000000000000000000000000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "the class tree at 60: 24 points",
+   "classTree": 820,
+   "specTree": 821,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 36,
+   "loadout": "221212121121221100.0000000000000000000000000000",
+   "code": "BUDGET_C",
+   "detail": 0
+  }
+ ]
+}

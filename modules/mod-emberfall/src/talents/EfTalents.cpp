@@ -64,6 +64,9 @@ namespace Emberfall::Talents
         constexpr uint32 kStateFlagDisabled = 0x4;
 
         constexpr uint32 kSpecFlagStockWiped = 0x1; // ef_character_spec.flags bit 0 (§3.5)
+        // ef_character_granted.source 3: not taught by the module but taken by it, a spell the core (a trainer, a skill
+        // line) taught that an invested replacing node replaces (M6); learned back when the node goes.
+        constexpr uint8 kSourceReplaced = 3;
 
         // Players with a switch cast running: a cheap filter for the per-tick hooks (OnUpdate, OnEnterCombat).
         std::atomic<uint32> s_pendingSwitches{0};
@@ -124,11 +127,13 @@ namespace Emberfall::Talents
 
             bool loaded = false;
             uint32 generation = 0;
+            uint32 classId = 0;                                    // the player's class (the pre-spec state's)
             uint32 activeSpec = 0;
             std::string dataHash;
             uint32 flags = 0;
             std::vector<Loadout> loadouts;
             std::map<uint32, uint8> granted;                       // spell -> GrantSource
+            std::set<uint32> suppressed;                           // spells the core taught that a replacing node took (M6)
             std::vector<std::pair<uint32, std::string>> resets;    // RESET notices for the next HELLO
             bool hello = false;                                    // the client said HELLO with our hash
             eft::Reassembly chunks;
@@ -278,14 +283,62 @@ namespace Emberfall::Talents
             return out;
         }
 
+        uint32 ClassOf(PlayerState const& st) { return st.classId; }
+
+        bool IsPassiveSpell(uint32 spell)
+        {
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(spell);
+            return !info || info->IsPassive();
+        }
+
+        // The replacing nodes of the active spec's active loadout (M6), empty without a spec.
+        std::vector<EfTalentModel::Replacement> ActiveReplacements(PlayerState& st, EfTalentModel const& data)
+        {
+            EfSpec const* spec = data.SpecOrPre(st.activeSpec, ClassOf(st));
+            if (!spec)
+                return {};
+            Loadout const* l = st.Active(spec->id);
+            return data.Replacements(*spec, l ? l->pairs : eft::Pairs{}, IsPassiveSpell);
+        }
+
+        // The action bars follow the replacing nodes (§1.4, M6), both ways: while a node is invested, every button
+        // holding the replaced spell (or another rank or option of the node) holds the node's current ability; when it
+        // is not, every button holding one of the node's spells holds the replaced spell again (when it is known).
+        // True when a button changed (the caller sends SMSG_ACTION_BUTTONS).
+        bool RewriteReplacedBars(Player* player, PlayerState& st, EfTalentModel const& data)
+        {
+            bool changed = false;
+            for (EfTalentModel::Replacement const& r : ActiveReplacements(st, data))
+            {
+                uint32 const to = r.by ? r.by : r.replaced;
+                if (!player->HasSpell(to))
+                    continue;
+                std::set<uint32> from(r.nodeSpells.begin(), r.nodeSpells.end());
+                if (r.by)
+                    from.insert(r.replaced);
+                from.erase(to);
+                for (uint32 button = 0; button < kMaxActionButtons; ++button)
+                {
+                    ActionButton const* ab = player->GetActionButton(static_cast<uint8>(button));
+                    if (!ab || ab->GetType() != ACTION_BUTTON_SPELL || !from.count(ab->GetAction()))
+                        continue;
+                    player->addActionButton(static_cast<uint8>(button), to, ACTION_BUTTON_SPELL);
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+
         // Teaches the expected spells the module has not granted yet and takes back the granted ones that are
-        // no longer expected; never touches a spell the core or a GM taught. Removals first, so a rank change
-        // within a stock spell chain does not take the new rank with the old one.
-        void Reconcile(Player* player, PlayerState& st, EfTalentModel const& data, CharacterDatabaseTransaction trans)
+        // no longer expected; never touches a spell the core or a GM taught, except one an invested replacing node
+        // replaces (M6: removed and recorded as source 3, learned back when the node goes). Removals first, so a rank
+        // change within a stock spell chain does not take the new rank with the old one. With `bars`, the buttons
+        // follow the replacing nodes (RewriteReplacedBars) and the client gets them when one changed.
+        void Reconcile(Player* player, PlayerState& st, EfTalentModel const& data, CharacterDatabaseTransaction trans, bool bars = true)
         {
             uint32 const guid = player->GetGUID().GetCounter();
             SpellSet expected;
-            if (EfSpec const* spec = data.Spec(st.activeSpec))
+            if (EfSpec const* spec = data.SpecOrPre(st.activeSpec, player->getClass()))
             {
                 Loadout const* l = st.Active(spec->id);
                 expected = data.Expected(*spec, l ? l->pairs : eft::Pairs{}, player->GetLevel());
@@ -346,6 +399,38 @@ namespace Emberfall::Talents
                         static_cast<uint32>(source));
                 }
             }
+            // Replacing nodes (M6): a replaced spell the core taught goes while its node is invested and comes back after.
+            // (A replaced spell the module taught, a baseline spell, simply is not expected.)
+            std::set<uint32> replaced;
+            for (EfTalentModel::Replacement const& r : ActiveReplacements(st, data))
+                if (r.by)
+                    replaced.insert(r.replaced);
+            for (uint32 const spell : replaced)
+            {
+                if (st.granted.count(spell) || !player->HasSpell(spell))
+                    continue;
+                player->removeSpell(spell, SPEC_MASK_ALL, false);
+                DropLeftover(player, spell);
+                player->RemoveOwnedAuras([spell](Aura const* aura) { return aura->GetId() == spell; });
+                if (st.suppressed.insert(spell).second)
+                    trans->Append("REPLACE INTO `ef_character_granted` (`guid`, `spell`, `source`) VALUES ({}, {}, {})", guid, spell,
+                        static_cast<uint32>(kSourceReplaced));
+            }
+            for (auto it = st.suppressed.begin(); it != st.suppressed.end();)
+            {
+                if (replaced.count(*it))
+                {
+                    ++it;
+                    continue;
+                }
+                if (!player->HasSpell(*it) && sSpellMgr->GetSpellInfo(*it))
+                    player->learnSpell(*it);
+                trans->Append("DELETE FROM `ef_character_granted` WHERE `guid` = {} AND `spell` = {} AND `source` = {}", guid, *it,
+                    static_cast<uint32>(kSourceReplaced));
+                it = st.suppressed.erase(it);
+            }
+            if (bars && RewriteReplacedBars(player, st, data))
+                player->SendActionButtons(1);
         }
 
         // ---- state load and migration (§3.7) -------------------------------------------------------
@@ -368,8 +453,8 @@ namespace Emberfall::Talents
             for (auto it = st.loadouts.begin(); it != st.loadouts.end();)
             {
                 Loadout& l = *it;
-                EfSpec const* spec = data.Spec(l.spec);
-                if (!spec || spec->classId != player->getClass())
+                EfSpec const* spec = data.SpecOrPre(l.spec, player->getClass());
+                if (!spec)
                 {
                     trans->Append("DELETE FROM `ef_character_loadout` WHERE `guid` = {} AND `spec` = {} AND `loadout` = {}", guid, l.spec, l.id);
                     st.resets.emplace_back(l.spec, "DATA");
@@ -496,7 +581,10 @@ namespace Emberfall::Talents
                 do
                 {
                     Field* f = r->Fetch();
-                    st.granted[f[0].Get<uint32>()] = f[1].Get<uint8>();
+                    if (f[1].Get<uint8>() == kSourceReplaced)
+                        st.suppressed.insert(f[0].Get<uint32>());
+                    else
+                        st.granted[f[0].Get<uint32>()] = f[1].Get<uint8>();
                 } while (r->NextRow());
             }
             if (QueryResult r = CharacterDatabase.Query("SELECT `spec`, `button`, `action`, `type` FROM `ef_character_actions` WHERE `guid` = {} "
@@ -511,6 +599,7 @@ namespace Emberfall::Talents
                 } while (r->NextRow());
             }
             st.loaded = true;
+            st.classId = player->getClass();
             st.generation = s_generation;
             MigrateStock(player, st);
             Revalidate(player, st, data, false);
@@ -549,9 +638,8 @@ namespace Emberfall::Talents
                 active = st->activeSpec;
                 if (st->pending.spec)
                     flags |= kStateFlagSwitchPending;
-                if (active)
-                    std::tie(classBudget, specBudget) = data->Budget(player->getClass(), level);
-                else if (level >= data->specLevel)
+                std::tie(classBudget, specBudget) = data->Budget(player->getClass(), level);
+                if (!active && level >= data->specLevel)
                     flags |= kStateFlagChoiceAvailable;
             }
             SendBody(player, eft::body(0, "STATE", {hash, std::to_string(active), std::to_string(level), std::to_string(classBudget),
@@ -560,7 +648,7 @@ namespace Emberfall::Talents
 
         void SendLoadout(Player* player, EfTalentModel const& data, Loadout const& l)
         {
-            EfSpec const* spec = data.Spec(l.spec);
+            EfSpec const* spec = data.SpecOrPre(l.spec, player->getClass());
             if (!spec)
                 return;
             for (std::string const& body : eft::chunked(0, "LOADOUT", {std::to_string(l.spec), std::to_string(l.id), l.active ? "1" : "0",
@@ -583,7 +671,7 @@ namespace Emberfall::Talents
             return nullptr;
         }
 
-        Loadout& ActiveLoadout(PlayerState& st, uint32 spec)
+        Loadout& ActiveLoadout(PlayerState& st, uint32 spec, eft::Pairs const* seed = nullptr)
         {
             if (Loadout* l = st.Active(spec))
                 return *l;
@@ -596,6 +684,8 @@ namespace Emberfall::Talents
             l.id = id;
             l.name = kDefaultLoadoutName;
             l.active = true;
+            if (seed)
+                l.pairs = *seed;
             st.loadouts.push_back(l);
             return st.loadouts.back();
         }
@@ -617,14 +707,27 @@ namespace Emberfall::Talents
                 SaveBars(trans, guid, old, current);
             }
             player->SendActionButtons(2);
+            // A spec entered for the first time starts with the class tree as it is now (the pre-spec choices at the
+            // first spec choice, T6; the old spec's at a first switch), when that is valid for it.
+            eft::Pairs seed;
+            EfSpec const* target = data.Spec(spec);
+            if (Loadout const* from = st.Active(old); from && target && !st.Active(spec))
+            {
+                EfClass const* cls = data.Class(target->classId);
+                for (auto const& [node, pair] : from->pairs)
+                    if (EfNode const* n = data.Node(node); n && cls && n->tree == cls->classTree)
+                        seed[node] = pair;
+                if (!data.Validate(*target, data.LoadoutString(*target, seed), player->GetLevel()).ok())
+                    seed.clear();
+            }
             st.activeSpec = spec;
             st.dataHash = data.dataHash;
-            Loadout& l = ActiveLoadout(st, spec);
+            Loadout& l = ActiveLoadout(st, spec, &seed);
             l.hash = data.dataHash;
             l.updated = static_cast<uint32>(std::time(nullptr));
             SaveSpecRow(trans, guid, st);
             SaveLoadoutRow(trans, guid, l);
-            Reconcile(player, st, data, trans);
+            Reconcile(player, st, data, trans, false);
             std::vector<BarButton> next;
             auto stored = st.bars.find(spec);
             if (stored != st.bars.end())
@@ -640,10 +743,27 @@ namespace Emberfall::Talents
                 for (auto const& [spell, level] : baseline)
                     if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spell); info && !info->IsPassive())
                         spells.push_back(spell);
-                next = FirstBars(current, [player](uint32 spell) { return player->HasSpell(spell); }, spells);
+                // Replacements take over their slots (T6/M6): a button holding any replacing node's spell of the class
+                // holds its replaced spell again, then the new spec's invested replacements take it over (Magic Bolt ->
+                // Frostbolt at the first choice; Frostbolt -> Magic Bolt in a spec without it), before unknown spells go.
+                std::vector<BarButton> mapped = current;
+                std::map<uint32, uint32> back = data.ReplacedBy(s->classId), forward;
+                for (EfTalentModel::Replacement const& r : ActiveReplacements(st, data))
+                    if (r.by)
+                        forward[r.replaced] = r.by;
+                for (BarButton& b : mapped)
+                    if (b.type == kSpellButton)
+                    {
+                        if (auto it = back.find(b.action); it != back.end())
+                            b.action = it->second;
+                        if (auto it = forward.find(b.action); it != forward.end())
+                            b.action = it->second;
+                    }
+                next = FirstBars(mapped, [player](uint32 spell) { return player->HasSpell(spell); }, spells);
             }
             trans->Append("DELETE FROM `ef_character_actions` WHERE `guid` = {} AND `spec` = {}", guid, spec);
             SetBars(player, next);
+            RewriteReplacedBars(player, st, data); // the new spec's replacing nodes (M6), on its stored or first bars
             player->SendActionButtons(1);
             Commit(trans);
             LOG_DEBUG("module", "Emberfall talents: {} ({}): spec {} -> {}, {} buttons", player->GetName(), guid, old, spec, next.size());
@@ -975,10 +1095,11 @@ namespace Emberfall::Talents
                 return SendErr(player, req.seq, "DATA");
             if (char const* code = StateError(player, st))
                 return SendErr(player, req.seq, code);
-            if (!st.activeSpec)
+            // Before the spec choice the class tree is spent as spec 0 (T6: class points from level 2).
+            if (!st.activeSpec && specId != 0)
                 return SendErr(player, req.seq, "NOSPEC");
-            EfSpec const* spec = data.Spec(specId);
-            if (!spec || spec->classId != player->getClass() || specId != st.activeSpec)
+            EfSpec const* spec = data.SpecOrPre(specId, player->getClass());
+            if (!spec || specId != st.activeSpec)
                 return SendErr(player, req.seq, "SPEC", std::to_string(specId));
             uint32 const level = player->GetLevel();
             if (level < spec->availableLevel)
@@ -1048,11 +1169,11 @@ namespace Emberfall::Talents
             return false;
         }
         static char const* const tables[] = {"ef_talent_meta", "ef_talent_points", "ef_spec", "ef_spec_spell", "ef_talent_tree",
-            "ef_talent_gate", "ef_talent_node", "ef_talent_node_spell", "ef_talent_edge", "ef_talent_free"};
+            "ef_talent_gate", "ef_talent_node", "ef_talent_node_spell", "ef_talent_edge", "ef_talent_free", "ef_talent_auto"};
         uint32 found = 0;
         if (QueryResult r = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN "
             "('ef_talent_meta', 'ef_talent_points', 'ef_spec', 'ef_spec_spell', 'ef_talent_tree', 'ef_talent_gate', 'ef_talent_node', "
-            "'ef_talent_node_spell', 'ef_talent_edge', 'ef_talent_free')"))
+            "'ef_talent_node_spell', 'ef_talent_edge', 'ef_talent_free', 'ef_talent_auto')"))
             found = static_cast<uint32>(r->Fetch()[0].Get<uint64>());
         if (found != std::size(tables))
         {
@@ -1152,7 +1273,7 @@ namespace Emberfall::Talents
             } while (r->NextRow());
         }
         std::map<uint32, EfNode> nodes;
-        if (QueryResult r = WorldDatabase.Query("SELECT `id`, `tree`, `ord`, `row`, `col`, `kind`, `max_rank`, `required_level`, `replaces` FROM `ef_talent_node`"))
+        if (QueryResult r = WorldDatabase.Query("SELECT `id`, `tree`, `ord`, `row`, `col`, `kind`, `max_rank`, `required_level`, `replaces`, `gate` FROM `ef_talent_node`"))
         {
             do
             {
@@ -1170,6 +1291,7 @@ namespace Emberfall::Talents
                 n.maxRank = f[6].Get<uint8>();
                 n.requiredLevel = f[7].Get<uint8>();
                 n.replaces = f[8].Get<uint32>();
+                n.gate = f[9].Get<uint8>();
                 nodes[n.id] = n;
             } while (r->NextRow());
         }
@@ -1195,7 +1317,7 @@ namespace Emberfall::Talents
                     problems.push_back("node " + std::to_string(node) + ": spell " + std::to_string(spell) + " does not exist");
             } while (r->NextRow());
         }
-        if (QueryResult r = WorldDatabase.Query("SELECT `parent`, `child` FROM `ef_talent_edge`"))
+        if (QueryResult r = WorldDatabase.Query("SELECT `parent`, `child`, `min_rank` FROM `ef_talent_edge` ORDER BY `child`, `parent`"))
         {
             do
             {
@@ -1205,7 +1327,24 @@ namespace Emberfall::Talents
                 if (it == nodes.end() || !nodes.count(parent))
                     problems.push_back("ef_talent_edge: " + std::to_string(parent) + " -> " + std::to_string(child) + " names an unknown node");
                 else
+                {
                     it->second.parents.push_back(parent);
+                    it->second.parentRanks.push_back(f[2].Get<uint8>());
+                }
+            } while (r->NextRow());
+        }
+        // granted nodes (T6, talents.md §8 Decision 6): rank k at `at` points spent in the tree
+        if (QueryResult r = WorldDatabase.Query("SELECT `node`, `rank`, `at` FROM `ef_talent_auto` ORDER BY `node`, `rank`"))
+        {
+            do
+            {
+                Field* f = r->Fetch();
+                uint32 const node = f[0].Get<uint32>(), rank = f[1].Get<uint8>();
+                auto it = nodes.find(node);
+                if (it == nodes.end() || rank != it->second.autoAt.size() + 1)
+                    problems.push_back("ef_talent_auto: node " + std::to_string(node) + " rank " + std::to_string(rank) + " out of order or unknown");
+                else
+                    it->second.autoAt.push_back(f[2].Get<uint8>());
             } while (r->NextRow());
         }
         if (QueryResult r = WorldDatabase.Query("SELECT `node`, `spec` FROM `ef_talent_free`"))
@@ -1418,6 +1557,14 @@ namespace Emberfall::Talents
         for (auto const& [spell, source] : st->granted)
             granted += fmt::format("{}{}{}", granted.empty() ? "" : ",", spell, source == 1 ? "b" : "");
         out.push_back(fmt::format("  granted ({}): {}", st->granted.size(), granted.empty() ? "-" : granted));
+        // replacing nodes of the active loadout (M6): replaced -> by (0: not invested), and the core-taught spells taken
+        std::string swaps;
+        for (EfTalentModel::Replacement const& r : ActiveReplacements(*st, *data))
+            swaps += fmt::format("{}{}->{}", swaps.empty() ? "" : ",", r.replaced, r.by);
+        std::string taken;
+        for (uint32 const spell : st->suppressed)
+            taken += fmt::format("{}{}", taken.empty() ? "" : ",", spell);
+        out.push_back(fmt::format("  replacing: {}; replaced core spells: {}", swaps.empty() ? "-" : swaps, taken.empty() ? "-" : taken));
         // Auras the player owns from any spell of the class's trees or baselines (every spec), or triggered by one:
         // after an apply or a switch only the active loadout's may be left (§3.3).
         std::set<uint32> classSpells;

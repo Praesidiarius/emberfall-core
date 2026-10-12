@@ -162,10 +162,18 @@ namespace
             r.numOptions = static_cast<uint8_t>(n["numOptions"].num());
             r.requiredLevel = static_cast<uint32_t>(n["requiredLevel"].num());
             r.freeSpecMask = static_cast<uint32_t>(n["freeSpecMask"].num());
+            r.gate = static_cast<uint32_t>(n["gate"].num());
+            for (Json const& a : n["auto"].arr())
+                if (r.autoCount < kMaxWireRank)
+                    r.autoAt[r.autoCount++] = static_cast<uint32_t>(a.num());
             size_t k = 0;
             for (Json const& p : n["parents"].arr())
                 if (k < kMaxParents)
                     r.parents[k++] = static_cast<int32_t>(p.num());
+            k = 0;
+            for (Json const& p : n["parentRanks"].arr())
+                if (k < kMaxParents)
+                    r.parentRanks[k++] = static_cast<uint8_t>(p.num());
             tree.nodes.push_back(r);
         }
         for (Json const& g : t["gates"].arr())
@@ -220,8 +228,13 @@ namespace
                 e.kind = static_cast<NodeKind>(n["kind"].num());
                 e.maxRank = static_cast<uint32_t>(n["maxRank"].num());
                 e.requiredLevel = static_cast<uint32_t>(n["requiredLevel"].num());
+                e.gate = static_cast<uint32_t>(n["gate"].num());
+                for (Json const& a : n["auto"].arr())
+                    e.autoAt.push_back(static_cast<uint32_t>(a.num()));
                 for (Json const& p : n["parents"].arr())
                     e.parents.push_back(ids[static_cast<size_t>(p.num())]);
+                for (Json const& p : n["parentRanks"].arr())
+                    e.parentRanks.push_back(static_cast<uint32_t>(p.num()));
                 if (e.kind == NodeKind::Choice)
                     for (long long o = 1; o <= n["numOptions"].num(); ++o)
                         e.options.push_back({e.id * 10 + static_cast<uint32_t>(o)});
@@ -237,6 +250,57 @@ namespace
             m->trees[t.id] = t;
         }
         return m;
+    }
+
+    // T6 on the Frostguard test tree (Emberfall's tools/py/tests/data/talents/frostguard.yaml): granted nodes (s1a, s1b
+    // at once, s1c ranking up at 0/10/20/30, s3c at 4 points), edges with a point count, the pre-spec state.
+    void frostguardTests(std::map<long long, Json> const& treeJson)
+    {
+        auto m = model(treeJson.at(820), treeJson.at(821), 1);
+        m->points[0][1] = {23, 36};
+        std::vector<std::string> problems;
+        m->Finish(problems);
+        check(problems.empty(), "frostguard model: " + (problems.empty() ? std::string() : problems[0]));
+        EfSpec const& fg = *m->Spec(91);
+        SpellSet const none = m->Expected(fg, {}, 60);
+        check(none.count(81011) && none.count(81021) && none.count(81031) && !none.count(81032) && !none.count(81071),
+              "granted at once: s1a, s1b, s1c rank 1; s3c not before 4 points");
+        // 10 paid points: s2a 4, s3a, s3b, s4b 2, s4a 2 -> s1c rank 2, s3c granted
+        eft::Pairs const ten = {{8104, {4, 0}}, {8105, {1, 0}}, {8106, {1, 0}}, {8109, {2, 0}}, {8108, {2, 0}}};
+        check(m->PaidIn(m->trees[821], ten, 1) == 10, "PaidIn counts paid ranks");
+        SpellSet const at10 = m->Expected(fg, ten, 60);
+        check(at10.count(81032) && !at10.count(81031) && at10.count(81071), "s1c ranks up at 10 points, s3c is granted at 4");
+        std::string const wire = m->LoadoutString(fg, ten);
+        check(m->Validate(fg, wire, 60).ok(), "the 10-point build is valid");
+        // a granted node's digit in a wire string is not stored
+        std::string given = wire;
+        given[given.find('.') + 1] = '1'; // s1a
+        auto pairs = m->PairsOf(fg, given);
+        check(pairs && !pairs->count(8101) && *pairs == ten, "a granted node's digit is never stored");
+        // a granted replacing node replaces at once; the class-wide map takes its spells back to the replaced spell
+        for (EfNode& n : m->trees[821].nodes)
+            if (n.id == 8101)
+                n.replaces = 777;
+        auto const reps = m->Replacements(fg, {}, [](uint32_t) { return false; });
+        check(reps.size() == 1 && reps[0].replaced == 777 && reps[0].by == 81011, "a granted replacing node is invested at once");
+        check(m->ReplacedBy(1).at(81011) == 777, "ReplacedBy maps the node's spell back");
+        check(!m->Expected(fg, {}, 60).count(777), "the replaced spell is not expected");
+        // the pre-spec state: the class tree only, spec bit 0
+        EfSpec const* pre = m->PreSpec(1);
+        check(pre && pre->id == 0 && m->SpecOrPre(0, 1) == pre && m->SpecOrPre(0, 2) == nullptr, "PreSpec / SpecOrPre");
+        if (pre)
+        {
+            eft::Pairs const cls = {{8001, {2, 0}}, {8002, {1, 0}}, {8003, {1, 0}}}; // c1a 2, c1b 1, c2a (Barrier) 1
+            std::string const pw = m->LoadoutString(*pre, cls);
+            check(!pw.empty() && pw.back() == '.', "a pre-spec loadout has an empty spec part");
+            m->points[0][5] = {4, 0};
+            m->points[0][4] = {3, 0};
+            check(m->Validate(*pre, pw, 5).ok() && m->Validate(*pre, pw, 4).code == RuleError::BudgetClass, "pre-spec budgets");
+            check(m->PairsOf(*pre, pw) == cls, "pre-spec pairs");
+            SpellSet const pe = m->Expected(*pre, cls, 5);
+            check(pe.count(80011 + 1) && pe.count(80031) && !pe.count(81011), "pre-spec: the class tree's spells, no spec tree");
+        }
+        std::cout << "frostguard: granted nodes, pre-spec\n";
     }
 
     void runVectors(std::string const& path)
@@ -270,12 +334,19 @@ namespace
 
             // The model gives the same answer, and a valid loadout survives wire -> pairs -> wire.
             uint32_t const sort = c["specBit"].num() == 2 ? 2 : 1;
-            auto m = model(treeJson.at(c["classTree"].num()), treeJson.at(c["specTree"].num()), sort);
+            // the pre-spec state (spec tree 0, T6): a model over the class tree with any spec tree, its PreSpec
+            bool const pre = c["specTree"].num() == 0;
+            long long specTreeId = c["specTree"].num();
+            if (pre)
+                for (auto const& [id, t] : treeJson)
+                    if (id != 0 && id != c["classTree"].num())
+                        specTreeId = id;
+            auto m = model(treeJson.at(c["classTree"].num()), treeJson.at(specTreeId), sort);
             m->points[0][1] = {static_cast<uint32_t>(c["classBudget"].num()), static_cast<uint32_t>(c["specBudget"].num())};
             std::vector<std::string> problems;
             m->Finish(problems);
             check(problems.empty(), c["name"].str() + ": model problems: " + (problems.empty() ? "" : problems[0]));
-            EfSpec const& spec = *m->Spec(91);
+            EfSpec const& spec = pre ? *m->PreSpec(1) : *m->Spec(91);
             RuleResult const mr = m->Validate(spec, c["loadout"].str(), static_cast<uint32_t>(c["level"].num()));
             check(mr.code == r.code && mr.detail == r.detail, c["name"].str() + ": the model's Validate differs");
             if (r.ok())
@@ -305,6 +376,11 @@ namespace
         check(cases > 0, path + ": no cases");
         std::cout << path << ": " << cases << " cases\n";
 
+        if (!treeJson.count(810) || !treeJson.count(811))
+        {
+            frostguardTests(treeJson);
+            return; // the rest is about the example tree
+        }
         // Remap after a data change: a node removed, a max rank lowered, an option removed.
         auto m = model(treeJson.begin()->second, std::next(treeJson.begin())->second, 1);
         m->points[0][1] = {99, 99};
@@ -320,6 +396,33 @@ namespace
         m->Finish(problems); // the choice node has one option now: a problem, but Remap still works
         eft::Pairs const kept2 = m->Remap(*m->Spec(91), pairs, changed);
         check(changed && kept2.at(9101).rank == 1 && !kept2.count(9104), "Remap clamps ranks and drops a lost option");
+
+        // Replacing nodes (M6): the class tree's 9004 replaces the baseline spell 91901 (as in the example tree).
+        auto r = model(treeJson.begin()->second, std::next(treeJson.begin())->second, 1);
+        r->points[0][1] = {99, 99};
+        r->Finish(problems);
+        EfTree& ct = r->trees[810];
+        for (EfNode& n : ct.nodes)
+            if (n.id == 9004)
+                n.replaces = 91901;
+        EfSpec const& lamp = *r->Spec(91);
+        auto const notPassive = [](uint32_t) { return false; };
+        eft::Pairs const without = {{9002, {2, 0}}};
+        eft::Pairs const with = {{9002, {2, 0}}, {9004, {1, 0}}};
+        SpellSet const before = r->Expected(lamp, without, 20), after = r->Expected(lamp, with, 20);
+        check(before.count(91901) && !after.count(91901) && after.count(90041), "an invested replacing node takes the baseline spell's place");
+        auto const reps = r->Replacements(lamp, with, notPassive);
+        check(reps.size() == 1 && reps[0].replaced == 91901 && reps[0].by == 90041 && reps[0].nodeSpells == std::vector<uint32_t>{90041},
+              "Replacements: replaced, by, the node's spells");
+        auto const idle = r->Replacements(lamp, without, notPassive);
+        check(idle.size() == 1 && idle[0].by == 0, "Replacements: a node that is not invested replaces nothing");
+        check(r->Replaced(lamp, with, notPassive) == std::set<uint32_t>{91901} && r->Replaced(lamp, without, notPassive).empty(), "Replaced");
+        // a passive first spell of the rank: the ability after it goes on the bars
+        for (EfNode& n : ct.nodes)
+            if (n.id == 9004)
+                n.ranks[0] = {77, 78};
+        auto const passiveFirst = r->Replacements(lamp, with, [](uint32_t s) { return s == 77; });
+        check(passiveFirst.size() == 1 && passiveFirst[0].by == 78, "Replacements: the first non-passive spell goes on the bars");
     }
 
     void protocolTests()

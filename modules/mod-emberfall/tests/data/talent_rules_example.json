@@ -13,7 +13,10 @@
      "numOptions": 0,
      "requiredLevel": 0,
      "freeSpecMask": 1,
-     "parents": []
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
     },
     {
      "id": 9002,
@@ -23,7 +26,12 @@
      "numOptions": 0,
      "requiredLevel": 0,
      "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
      "parents": [
+      0
+     ],
+     "parentRanks": [
       0
      ]
     },
@@ -35,28 +43,39 @@
      "numOptions": 0,
      "requiredLevel": 0,
      "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
      "parents": [
+      0
+     ],
+     "parentRanks": [
       0
      ]
     },
     {
      "id": 9004,
      "row": 3,
-     "kind": 1,
+     "kind": 2,
      "maxRank": 1,
      "numOptions": 0,
      "requiredLevel": 0,
      "freeSpecMask": 0,
+     "gate": 3,
+     "auto": [],
      "parents": [
       1,
       2
+     ],
+     "parentRanks": [
+      0,
+      0
      ]
     }
    ],
    "gates": [
     {
      "row": 3,
-     "points": 4
+     "points": 3
     }
    ]
   },
@@ -71,7 +90,10 @@
      "numOptions": 0,
      "requiredLevel": 0,
      "freeSpecMask": 0,
-     "parents": []
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
     },
     {
      "id": 9102,
@@ -81,7 +103,12 @@
      "numOptions": 0,
      "requiredLevel": 0,
      "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
      "parents": [
+      0
+     ],
+     "parentRanks": [
       0
      ]
     },
@@ -93,7 +120,12 @@
      "numOptions": 0,
      "requiredLevel": 0,
      "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
      "parents": [
+      0
+     ],
+     "parentRanks": [
       0
      ]
     },
@@ -105,9 +137,15 @@
      "numOptions": 2,
      "requiredLevel": 0,
      "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
      "parents": [
       1,
       2
+     ],
+     "parentRanks": [
+      0,
+      0
      ]
     },
     {
@@ -118,8 +156,13 @@
      "numOptions": 0,
      "requiredLevel": 30,
      "freeSpecMask": 0,
+     "gate": 6,
+     "auto": [],
      "parents": [
       3
+     ],
+     "parentRanks": [
+      0
      ]
     }
    ],
@@ -138,7 +181,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 10,
-   "classBudget": 1,
+   "classBudget": 9,
    "specBudget": 0,
    "loadout": "0000.00000",
    "code": "OK",
@@ -150,7 +193,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 10,
-   "classBudget": 1,
+   "classBudget": 9,
    "specBudget": 0,
    "loadout": "1000.00000",
    "code": "OK",
@@ -162,7 +205,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 10,
-   "classBudget": 1,
+   "classBudget": 9,
    "specBudget": 0,
    "loadout": "2000.00000",
    "code": "OK",
@@ -174,18 +217,18 @@
    "specTree": 811,
    "specBit": 2,
    "level": 10,
-   "classBudget": 1,
+   "classBudget": 9,
    "specBudget": 0,
    "loadout": "2000.00000",
    "code": "RANK",
    "detail": 9001
   },
   {
-   "name": "two class points at level 10",
+   "name": "two class points at level 2",
    "classTree": 810,
    "specTree": 811,
    "specBit": 1,
-   "level": 10,
+   "level": 2,
    "classBudget": 1,
    "specBudget": 0,
    "loadout": "0200.00000",
@@ -193,13 +236,13 @@
    "detail": 0
   },
   {
-   "name": "two class points at level 12",
+   "name": "two class points at level 3",
    "classTree": 810,
    "specTree": 811,
    "specBit": 1,
-   "level": 12,
+   "level": 3,
    "classBudget": 2,
-   "specBudget": 1,
+   "specBudget": 0,
    "loadout": "0200.00000",
    "code": "OK",
    "detail": 0
@@ -210,7 +253,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0300.00000",
    "code": "RANK",
@@ -222,7 +265,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0001.00000",
    "code": "PATH",
@@ -234,19 +277,19 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0101.00000",
    "code": "PATH",
    "detail": 9004
   },
   {
-   "name": "the gate counts the free node but needs four",
+   "name": "the gate counts paid points only, not the free node",
    "classTree": 810,
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0011.00000",
    "code": "GATE",
@@ -258,7 +301,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0211.00000",
    "code": "OK",
@@ -270,7 +313,7 @@
    "specTree": 811,
    "specBit": 2,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0211.00000",
    "code": "PATH",
@@ -282,7 +325,7 @@
    "specTree": 811,
    "specBit": 2,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "1211.00000",
    "code": "OK",
@@ -294,18 +337,18 @@
    "specTree": 811,
    "specBit": 2,
    "level": 10,
-   "classBudget": 1,
+   "classBudget": 9,
    "specBudget": 0,
    "loadout": "1000.00000",
    "code": "OK",
    "detail": 0
   },
   {
-   "name": "another spec: two points at level 10",
+   "name": "another spec: two points at level 2",
    "classTree": 810,
    "specTree": 811,
    "specBit": 2,
-   "level": 10,
+   "level": 2,
    "classBudget": 1,
    "specBudget": 0,
    "loadout": "1100.00000",
@@ -318,7 +361,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 20,
-   "classBudget": 6,
+   "classBudget": 14,
    "specBudget": 5,
    "loadout": "0000.21000",
    "code": "OK",
@@ -330,7 +373,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 20,
-   "classBudget": 6,
+   "classBudget": 14,
    "specBudget": 5,
    "loadout": "0000.23100",
    "code": "BUDGET_S",
@@ -342,7 +385,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.23100",
    "code": "OK",
@@ -354,7 +397,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.230a0",
    "code": "OK",
@@ -366,7 +409,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.201b0",
    "code": "OK",
@@ -378,7 +421,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.220a0",
    "code": "PATH",
@@ -390,7 +433,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.23110",
    "code": "CHOICE",
@@ -402,7 +445,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.231c0",
    "code": "CHOICE",
@@ -414,7 +457,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.2a000",
    "code": "DECODE",
@@ -426,7 +469,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.231d0",
    "code": "DECODE",
@@ -438,7 +481,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 29,
-   "classBudget": 10,
+   "classBudget": 18,
    "specBudget": 10,
    "loadout": "0000.231a1",
    "code": "LEVEL",
@@ -450,7 +493,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.231a1",
    "code": "OK",
@@ -462,11 +505,11 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.211a1",
    "code": "GATE",
-   "detail": 4
+   "detail": 6
   },
   {
    "name": "the class tree is checked first",
@@ -474,7 +517,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0300.30000",
    "code": "RANK",
@@ -485,7 +528,7 @@
    "classTree": 810,
    "specTree": 811,
    "specBit": 1,
-   "level": 10,
+   "level": 2,
    "classBudget": 1,
    "specBudget": 0,
    "loadout": "0200.10000",
@@ -498,7 +541,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.30000",
    "code": "RANK",
@@ -510,7 +553,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "000.00000",
    "code": "DECODE",
@@ -522,7 +565,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.000000",
    "code": "DECODE",
@@ -534,7 +577,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "000000000",
    "code": "DECODE",
@@ -546,7 +589,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0000.00.000",
    "code": "DECODE",
@@ -558,7 +601,7 @@
    "specTree": 811,
    "specBit": 1,
    "level": 30,
-   "classBudget": 11,
+   "classBudget": 19,
    "specBudget": 10,
    "loadout": "0211.231a1",
    "code": "OK",
@@ -570,8 +613,8 @@
    "specTree": 811,
    "specBit": 1,
    "level": 80,
-   "classBudget": 36,
-   "specBudget": 35,
+   "classBudget": 23,
+   "specBudget": 36,
    "loadout": "1211.231b1",
    "code": "OK",
    "detail": 0

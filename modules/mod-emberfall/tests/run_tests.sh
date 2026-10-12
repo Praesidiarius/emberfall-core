@@ -13,5 +13,5 @@ OUT=${TMPDIR:-/tmp}/mod-emberfall-talent-tests.$$
 trap 'rm -f "$OUT"' EXIT
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/talents" \
     "$HERE/talent_tests.cpp" -o "$OUT"
-if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json"; fi
+if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json" "$HERE/data/talent_rules_frostguard.json"; fi
 "$OUT" "$@"
