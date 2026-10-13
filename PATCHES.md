@@ -54,6 +54,12 @@ independent of `Emberfall.OwnData`) is module code only, on hooks that exist ups
 from the module's `data/sql/db-world` and `db-characters` (applied by dbimport). No core hunk. See
 `modules/mod-emberfall/README.md`.
 
+The companions (Emberfall `docs/design/companions.md`: `.efparty`, AI party members for testing; switch
+`Emberfall.Companions.Enable`, default 1) are module code and data only: guardians summoned with a stock SummonProperties
+row, a `CreatureScript` AI, `PlayerScript` hooks (`OnPlayerUpdate`, `OnPlayerLogout`, `OnPlayerMapChanged`,
+`OnPlayerLevelChanged`, `OnPlayerJustDied`), a `CommandScript`, and the module's `ef_companion_*` tables and creature rows
+(990001-990005, stock world only). No core hunk. See `modules/mod-emberfall/README.md`.
+
 Why the rest stays in the core: #1, #3 and #4 run inside `LoadDBCStores` / `LoadSpellInfoCorrections`
 and #2's skip at the start of `SetInitialWorldSettings`, all before the first hook a module gets
 (`OnLoadCustomDatabaseTable` comes before the DBCs, the next one after them is far later); #8 is

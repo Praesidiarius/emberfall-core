@@ -112,3 +112,36 @@ untouched.
 | `emberfall_classkit_player` | `OnPlayerLogin`, `OnPlayerLevelChanged` | for a kit class: takes away the class's own stock class skill lines (a SkillRaceClassInfo row naming the class alone), spells and auras of the stock family, buttons of spells the character does not know; logs what it took |
 | `emberfall_classkit_commands` | `CommandScript` | `.efkit` (the kit and what the selected player knows of it), `.efkit purge` |
 | `spell_ef_kit_add_stacks`, `spell_ef_kit_shatter`, `spell_ef_kit_absorb_pct_health`, `spell_ef_kit_line_targets`, `spell_ef_kit_interrupt_followup`, `spell_ef_kit_rest_regen` | `SpellScript`/`AuraScript` (`spell_script_names` from the kit) | the kits' generic mechanics, each reading its numbers from the spell's own effects (contracts at the top of `src/emberfall_classkit.cpp`): stacks with thresholds, shatter + one capped shell + mana refund, an absorb in percent of max health, line targets, an interrupt follow-up, out-of-combat mana |
+
+## Companions (Emberfall `docs/design/companions.md`)
+
+AI party members for testing, like modern follower dungeons: a GM summons them with `.efparty` at the GM's level, by
+role (tank, healer, dps, melee, ranged). Each is a Guardian of its owner (SummonProperties 61), so it follows, has the
+owner's faction, gives the owner kill credit, has no threat list of its own and goes with the owner; a far teleport
+summons the roster again. Switch `Emberfall.Companions.Enable` (default 1; `AC_EMBERFALL_COMPANIONS_ENABLE`); the
+command needs `Emberfall.Companions.Security` (default 2). The other keys (`MaxPerPlayer`, `DpsWaitMs`, `DpsWaitThreat`,
+`ThreatCap`, `Leash`, `FrameMs`, `NoProximityAggro`) are in companions.md §1.
+
+| File | What |
+|---|---|
+| `data/sql/db-world/mod_emberfall_2026_10_13_00_companions.sql` | `ef_companion_archetype` (creature, role, scaling), `ef_companion_spell` (abilities by kind and priority, rank-1 IDs), the stock stand-in set (warrior, priest, mage, rogue, hunter: creatures 990001-990005 with ScriptName `npc_ef_companion`), help texts of `.efparty` |
+| `src/companions/EfCompanionLogic.h` | the parts without the core: `.efparty add` arguments, formation, level scaling, rank choice, the healer's triage, the DPS start gate and threat cap, regen, the EFC message |
+| `src/companions/EfCompanions.{h,cpp}` | config and data, the owner's roster (`Player::CustomData`), summoning and scaling, the mob tracker and stats, the EFC frame message |
+| `src/companions/EfCompanionAI.cpp` | `npc_ef_companion`: one AI for every role (follow, assist, tank, heal, eat/drink, resurrect, leash, ground effects) |
+| `src/emberfall_companions.cpp` | the hooks and `.efparty` |
+| `tests/companion_tests.cpp` | the standalone tests of `EfCompanionLogic.h` (`tests/run_tests.sh`) |
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_companions_world` | `WorldScript::OnAfterConfigLoad`, `OnBeforeWorldInitialized` | reads the config, loads the archetypes (boot line `>> Emberfall companions: 5 archetypes: ...`) |
+| `emberfall_companions_player` | `OnPlayerUpdate` | the owner's tracker (tank hold times, fight stats) every 100 ms and the EFC frame message (every 500 ms when it changed, else 5 s) |
+| | `OnPlayerLogout`, `OnPlayerMapChanged`, `OnPlayerLevelChanged`, `OnPlayerJustDied` | forget the roster; summon it again on the new map; re-scale; count the death |
+| `emberfall_companions_commands` | `CommandScript` | `.efparty [list]`, `add`, `remove`, `stay`, `follow`, `assist`, `level`, `stats`, `threat`, `reload` |
+| `npc_ef_companion` | `CreatureScript` | the AI |
+
+Protocol to Emberfall's client: an addon whisper in the owner's name, `EFC\t1;<count>;<guid hex>,<role>,<archetype>,<hp %>,
+<mana % or ->,<state>;...` (the client hands this reserved prefix to its UI only from ourselves).
+
+Movement is point movement at the height of the unit a companion goes to: the core's follow and chase generators
+recompute their destinations from the map's ground, which a dungeon without vmaps (the stock-world profiles) does not
+have, and a following guardian then climbs into the air.

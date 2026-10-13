@@ -21,10 +21,12 @@
 void AddEmberfallOwnDataScripts();
 void AddEmberfallTalentsScripts();
 void AddEmberfallClassKitScripts();
+void AddEmberfallCompanionsScripts();
 
 void Addmod_emberfallScripts()
 {
     AddEmberfallOwnDataScripts();
     AddEmberfallTalentsScripts();
     AddEmberfallClassKitScripts();
+    AddEmberfallCompanionsScripts();
 }
