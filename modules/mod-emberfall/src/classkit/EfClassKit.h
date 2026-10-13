@@ -84,8 +84,29 @@ namespace Emberfall::ClassKit
     uint32 TakeStacks(Unit* caster, Unit* target, uint32 stackSpell, uint32 count);
     // One shell per caster: `add` joins the shell aura `shellSpell` (school absorb, effect 2 = its cap in percent of
     // max health), capped; its duration becomes the longest of the remaining and `durationMs`.
+    //   The shell spell's own spell mods apply: its effect 1's (SPELLMOD_EFFECT1) scale every amount added, its effect
+    //   2's move the cap (Deep Shell, Winter's Embrace). The caster's conditional passives follow at once.
     void AddToShell(Unit* caster, uint32 shellSpell, int32 add, int32 durationMs);
+    // Hit bonuses: every caster aura effect of type dummy whose misc value is `spellId` (the spell that hit), whose misc
+    // B is at most `stacks` (the stacks the target carried; 0: any) and that has a trigger spell rolls its amount as a
+    // chance in percent (0 or 100+: always) and then casts the trigger at the target; a stacking trigger (an aura with a
+    // stack maximum) adds one stack through AddStacks instead (Splintering Cold, Driving Snow, Frozen Grip, Whiteout,
+    // Improved Glacial Rupture).
+    void HitBonuses(Unit* caster, Unit* target, uint32 spellId, uint32 stacks);
+    // `consumed` stacks of `stackSpell` were shattered: every non-passive caster aura with a dummy effect whose misc value
+    // is `stackSpell`, whose misc B (seconds) is above 0 and that has no trigger spell lasts the effect's amount in ms
+    // longer per stack, until it has run misc B seconds beyond its spell's duration (Hoarstorm).
+    void ExtendByStacks(Unit* caster, uint32 stackSpell, uint32 consumed);
+    // The unit's conditional passives (spell_ef_kit_conditional) recompute their amounts now.
+    void RefreshConditionals(Unit* unit);
+    // Whether a creature counts as a boss for the kits' crowd control (world boss, dungeon boss, boss rank).
+    bool IsBoss(Unit const* unit);
 
     // `.efkit` / `.efkit dump`: the kit of the selected player's class and what it knows of it.
     void Dump(Player* player, std::vector<std::string>& lines);
+    // `.efkit auras`: the class kit auras on a unit (the selected one), one line each: "EFAURA <spell> <stacks>
+    // <amount 1> <amount 2> <amount 3> <ms left> <caster is the viewer>"; for a player also "EFAURA cd <spell> <ms left>"
+    // per kit spell on cooldown (the server's, spell mods included); last "EFAURA end <name> <count> health <hp> <max>
+    // combat <0|1>".
+    void DumpAuras(Unit* unit, Player* viewer, std::vector<std::string>& lines);
 }

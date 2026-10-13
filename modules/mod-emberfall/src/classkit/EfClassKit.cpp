@@ -18,6 +18,7 @@
 #include "EfClassKit.h"
 
 #include "Config.h"
+#include "Creature.h"
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
@@ -31,6 +32,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 
 namespace Emberfall::ClassKit
 {
@@ -322,9 +324,25 @@ namespace Emberfall::ClassKit
         SpellInfo const* info = sSpellMgr->GetSpellInfo(shellSpell);
         if (!caster || !info || add <= 0)
             return;
+        // the shell's own spell mods: effect 1's scale the amount (Winter's Embrace), effect 2's the cap (CalcValue
+        // applies them: Deep Shell, Winter's Embrace)
+        if (Player* modOwner = caster->GetSpellModOwner())
+            modOwner->ApplySpellMod(shellSpell, SPELLMOD_EFFECT1, add);
         int32 const capPct = info->Effects[EFFECT_1].CalcValue(caster);
         int32 const cap = int32(caster->CountPctFromMaxHealth(capPct > 0 ? capPct : 100));
-        if (Aura* aura = caster->GetAura(shellSpell, caster->GetGUID()))
+        Aura* aura = caster->GetAura(shellSpell, caster->GetGUID());
+        if (!aura)
+        {
+            caster->CastSpell(caster, shellSpell, true);
+            aura = caster->GetAura(shellSpell, caster->GetGUID());
+            if (!aura)
+                return;
+            aura->SetMaxDuration(durationMs);
+            aura->SetDuration(durationMs);
+            if (AuraEffect* eff = aura->GetEffect(EFFECT_0))
+                eff->ChangeAmount(std::min(cap, add));
+        }
+        else
         {
             if (AuraEffect* eff = aura->GetEffect(EFFECT_0))
                 eff->ChangeAmount(std::min(cap, eff->GetAmount() + add));
@@ -333,15 +351,86 @@ namespace Emberfall::ClassKit
                 aura->SetMaxDuration(std::max(aura->GetMaxDuration(), durationMs));
                 aura->SetDuration(durationMs);
             }
+        }
+        RefreshConditionals(caster);
+    }
+
+    void HitBonuses(Unit* caster, Unit* target, uint32 spellId, uint32 stacks)
+    {
+        if (!caster || !target || !spellId)
             return;
-        }
-        int32 const bp = std::min(cap, add);
-        caster->CastCustomSpell(caster, shellSpell, &bp, nullptr, nullptr, true);
-        if (Aura* aura = caster->GetAura(shellSpell, caster->GetGUID()))
+        struct Bonus
         {
-            aura->SetMaxDuration(durationMs);
-            aura->SetDuration(durationMs);
+            uint32 trigger;
+            int32 chance;
+        };
+        std::vector<Bonus> bonuses;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+        {
+            uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
+            if (uint32(eff->GetMiscValue()) == spellId && trigger && eff->GetMiscValueB() >= 0 && stacks >= uint32(eff->GetMiscValueB()))
+                bonuses.push_back({ trigger, eff->GetAmount() });
         }
+        for (Bonus const& b : bonuses)
+        {
+            if (b.chance > 0 && b.chance < 100 && !roll_chance_i(b.chance))
+                continue;
+            if (!target->IsAlive())
+                return;
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(b.trigger);
+            if (!info)
+                continue;
+            if (info->StackAmount > 1)
+                AddStacks(caster, target, b.trigger, 1);
+            else
+                caster->CastSpell(target, b.trigger, true);
+        }
+    }
+
+    void ExtendByStacks(Unit* caster, uint32 stackSpell, uint32 consumed)
+    {
+        if (!caster || !consumed)
+            return;
+        std::vector<std::pair<Aura*, AuraEffect const*>> storms;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+        {
+            Aura* aura = eff->GetBase();
+            if (uint32(eff->GetMiscValue()) == stackSpell && eff->GetMiscValueB() > 0 && !aura->IsPassive()
+                && !eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell && aura->GetDuration() > 0)
+                storms.emplace_back(aura, eff);
+        }
+        for (auto const& [aura, eff] : storms)
+        {
+            int32 const base = aura->GetSpellInfo()->GetMaxDuration();
+            int32 const room = eff->GetMiscValueB() * IN_MILLISECONDS - std::max(0, aura->GetMaxDuration() - base);
+            int32 const add = std::min(room, int32(consumed) * std::max(0, eff->GetAmount()));
+            if (add <= 0)
+                continue;
+            aura->SetMaxDuration(aura->GetMaxDuration() + add);
+            aura->SetDuration(aura->GetDuration() + add);
+        }
+    }
+
+    void RefreshConditionals(Unit* unit)
+    {
+        if (!unit)
+            return;
+        std::vector<Aura*> auras;
+        for (AuraEffect const* eff : unit->GetAuraEffectsByType(SPELL_AURA_PERIODIC_DUMMY))
+            if (eff->GetEffIndex() == EFFECT_0 && (eff->GetMiscValue() || eff->GetMiscValueB()) && eff->GetBase()->IsPassive())
+                auras.push_back(eff->GetBase());
+        for (Aura* aura : auras)
+            for (uint8 i = EFFECT_1; i < MAX_SPELL_EFFECTS; ++i)
+                if (AuraEffect* eff = aura->GetEffect(i))
+                    eff->RecalculateAmount(unit);
+    }
+
+    bool IsBoss(Unit const* unit)
+    {
+        Creature const* creature = unit ? unit->ToCreature() : nullptr;
+        if (!creature)
+            return false;
+        return creature->isWorldBoss() || creature->IsDungeonBoss() || creature->GetCreatureTemplate()->rank == CREATURE_ELITE_WORLDBOSS;
     }
 
     namespace
@@ -389,5 +478,36 @@ namespace Emberfall::ClassKit
                     if (kit->stockFamily != SPELLFAMILY_GENERIC && info->SpellFamilyName == kit->stockFamily)
                         ++stock;
         lines.push_back(Acore::StringFormat("Stock family spells still known: {}.", stock));
+    }
+    void DumpAuras(Unit* unit, Player* viewer, std::vector<std::string>& lines)
+    {
+        if (!unit)
+            return;
+        std::set<uint32> kitSpells;
+        for (auto const& [classId, kit] : s_kits)
+            for (KitSpell const& s : kit.spells)
+                kitSpells.insert(s.spell);
+        uint32 n = 0;
+        for (auto const& [auraId, app] : unit->GetAppliedAuras())
+        {
+            Aura const* aura = app->GetBase();
+            if (!kitSpells.count(aura->GetId()))
+                continue;
+            int32 amounts[MAX_SPELL_EFFECTS] = {};
+            for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+                if (AuraEffect const* eff = aura->GetEffect(i))
+                    amounts[i] = eff->GetAmount();
+            lines.push_back(Acore::StringFormat("EFAURA {} {} {} {} {} {} {}", aura->GetId(), uint32(aura->GetStackAmount()), amounts[0],
+                                                amounts[1], amounts[2], aura->GetDuration(),
+                                                viewer && aura->GetCasterGUID() == viewer->GetGUID() ? 1 : 0));
+            ++n;
+        }
+        // the server's cooldowns of the kit spells (the client starts a cooldown from its own data, without spell mods)
+        if (Player* player = unit->ToPlayer())
+            for (uint32 spell : kitSpells)
+                if (player->HasSpellCooldown(spell))
+                    lines.push_back(Acore::StringFormat("EFAURA cd {} {}", spell, player->GetSpellCooldownDelay(spell)));
+        lines.push_back(Acore::StringFormat("EFAURA end {} {} health {} {} combat {}", unit->GetName(), n, unit->GetHealth(), unit->GetMaxHealth(),
+                                            unit->IsInCombat() ? 1 : 0));
     }
 }
