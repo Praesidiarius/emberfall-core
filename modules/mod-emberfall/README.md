@@ -113,6 +113,29 @@ untouched.
 | `emberfall_classkit_commands` | `CommandScript` | `.efkit` (the kit and what the selected player knows of it), `.efkit purge` |
 | `spell_ef_kit_add_stacks`, `spell_ef_kit_shatter`, `spell_ef_kit_absorb_pct_health`, `spell_ef_kit_line_targets`, `spell_ef_kit_interrupt_followup`, `spell_ef_kit_rest_regen` | `SpellScript`/`AuraScript` (`spell_script_names` from the kit) | the kits' generic mechanics, each reading its numbers from the spell's own effects (contracts at the top of `src/emberfall_classkit.cpp`): stacks with thresholds, shatter + one capped shell + mana refund, an absorb in percent of max health, line targets, an interrupt follow-up, out-of-combat mana |
 
+On Emberfall's own world (the emberfall-data profile, `class-kit-pipeline.md` §8) the same tables come from `world.sql`
+and the spells from Emberfall's own Spell.dbc; the profile sets the switch to 1.
+
+## Test tools (Emberfall `docs/design/class-kit-pipeline.md` §8.2)
+
+A test realm's players try a class kit at any level without a GM account: `src/emberfall_testtools.cpp`. Switch
+`Emberfall.TestTools.Enable` (default 0; `AC_EMBERFALL_TEST_TOOLS_ENABLE`, the compose file's `EF_TEST_TOOLS_ENABLE`);
+never on a live realm. `Emberfall.TestTools.Security` (0: any account), `.FoeEntry` and `.DummyEntry` (creature
+templates of Emberfall's data; 0 turns that command off). Every command acts on the player's own character.
+
+| Command | What |
+|---|---|
+| `.eftest level N` | own level 1 .. MaxPlayerLevel, XP 0, full health and mana (the talent system's level hook gives the points) |
+| `.eftest foe [L] [N] [idle] [hpF]` | 1-5 foes of level L (default the player's) 10 yd ahead that attack (`idle`: at the player's feet until engaged; `hp1.6`: health x 1.6, as a template's HealthModifier); 5 min or until dead |
+| `.eftest dummy [L]` | a dummy of level L: rooted, passive, no health regeneration, 200 x its health, keeps 1 health (`UnitScript::OnDamage`); 10 min |
+| `.eftest clear` / `.eftest refresh` | the player's summons gone / full health and mana, cooldowns ended |
+
+The level of a summon is set in `AllCreatureScript::OnBeforeCreatureSelectLevel` (a level pending for the next summon of
+the command), so health, damage and armour are the `creature_classlevelstats` row of that level. Foes never leash back
+to their summon point while they fight (`OnAllCreatureUpdate` keeps their leash timer fresh); a player who dies takes
+their foes and dummies along (`OnPlayerJustDied`). Help texts:
+`data/sql/db-world/mod_emberfall_2026_10_17_00_testtools.sql`. Boot line: `>> Emberfall test tools: on (...)`.
+
 ## Companions (Emberfall `docs/design/companions.md`)
 
 AI party members for testing, like modern follower dungeons: a GM summons them with `.efparty` at the GM's level, by

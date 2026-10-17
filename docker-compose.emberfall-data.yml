@@ -141,6 +141,12 @@ services:
       # mod-emberfall's class kits (Emberfall docs/design/class-kit-pipeline.md): our class abilities on a world
       # whose classes would keep their stock kits; on in the ef-classes profile, inactive without ef_class_kit rows.
       AC_EMBERFALL_CLASS_KIT_ENABLE: "${EF_CLASS_KIT_ENABLE:-0}"
+      # mod-emberfall's test tools (.eftest: own level, training foes and dummies; src/emberfall_testtools.cpp): a test
+      # realm only. The foe and dummy are creatures of Emberfall's own data (content/data/creatures.yaml).
+      AC_EMBERFALL_TEST_TOOLS_ENABLE: "${EF_TEST_TOOLS_ENABLE:-0}"
+      AC_EMBERFALL_TEST_TOOLS_SECURITY: "${EF_TEST_TOOLS_SECURITY:-0}"
+      AC_EMBERFALL_TEST_TOOLS_FOE_ENTRY: "${EF_TEST_TOOLS_FOE_ENTRY:-0}"
+      AC_EMBERFALL_TEST_TOOLS_DUMMY_ENTRY: "${EF_TEST_TOOLS_DUMMY_ENTRY:-0}"
       AC_HEROIC_CHARACTERS_PER_REALM: "0"
       AC_SKIP_CINEMATICS: "2"
       AC_DBC_ENFORCE_ITEM_ATTRIBUTES: "1"
