@@ -212,3 +212,20 @@ hedge-mage and a sellsword with Emberfall's own spells and looks; companions.md 
 |---|---|---|
 | `instance_ef_barrows` | `InstanceMapScript` (map 751, instance_template.script) | the Barrows of Cairnmoor's three seals: the barrow bosses' SmartAI `set_inst_data` 1-3 (DONE) break them; the third wakes the First Interred (97015: selectable, no longer immune to players, its yell) and summons its honour guard (97008, three, zone combat) at the foot of the vault stair; saved with the instance (`EFB <seals> <final> <gate>`); log lines `Emberfall barrows: ...` |
 | `npc_ef_dungeon_warden` | `CreatureScript` (gossip, AI) | the test realm's dungeon warden (97050 in Millbrook, 97051 inside the barrows): take me to the barrows / back to Millbrook / to the door, make me level 60, reset the barrows. **Only with `Emberfall.TestTools.Enable`**: off, its AI takes it out of the world on its first update and after every respawn (`Emberfall dungeon warden <spawn>: the test tools are off ..., it leaves the world`) and its gossip offers and does nothing |
+
+## Unstuck (Emberfall `docs/design/unstuck.md`)
+
+`src/emberfall_unstuck.cpp`; the logic without the core is `src/unstuck/EfUnstuckLogic.h` (`tests/unstuck_tests.cpp`).
+A stuck player is taken to the nearest town without a GM. `Emberfall.Unstuck.Enable` (1), `Emberfall.Unstuck.Cooldown`
+(300 seconds; 0 none; kept in memory).
+
+| Script | Hook | What |
+|---|---|---|
+| `spell_ef_unstuck` | `SpellScript` on SPELL_STUCK 7355 (spell_script_names from Emberfall's compiler) | CheckCast refuses it in combat, on a flight path and within the cooldown (`Unstuck: ...` system message); at the end of the cast (Emberfall's Spell.dbc: 5 s, moving and damage break it) a living player goes to the nearest `ef_unstuck_point` on their map, in an instance to its start point (`ObjectMgr::GetMapEntranceTrigger`), with no town on the map home; the dead keep the stock Stuck effect (their graveyard). Each use is logged: `Emberfall unstuck: <name> (guid N) from map M (x, y, z) to <place> map M (x, y, z)` |
+| `emberfall_unstuck_commands` | `CommandScript` | `.stuck` (security 0): casts 7355, as the core's `.unstuck` does for a player account |
+| `emberfall_unstuck_world` | `WorldScript` | reads the config; loads `ef_unstuck_point` (`OnLoadCustomDatabaseTable`); boot line `>> Emberfall unstuck: on (N town points, cooldown S s)` |
+
+`data/sql/db-world/mod_emberfall_2026_10_18_10_unstuck.sql`: the `ef_unstuck_point` schema (Emberfall's world SQL fills
+it from `content/data/world.yaml` teleports with `town:`), the `command` rows: `.unstuck` opened to security 0 (the stock
+row's 2 overrides the core's player permission; a GM account keeps the GM form `.unstuck $player [inn/graveyard/startzone]`)
+and `.stuck`.
