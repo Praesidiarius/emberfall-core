@@ -168,3 +168,16 @@ Protocol to Emberfall's client: an addon whisper in the owner's name, `EFC\t1;<c
 Movement is point movement at the height of the unit a companion goes to: the core's follow and chase generators
 recompute their destinations from the map's ground, which a dungeon without vmaps (the stock-world profiles) does not
 have, and a following guardian then climbs into the air.
+
+On Emberfall's own world the archetypes are content: the world SQL fills `ef_companion_archetype` and
+`ef_companion_spell` from Emberfall's `content/data/companions/companions.yaml` (a shield bearer, a lay healer, a
+hedge-mage and a sellsword with Emberfall's own spells and looks; companions.md §9), so `.efparty` works there too.
+
+## Dungeons (Emberfall `docs/design/dungeon-barrows.md`)
+
+`src/emberfall_dungeons.cpp`; the logic without the core is `src/dungeons/EfDungeonLogic.h` (`tests/dungeon_tests.cpp`).
+
+| Script | Hook | What |
+|---|---|---|
+| `instance_ef_barrows` | `InstanceMapScript` (map 751, instance_template.script) | the Barrows of Cairnmoor's three seals: the barrow bosses' SmartAI `set_inst_data` 1-3 (DONE) break them; the third wakes the First Interred (97015: selectable, no longer immune to players, its yell) and summons its honour guard (97008, three, zone combat) at the foot of the vault stair; saved with the instance (`EFB <seals> <final> <gate>`); log lines `Emberfall barrows: ...` |
+| `npc_ef_dungeon_warden` | `CreatureScript` (gossip, AI) | the test realm's dungeon warden (97050 in Millbrook, 97051 inside the barrows): take me to the barrows / back to Millbrook / to the door, make me level 60, reset the barrows. **Only with `Emberfall.TestTools.Enable`**: off, its AI takes it out of the world on its first update and after every respawn (`Emberfall dungeon warden <spawn>: the test tools are off ..., it leaves the world`) and its gossip offers and does nothing |
