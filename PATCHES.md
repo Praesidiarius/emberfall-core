@@ -31,6 +31,7 @@ the core keeps only what runs before or outside any hook.
 |---|---|---|---|
 | 8 | `GameEventMgr::StartEvent`/`StopEvent` index the event vector (sized by `MAX(eventEntry)` of `game_event`) without a bounds check; `WorldState::Load` starts the stock events 101 and 116 at every boot (out-of-bounds write with an empty `game_event`) | `src/server/game/Events/GameEventMgr.cpp:139`, `:204` | an unknown event ID returns (debug log) |
 | 9 | `PlayerInfo::displayId_m/_f` were `uint16`, so a ChrRaces player display ID above 65535 was truncated and the next position update ASSERTed in `Unit::GetCollisionHeight` (`sCreatureDisplayInfoStore.AssertEntry`). Emberfall's display IDs start at 90001 | `src/server/game/Entities/Player/Player.h:332` | `uint32` |
+| 11 | Transports (Emberfall `docs/design/harbours-and-ships.md`): `TransportMgr::LoadTransportTemplates` handed any path to `GeneratePath`, which crashes the worldserver at boot on an empty path, a gap in the node indices (null entries), a teleport at the first node, a speed or acceleration of 0, or a node on a map Map.dbc lacks; `LoadDBCStores` indexed its path table by a TaxiPathNode's path unchecked (out of bounds when TaxiPath.dbc ends before it) | `src/server/game/Maps/TransportMgr.cpp` (`EmberfallTransportPathProblem`, `LoadTransportTemplates`), `src/server/game/DataStores/DBCStores.cpp` (the path lengths and nodes) | the transport, or the node, is skipped with an error (stock data never hits them) |
 
 ## Module (`modules/mod-emberfall`)
 
@@ -46,6 +47,7 @@ it never conflicts on a rebase. `/modules/*` is in upstream's `.gitignore`: add 
 | #2, second half (`World.cpp`) | `emberfall_own_data_world` (`WorldScript::OnBeforeWorldInitialized`) | WARN `Emberfall.OwnData: no map file for the start position of race R class C ...` per `playercreateinfo` position without a `.map` file (Emberfall's log check forbids it once the server has our maps) |
 | #5 (`BattlefieldMgr.cpp`) | `emberfall_own_data_world` (`WorldScript::OnAfterConfigLoad`) | `Wintergrasp.Enable` forced to 2 (a WARN when it was not) |
 | #7 (`MiscHandler.cpp`) | `emberfall_own_data_server` (`ServerScript::CanPacketReceive`) | when Map.dbc lacks map 571 or 0: a group leader's raid difficulty change is refused (`SendRaidDifficulty`) instead of the core creating both maps and asserting. With Emberfall's placeholder rows (`dbc_placeholders.sql`, loaded by default) both maps exist and the stock handler runs, as with the old patch |
+| — (new) | `npc_ef_harbourmaster` (`CreatureScript` gossip; `src/emberfall_harbours.cpp`) | the harbourmasters of Emberfall's harbours (docs/design/harbours-and-ships.md) tell the next sailing of the ships that berth at their pier, from the live MO transport's path progress; any data |
 
 The spec and talent system (Emberfall talents.md §3; switch `Emberfall.Talents.Enable`, default 0,
 independent of `Emberfall.OwnData`) is module code only, on hooks that exist upstream: `OnPlayerCanUseChat`

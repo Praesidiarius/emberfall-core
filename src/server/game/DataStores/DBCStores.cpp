@@ -549,8 +549,16 @@ void LoadDBCStores(std::string const& dataPath)
 
     for (uint32 i = 1; i < sTaxiPathNodeStore.GetNumRows(); ++i)
         if (TaxiPathNodeEntry const* entry = sTaxiPathNodeStore.LookupEntry(i))
+        {
+            // EMBERFALL: a node of a path past TaxiPath.dbc's last row wrote out of bounds (PATCHES.md #11)
+            if (entry->path >= pathCount)
+            {
+                LOG_ERROR("server.loading", "TaxiPathNode {}: path {} has no TaxiPath row (the table ends at {}), skipped", i, entry->path, pathCount - 1);
+                continue;
+            }
             if (pathLength[entry->path] < entry->index + 1)
                 pathLength[entry->path] = entry->index + 1;
+        }
 
     // Set path length
     sTaxiPathNodesByPath.resize(pathCount);                 // 0 and some other indexes not used
@@ -559,7 +567,8 @@ void LoadDBCStores(std::string const& dataPath)
 
     // fill data
     for (TaxiPathNodeEntry const* entry : sTaxiPathNodeStore)
-        sTaxiPathNodesByPath[entry->path][entry->index] = entry;
+        if (entry->path < pathCount)   // EMBERFALL: as above (PATCHES.md #11)
+            sTaxiPathNodesByPath[entry->path][entry->index] = entry;
 
     // Initialize global taxinodes mask
     // include existed nodes that have at least single not spell base (scripted) path

@@ -249,3 +249,14 @@ Bulwark's ward) are not reported. Nothing is sent at login unless an absorb is u
 | `emberfall_absorbs_player` | `PlayerScript` `OnPlayerUpdate`, `OnPlayerLogin`, `OnPlayerLogout` | the 100 ms check and the messages (state in the player's `CustomData`; a player without absorbs costs one look at two aura lists); login and logout clear the state |
 | `emberfall_absorbs_commands` | `CommandScript` | `.efabsorb` (GM): the selected player's (or one's own) tracked values, `EFABS <spellId> <left> <cap>` per absorb, then `EFABS end` |
 | `emberfall_absorbs_world` | `WorldScript` | reads the config; boot line `>> Emberfall absorbs: on (EFA, every 100 ms)` |
+
+## Harbours (Emberfall `docs/design/harbours-and-ships.md`)
+
+`src/emberfall_harbours.cpp`; the logic without the core is `src/harbours/EfHarbourLogic.h` (`tests/harbour_tests.cpp`).
+The ships themselves are stock AzerothCore MO transports (gameobject type 15 on a TaxiPathNode path, spawned from
+`transports`; Emberfall's compiler writes the rows); the core's only change for them is PATCHES.md #11 (a malformed path is
+skipped instead of crashing the boot). No table, no config.
+
+| Script | Hook | What |
+|---|---|---|
+| `npc_ef_harbourmaster` | `CreatureScript` gossip (creature_template ScriptName from Emberfall's compiler) | the NPC's own npc_text (its entry: the route) and, per ship whose path stops within 90 yd of it on its map, a line with the next sailing from the live ship's path progress and period: `The War Ferry is at the pier: it sails in 35 s.` or `The War Ferry is due in 2 min 10 s and sails 50 s after.`; picking the line asks again |

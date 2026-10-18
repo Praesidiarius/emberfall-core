@@ -23,7 +23,28 @@
 #include "Transport.h"
 #include "TaskScheduler.h"
 #include "Config.h"
+#include "StringFormat.h"
 #include <chrono>
+
+// EMBERFALL: what GeneratePath would crash on in a transport's path (PATCHES.md #11): fewer than four nodes, a gap in
+// the node indices (a null entry), a teleport at the first node (it marks the key frame before it, which does not
+// exist), a speed or acceleration of 0 (divisions) or a node on a map Map.dbc lacks. Empty when the path is sound.
+static std::string EmberfallTransportPathProblem(GameObjectTemplate const* goInfo, TaxiPathNodeList const& path)
+{
+    if (path.size() < 4)
+        return Acore::StringFormat("{} path nodes (at least 4 are needed)", path.size());
+    for (std::size_t i = 0; i < path.size(); ++i)
+        if (!path[i])
+            return Acore::StringFormat("no node with index {} (the indices must run 0..{})", i, path.size() - 1);
+    if ((path[0]->actionFlag & 1) || path[0]->mapid != path[1]->mapid)
+        return "a teleport at the first node";
+    if (!goInfo->moTransport.moveSpeed || !goInfo->moTransport.accelRate)
+        return "a speed or acceleration of 0 (data1, data2)";
+    for (TaxiPathNodeEntry const* node : path)
+        if (!sMapStore.LookupEntry(node->mapid))
+            return Acore::StringFormat("a node on map {}, which Map.dbc lacks", node->mapid);
+    return {};
+}
 
 TransportTemplate::~TransportTemplate()
 {
@@ -79,6 +100,13 @@ void TransportMgr::LoadTransportTemplates()
         if (goInfo->moTransport.taxiPathId >= sTaxiPathNodesByPath.size())
         {
             LOG_ERROR("entities.transport", "Transport {} (name: {}) has an invalid path specified in `gameobject_template`.`data0` ({}) field, skipped.", entry, goInfo->name, goInfo->moTransport.taxiPathId);
+            continue;
+        }
+
+        // EMBERFALL: a malformed path is skipped with an error instead of crashing GeneratePath (PATCHES.md #11)
+        if (std::string const problem = EmberfallTransportPathProblem(goInfo, sTaxiPathNodesByPath[goInfo->moTransport.taxiPathId]); !problem.empty())
+        {
+            LOG_ERROR("entities.transport", "Transport {} (name: {}) path {}: {}, skipped.", entry, goInfo->name, goInfo->moTransport.taxiPathId, problem);
             continue;
         }
 
