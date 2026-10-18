@@ -116,6 +116,37 @@ untouched.
 On Emberfall's own world (the emberfall-data profile, `class-kit-pipeline.md` §8) the same tables come from `world.sql`
 and the spells from Emberfall's own Spell.dbc; the profile sets the switch to 1.
 
+## Profession specialisations (Emberfall `docs/design/professions.md` §10)
+
+Three trees per profession (Mining, Herbalism, Alchemy), points from profession skill (one per 10), on the talent
+system's rules (`src/talents/TalentRules.h`, included, unchanged) with one budget per profession and "a stored rank never
+goes down" (a whole tree is reset at the profession trainer for coin). On when the `ef_prof_*` world tables have rows;
+switch `Emberfall.ProfSpecs.Enable` (default 1, `AC_EMBERFALL_PROFSPECS_ENABLE`). Independent of the talent system.
+
+| File | What |
+|---|---|
+| `data/sql/db-world/mod_emberfall_2026_10_18_00_profspecs.sql` | the eight `ef_prof_*` tables (schema; Emberfall's compiler writes the rows into `world.sql`) and the help texts of `.efprof` |
+| `data/sql/db-characters/mod_emberfall_2026_10_18_00_profspecs.sql` | `ef_character_prof_rank` (guid, node, rank), `ef_character_prof_granted` (the rank spells the module taught) |
+| `src/profspecs/EfProfModel.h` | the loaded trees and the pure functions: the base-36 wire string, validation (TalentRules per tree, the budget, no lower rank), the expected rank spells, effect sums, resets, remapping after a data change (`tests/profspec_tests.cpp`, `tests/run_profspec_tests.sh`) |
+| `src/profspecs/EfProfSpecs.{h,cpp}` | loading, per-character state, the `EFP` protocol (HELLO, APPLY -> STATE, GONE, RESET, NODES, OK/ERR), the rank spells, the effects, the trainer's reset, the GM dump |
+| `src/emberfall_profspecs.cpp` | the hooks and `.efprof dump|reset [skill]|reload|send BODY` |
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_profspecs_world` | `OnAfterConfigLoad`, `OnBeforeWorldInitialized` | the switch; loads and checks the tables (every rank spell in Spell.dbc), `skill_discovery_template`; boot line `>> Emberfall profession specialisations: 9 trees, ...` |
+| `emberfall_profspecs_player` | `OnPlayerLogin` | loads the ranks, drops those that no longer hold, reconciles the rank spells |
+| | `OnPlayerCanUseChat` (whisper) | consumes every `EFP\t` addon whisper; answers the player's own |
+| | `OnPlayerSetSkill` | a profession unlearned loses its ranks (GONE); learned or set: STATE |
+| | `OnPlayerBeforeSendLoot` | yield: a herb or ore node's loot, once per loot generation, `+1` of a node's item on a roll |
+| | `OnPlayerUpdateCraftingSkill` | the steady hand (a second item, the double batch) and the careful reading (one more discovery roll) after a craft |
+| | `OnPlayerUpdate` | Far Sight: every 3 s the tracked nodes within sight + the ranks' yards the client does not have (`NODES`) |
+| | `OnPlayerDeleteFromDB` | deletes the `ef_character_prof_*` rows |
+| `emberfall_profspecs_trainers` | `AllCreatureScript::CanCreatureGossipHello/Select` | a profession trainer's menu plus "Unlearn <tree> (N points)" (box text, price); the reset |
+| `emberfall_profspecs_commands` | `CommandScript` | `.efprof` |
+
+Gather speed and duration are the rank spells' own `add_pct_modifier` auras (Emberfall's spell family 120); the module
+only teaches and removes the rank spells.
+
 ## Test tools (Emberfall `docs/design/class-kit-pipeline.md` §8.2)
 
 A test realm's players try a class kit at any level without a GM account: `src/emberfall_testtools.cpp`. Switch

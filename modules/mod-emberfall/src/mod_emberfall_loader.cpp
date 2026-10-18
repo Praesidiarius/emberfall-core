@@ -19,6 +19,7 @@
 // directory mod-emberfall (Add<directory with _ for ->Scripts()).
 
 void AddEmberfallOwnDataScripts();
+void AddEmberfallProfSpecsScripts();
 void AddEmberfallTalentsScripts();
 void AddEmberfallClassKitScripts();
 void AddEmberfallCompanionsScripts();
@@ -28,6 +29,7 @@ void AddEmberfallDungeonsScripts();
 void Addmod_emberfallScripts()
 {
     AddEmberfallOwnDataScripts();
+    AddEmberfallProfSpecsScripts();
     AddEmberfallTalentsScripts();
     AddEmberfallClassKitScripts();
     AddEmberfallCompanionsScripts();
