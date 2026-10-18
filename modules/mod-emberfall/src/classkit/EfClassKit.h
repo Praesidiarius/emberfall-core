@@ -87,6 +87,12 @@ namespace Emberfall::ClassKit
     //   The shell spell's own spell mods apply: its effect 1's (SPELLMOD_EFFECT1) scale every amount added, its effect
     //   2's move the cap (Deep Shell, Winter's Embrace). The caster's conditional passives follow at once.
     void AddToShell(Unit* caster, uint32 shellSpell, int32 add, int32 durationMs);
+    // Whether `spellId` is a shell aura (the trigger of a spell_ef_kit_shatter kit spell, found by Load, or any spell
+    // AddToShell was called with).
+    bool IsShellSpell(uint32 spellId);
+    // The most a shell aura `shellSpell` of `caster` can hold: its effect 2's percent (spell mods included) of the
+    // caster's max health (AddToShell's cap; src/emberfall_absorbs.cpp reports it).
+    int32 ShellCap(Unit* caster, uint32 shellSpell);
     // Hit bonuses: every caster aura effect of type dummy whose misc value is `spellId` (the spell that hit), whose misc
     // B is at most `stacks` (the stacks the target carried; 0: any) and that has a trigger spell rolls its amount as a
     // chance in percent (0 or 100+: always) and then casts the trigger at the target; a stacking trigger (an aura with a

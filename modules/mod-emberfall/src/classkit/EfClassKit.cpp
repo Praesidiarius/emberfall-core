@@ -22,6 +22,7 @@
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "SharedDefines.h"
 #include "SpellAuraEffects.h"
@@ -32,6 +33,7 @@
 
 #include <algorithm>
 #include <map>
+#include <mutex>
 #include <set>
 
 namespace Emberfall::ClassKit
@@ -40,6 +42,15 @@ namespace Emberfall::ClassKit
     {
         bool s_enabled = false;
         std::map<uint8, Kit> s_kits; // by class
+        // The shell auras (IsShellSpell): written by Load and AddToShell, read by the absorb reports (map threads).
+        std::set<uint32> s_shellSpells;
+        std::mutex s_shellMutex;
+
+        void AddShellSpell(uint32 spellId)
+        {
+            std::lock_guard<std::mutex> lock(s_shellMutex);
+            s_shellSpells.insert(spellId);
+        }
 
         char const* SourceName(Source s)
         {
@@ -130,6 +141,12 @@ namespace Emberfall::ClassKit
                     ++problems;
                 }
                 kit->second.spells.push_back(s);
+                // a shatter spell's effect 3 trigger is a shell aura (IsShellSpell), known before any AddToShell (a
+                // shell kept over a relog)
+                SpellScriptsBounds bounds = sObjectMgr->GetSpellScriptsBounds(s.spell);
+                for (auto it = bounds.first; it != bounds.second; ++it)
+                    if (sObjectMgr->GetScriptName(it->second) == "spell_ef_kit_shatter" && info->Effects[EFFECT_2].TriggerSpell)
+                        AddShellSpell(info->Effects[EFFECT_2].TriggerSpell);
             } while (r->NextRow());
         }
         for (auto const& [classId, kit] : s_kits)
@@ -328,8 +345,8 @@ namespace Emberfall::ClassKit
         // applies them: Deep Shell, Winter's Embrace)
         if (Player* modOwner = caster->GetSpellModOwner())
             modOwner->ApplySpellMod(shellSpell, SPELLMOD_EFFECT1, add);
-        int32 const capPct = info->Effects[EFFECT_1].CalcValue(caster);
-        int32 const cap = int32(caster->CountPctFromMaxHealth(capPct > 0 ? capPct : 100));
+        AddShellSpell(shellSpell);
+        int32 const cap = ShellCap(caster, shellSpell);
         Aura* aura = caster->GetAura(shellSpell, caster->GetGUID());
         if (!aura)
         {
@@ -353,6 +370,21 @@ namespace Emberfall::ClassKit
             }
         }
         RefreshConditionals(caster);
+    }
+
+    bool IsShellSpell(uint32 spellId)
+    {
+        std::lock_guard<std::mutex> lock(s_shellMutex);
+        return s_shellSpells.count(spellId) != 0;
+    }
+
+    int32 ShellCap(Unit* caster, uint32 shellSpell)
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(shellSpell);
+        if (!caster || !info)
+            return 0;
+        int32 const capPct = info->Effects[EFFECT_1].CalcValue(caster);
+        return int32(caster->CountPctFromMaxHealth(capPct > 0 ? capPct : 100));
     }
 
     void HitBonuses(Unit* caster, Unit* target, uint32 spellId, uint32 stacks)

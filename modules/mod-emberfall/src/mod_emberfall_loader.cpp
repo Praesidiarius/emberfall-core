@@ -26,6 +26,7 @@ void AddEmberfallCompanionsScripts();
 void AddEmberfallTestToolsScripts();
 void AddEmberfallDungeonsScripts();
 void AddEmberfallUnstuckScripts();
+void AddEmberfallAbsorbsScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -37,4 +38,5 @@ void Addmod_emberfallScripts()
     AddEmberfallTestToolsScripts();
     AddEmberfallDungeonsScripts();
     AddEmberfallUnstuckScripts();
+    AddEmberfallAbsorbsScripts();
 }

@@ -229,3 +229,23 @@ A stuck player is taken to the nearest town without a GM. `Emberfall.Unstuck.Ena
 it from `content/data/world.yaml` teleports with `town:`), the `command` rows: `.unstuck` opened to security 0 (the stock
 row's 2 overrides the core's player permission; a GM account keeps the GM form `.unstuck $player [inn/graveyard/startzone]`)
 and `.stuck`.
+
+## Absorbs (Emberfall `docs/design/cooldown-manager.md` §9.3)
+
+`src/emberfall_absorbs.cpp`; the logic without the core is `src/absorbs/EfAbsorbLogic.h` (`tests/absorb_tests.cpp`).
+3.3.5 never tells the client how much a shield has left; the Cooldown Manager shows it from these messages.
+`Emberfall.Absorbs.Enable` (1; `AC_EMBERFALL_ABSORBS_ENABLE`).
+
+Protocol: an addon whisper from the player to themselves (as EFP), at most one batch per 100 ms, one message per absorb
+aura on the player (school absorb, mana shield) whose numbers changed: `EFA\t1;0;ABS;<spellId>;<left>;<cap>`; an aura
+that went away: `EFA\t1;0;ABS;<spellId>;0;0`. `left` is the aura's current amount (its absorb effects added up; several
+auras of one spell add up); `cap` for a class kit shell (`EfClassKit.h` `IsShellSpell`, the Frost Shell) is
+`ShellCap` (effect 2's percent of max health, the cap `AddToShell` uses), for any other absorb the highest amount seen
+since the aura was (re)applied. Passive auras (Last Ward's cheat death) and unlimited ones (a negative amount, Glacial
+Bulwark's ward) are not reported. Nothing is sent at login unless an absorb is up.
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_absorbs_player` | `PlayerScript` `OnPlayerUpdate`, `OnPlayerLogin`, `OnPlayerLogout` | the 100 ms check and the messages (state in the player's `CustomData`; a player without absorbs costs one look at two aura lists); login and logout clear the state |
+| `emberfall_absorbs_commands` | `CommandScript` | `.efabsorb` (GM): the selected player's (or one's own) tracked values, `EFABS <spellId> <left> <cap>` per absorb, then `EFABS end` |
+| `emberfall_absorbs_world` | `WorldScript` | reads the config; boot line `>> Emberfall absorbs: on (EFA, every 100 ms)` |
