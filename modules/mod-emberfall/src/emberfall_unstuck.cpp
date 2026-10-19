@@ -18,8 +18,8 @@
 // Emberfall unstuck (Emberfall docs/design/unstuck.md): any player who is stuck in the world types `.unstuck` (or
 // `.stuck`, or picks Unstuck in the game menu) and is taken to the nearest town on their map.
 //
-// The stock `.unstuck` (cs_misc) casts SPELL_STUCK 7355 for a player account; Emberfall's Spell.dbc gives 7355 a 5 s
-// cast that movement and damage break (content/data/spells/engine.yaml). This module's spell script on 7355:
+// The stock `.unstuck` (cs_misc) casts SPELL_STUCK 7355 for a player account; Emberfall's Spell.dbc makes 7355 instant (2026-10-20; it was a 5 s
+// cast that movement and damage broke; content/data/spells/engine.yaml). This module's spell script on 7355:
 //   - CheckCast refuses it in combat, on a flight path and within the cooldown (Emberfall.Unstuck.Cooldown, 300 s),
 //     with an "Unstuck: ..." system message;
 //   - on its Stuck effect a living player goes to the nearest ef_unstuck_point of their map (Emberfall's compiler
