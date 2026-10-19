@@ -28,6 +28,7 @@ void AddEmberfallDungeonsScripts();
 void AddEmberfallUnstuckScripts();
 void AddEmberfallAbsorbsScripts();
 void AddEmberfallHarboursScripts();
+void AddEmberfallDevVendorScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -41,4 +42,5 @@ void Addmod_emberfallScripts()
     AddEmberfallUnstuckScripts();
     AddEmberfallAbsorbsScripts();
     AddEmberfallHarboursScripts();
+    AddEmberfallDevVendorScripts();
 }

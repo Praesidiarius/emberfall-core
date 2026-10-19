@@ -213,6 +213,23 @@ hedge-mage and a sellsword with Emberfall's own spells and looks; companions.md 
 | `instance_ef_barrows` | `InstanceMapScript` (map 751, instance_template.script) | the Barrows of Cairnmoor's three seals: the barrow bosses' SmartAI `set_inst_data` 1-3 (DONE) break them; the third wakes the First Interred (97015: selectable, no longer immune to players, its yell) and summons its honour guard (97008, three, zone combat) at the foot of the vault stair; saved with the instance (`EFB <seals> <final> <gate>`); log lines `Emberfall barrows: ...` |
 | `npc_ef_dungeon_warden` | `CreatureScript` (gossip, AI) | the test realm's dungeon warden (97050 in Millbrook, 97051 inside the barrows): take me to the barrows / back to Millbrook / to the door, make me level 60, reset the barrows. **Only with `Emberfall.TestTools.Enable`**: off, its AI takes it out of the world on its first update and after every respawn (`Emberfall dungeon warden <spawn>: the test tools are off ..., it leaves the world`) and its gossip offers and does nothing |
 
+## Dev vendors (Emberfall `docs/design/gear/frostguard-set.md` §5)
+
+`src/emberfall_devvendor.cpp`; the gating without the core is `src/devvendor/EfDevVendorLogic.h`
+(`tests/devvendor_tests.cpp`). These are NPCs for the local dev server only. The first is the dev quartermaster 92001
+in Millbrook, who sells the Frostguard set for free (Emberfall `content/data/dev/npcs.yaml`).
+
+- **Switch.** `Emberfall.DevVendor.Enable` (default 0; `AC_EMBERFALL_DEV_VENDOR_ENABLE`). It is its own switch, apart
+  from the test tools. Emberfall's `ef_server.sh` sets 1; the public realms (`tools/gameserver`) set 0.
+- **Spawn.** Their spawns are in the manual spawn group 92001, which the core never spawns by itself.
+- **Price.** The free price is data, not code. The `npc_vendor` rows carry the zero extended cost 3001
+  (`itemextendedcost_dbc`, from Emberfall's world SQL), and the core asks no money for an item with an extended cost.
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_devvendor_world` | `WorldScript::OnBeforeWorldInitialized` | on: `Map::SpawnGroupSpawn(92001)` on the group's map; the grid loader puts the NPCs in when their grid loads. Boot line on: `>> Emberfall dev vendors: on (...), spawn group 92001 (1 spawn(s)) active on map 0`; off: `>> Emberfall dev vendors: off (...)` |
+| `npc_ef_dev_vendor` | `CreatureScript` (gossip, AI) | the second lock. Off: the NPC leaves the world on its first update and after every respawn (`Emberfall dev vendor <entry> (spawn N): ... is off, it leaves the world`), and its gossip, and so its vendor list, opens nothing. On: the core's own menu |
+
 ## Unstuck (Emberfall `docs/design/unstuck.md`)
 
 `src/emberfall_unstuck.cpp`; the logic without the core is `src/unstuck/EfUnstuckLogic.h` (`tests/unstuck_tests.cpp`).

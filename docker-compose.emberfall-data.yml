@@ -147,6 +147,10 @@ services:
       AC_EMBERFALL_TEST_TOOLS_SECURITY: "${EF_TEST_TOOLS_SECURITY:-0}"
       AC_EMBERFALL_TEST_TOOLS_FOE_ENTRY: "${EF_TEST_TOOLS_FOE_ENTRY:-0}"
       AC_EMBERFALL_TEST_TOOLS_DUMMY_ENTRY: "${EF_TEST_TOOLS_DUMMY_ENTRY:-0}"
+      # mod-emberfall's dev vendors (src/emberfall_devvendor.cpp; Emberfall content/data/dev/npcs.yaml): the dev
+      # quartermaster in Millbrook with the Frostguard set for free. The local dev server only (Emberfall's
+      # ef_server.sh sets 1); its own switch, apart from the test tools, which the public alpha realm has on.
+      AC_EMBERFALL_DEV_VENDOR_ENABLE: "${EF_DEV_VENDOR_ENABLE:-0}"
       AC_HEROIC_CHARACTERS_PER_REALM: "0"
       AC_SKIP_CINEMATICS: "2"
       AC_DBC_ENFORCE_ITEM_ATTRIBUTES: "1"
