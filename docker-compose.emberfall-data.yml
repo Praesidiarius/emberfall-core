@@ -151,6 +151,9 @@ services:
       # quartermaster in Millbrook with the Frostguard set for free. The local dev server only (Emberfall's
       # ef_server.sh sets 1); its own switch, apart from the test tools, which the public alpha realm has on.
       AC_EMBERFALL_DEV_VENDOR_ENABLE: "${EF_DEV_VENDOR_ENABLE:-0}"
+      # Races players may not create (stock CharacterCreating.Disabled.RaceMask, bit 1 << (race - 1)): Emberfall's
+      # ef_server.sh sets EF_CREATE_DISABLED_RACE_MASK (0: every race, the ylvar's 2048 included).
+      AC_CHARACTER_CREATING_DISABLED_RACE_MASK: "${EF_CREATE_DISABLED_RACE_MASK:-0}"
       AC_HEROIC_CHARACTERS_PER_REALM: "0"
       AC_SKIP_CINEMATICS: "2"
       AC_DBC_ENFORCE_ITEM_ATTRIBUTES: "1"
