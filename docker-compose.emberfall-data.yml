@@ -151,6 +151,13 @@ services:
       # quartermaster in Millbrook with the Frostguard set for free. The local dev server only (Emberfall's
       # ef_server.sh sets 1); its own switch, apart from the test tools, which the public alpha realm has on.
       AC_EMBERFALL_DEV_VENDOR_ENABLE: "${EF_DEV_VENDOR_ENABLE:-0}"
+      # mod-emberfall's world editor (src/editor; Emberfall docs/design/world-editor.md): off unless EF_EDITOR_ENABLE=1
+      # and its database exists (Emberfall's ef_server.sh editor creates it). EF_EDITOR_MODE local (§15): every
+      # account is a maintainer and Submit accepts at once (make editor-pull writes the YAML); realm: a test build realm.
+      AC_EMBERFALL_EDITOR_ENABLE: "${EF_EDITOR_ENABLE:-0}"
+      AC_EMBERFALL_EDITOR_DATABASE: "${EF_EDITOR_DATABASE:-}"
+      AC_EMBERFALL_EDITOR_MODE: "${EF_EDITOR_MODE:-local}"
+      AC_EMBERFALL_EDITOR_REFRESH_SECONDS: "${EF_EDITOR_REFRESH_SECONDS:-60}"
       # Races players may not create (stock CharacterCreating.Disabled.RaceMask, bit 1 << (race - 1)): Emberfall's
       # ef_server.sh sets EF_CREATE_DISABLED_RACE_MASK (0: every race, the ylvar's 2048 included).
       AC_CHARACTER_CREATING_DISABLED_RACE_MASK: "${EF_CREATE_DISABLED_RACE_MASK:-0}"

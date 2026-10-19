@@ -277,3 +277,23 @@ skipped instead of crashing the boot). No table, no config.
 | Script | Hook | What |
 |---|---|---|
 | `npc_ef_harbourmaster` | `CreatureScript` gossip (creature_template ScriptName from Emberfall's compiler) | the NPC's own npc_text (its entry: the route) and, per ship whose path stops within 90 yd of it on its map, a line with the next sailing from the live ship's path progress and period: `The War Ferry is at the pier: it sails in 35 s.` or `The War Ferry is due in 2 min 10 s and sails 50 s after.`; picking the line asks again |
+
+## World editor (Emberfall `docs/design/world-editor.md`, phase A minimal)
+
+Contributors with the editor role edit Elderwood's creature spawns and turn and move its people live on the build realm,
+in change sets kept as operations in the editor's own database and applied in memory, live and again at every start. The
+world database is never written. Off unless `Emberfall.Editor.Enable = 1` (`AC_EMBERFALL_EDITOR_ENABLE`) with
+`Emberfall.Editor.Database` set and its tables present; off, no EFE message is ever answered.
+
+| File | What |
+|---|---|
+| `src/editor/EfEditorLogic.h` | the EFE protocol and the rules as plain functions (requests, §6.3's values, density, rate windows, text rules, the ops' flat JSON, markers and pages, inverse/undo/redo, replay states); `tests/editor_tests.cpp` with a decode fuzz |
+| `src/editor/EfEditor.{h,cpp}` | access (`ef_editor_access` in the auth DB, re-read every `Emberfall.Editor.RefreshSeconds` and on `.efedit access ID`), validation in §6.3's order, live apply (`CreatureData` + grids + the live units), replay at start, locks, audit, editor mode, the site's review states, local mode |
+| `src/emberfall_editor.cpp` | the hooks (`OnPlayerCanUseChat` consumes every `EFE\t` whisper; another's is refused and logged), `.efedit status|access|refresh` |
+| `data/sql/db-auth/mod_emberfall_2026_10_19_00_editor_access.sql` | `ef_editor_access` (the account site writes it) |
+| `data/sql/db-editor/editor.sql` | the editor database (`ef_changeset`, `ef_op`, `ef_lock`, `ef_audit`): not a dbimport database; Emberfall's `realms.sh db` / `ef_server.sh editor` create it |
+
+The world tables `ef_editor_zone`, `ef_editor_spawn`, `ef_editor_entry` come from Emberfall
+(`python -m emberfall_content.editor.realmdata`), loaded after `world.sql` only where the editor runs. Config:
+`Emberfall.Editor.Mode` `realm` (default) or `local` (a maintainer's server: every account a maintainer, Submit accepts).
+
