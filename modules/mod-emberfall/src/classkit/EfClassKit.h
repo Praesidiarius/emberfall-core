@@ -98,7 +98,23 @@ namespace Emberfall::ClassKit
     // chance in percent (0 or 100+: always) and then casts the trigger at the target; a stacking trigger (an aura with a
     // stack maximum) adds one stack through AddStacks instead (Splintering Cold, Driving Snow, Frozen Grip, Whiteout,
     // Improved Glacial Rupture).
-    void HitBonuses(Unit* caster, Unit* target, uint32 spellId, uint32 stacks);
+    //   A trigger whose effect 1 targets the caster (a self aura: Dawn Ready, Endless Crown's lengthening; a self stack
+    //   aura: Twin Brand's Sunblade) goes to the caster instead, and only when `selfTriggers` (the spenders pass it for
+    //   their first enemy only, so an area spend counts once). A trigger whose ExcludeCasterAuraSpell the caster carries
+    //   is skipped (Heaven's Answer while Heaven's Answer Spent holds).
+    void HitBonuses(Unit* caster, Unit* target, uint32 spellId, uint32 stacks, bool selfTriggers = true);
+    // Self stacks (the Paladin's Sunblades): adds `count` stacks of the caster's own aura `stackSpell`, up to its cap
+    // (effect 1's value with the caster's spell mods: Crown of Blades raises it; EfClassKitLogic.h StackCap), refreshing
+    // it; stacks above a cap that fell stay. Returns the stacks.
+    uint32 AddSelfStacks(Unit* caster, uint32 stackSpell, int32 count);
+    // The caster's heal per stack spent (Wrath's Mercy): every passive caster aura with a dummy effect whose misc value is
+    // `stackSpell`, misc B 0 and no trigger heals its amount in percent of max health per stack. Returns the health given.
+    int32 SpendHeals(Unit* caster, uint32 stackSpell, uint32 spent);
+    // Lengthens the caster's own aura `auraSpell` by `addMs`, at most `maxExtraSeconds` beyond its duration (spell mods
+    // in; Endless Crown on Crown of Blades). Returns the ms added.
+    int32 Lengthen(Unit* caster, uint32 auraSpell, int32 addMs, int32 maxExtraSeconds);
+    // Whether a spell's effect 1 targets its caster (a self aura).
+    bool TargetsCaster(uint32 spellId);
     // `consumed` stacks of `stackSpell` were shattered: every non-passive caster aura with a dummy effect whose misc value
     // is `stackSpell`, whose misc B (seconds) is above 0 and that has no trigger spell lasts the effect's amount in ms
     // longer per stack, until it has run misc B seconds beyond its spell's duration (Hoarstorm).

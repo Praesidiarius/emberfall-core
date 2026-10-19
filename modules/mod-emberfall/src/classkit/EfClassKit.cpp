@@ -16,6 +16,7 @@
  */
 
 #include "EfClassKit.h"
+#include "EfClassKitLogic.h"
 
 #include "Config.h"
 #include "Creature.h"
@@ -387,7 +388,13 @@ namespace Emberfall::ClassKit
         return int32(caster->CountPctFromMaxHealth(capPct > 0 ? capPct : 100));
     }
 
-    void HitBonuses(Unit* caster, Unit* target, uint32 spellId, uint32 stacks)
+    bool TargetsCaster(uint32 spellId)
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        return info && info->Effects[EFFECT_0].TargetA.GetTarget() == TARGET_UNIT_CASTER;
+    }
+
+    void HitBonuses(Unit* caster, Unit* target, uint32 spellId, uint32 stacks, bool selfTriggers)
     {
         if (!caster || !target || !spellId)
             return;
@@ -405,18 +412,87 @@ namespace Emberfall::ClassKit
         }
         for (Bonus const& b : bonuses)
         {
-            if (b.chance > 0 && b.chance < 100 && !roll_chance_i(b.chance))
-                continue;
-            if (!target->IsAlive())
-                return;
             SpellInfo const* info = sSpellMgr->GetSpellInfo(b.trigger);
             if (!info)
+                continue;
+            bool const self = TargetsCaster(b.trigger);
+            if (self && !selfTriggers)
+                continue;
+            // a trigger with a lockout of its own (Heaven's Answer Spent): not while the caster carries it
+            if (info->ExcludeCasterAuraSpell && caster->HasAura(info->ExcludeCasterAuraSpell))
+                continue;
+            if (b.chance > 0 && b.chance < 100 && !roll_chance_i(b.chance))
+                continue;
+            if (self)
+            {
+                if (info->StackAmount > 1)
+                    AddSelfStacks(caster, b.trigger, 1);
+                else
+                    caster->CastSpell(caster, b.trigger, true);
+                continue;
+            }
+            if (!target->IsAlive())
                 continue;
             if (info->StackAmount > 1)
                 AddStacks(caster, target, b.trigger, 1);
             else
                 caster->CastSpell(target, b.trigger, true);
         }
+    }
+
+    uint32 AddSelfStacks(Unit* caster, uint32 stackSpell, int32 count)
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(stackSpell);
+        if (!caster || !info || count <= 0)
+            return 0;
+        int32 const cap = Logic::StackCap(info->Effects[EFFECT_0].CalcValue(caster), int32(info->StackAmount));
+        Aura* aura = caster->GetAura(stackSpell, caster->GetGUID());
+        int32 gain = count;
+        if (!aura)
+        {
+            aura = caster->AddAura(stackSpell, caster);
+            if (!aura)
+                return 0;
+            --gain;
+        }
+        int32 const have = aura->GetStackAmount();
+        int32 const after = Logic::StacksAfter(have, gain, cap);
+        if (after > have)
+            aura->ModStackAmount(after - have);
+        else
+            aura->RefreshDuration();
+        return aura->GetStackAmount();
+    }
+
+    int32 SpendHeals(Unit* caster, uint32 stackSpell, uint32 spent)
+    {
+        if (!caster || !spent || !caster->IsAlive())
+            return 0;
+        int32 pct = 0;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (uint32(eff->GetMiscValue()) == stackSpell && eff->GetMiscValueB() == 0 && eff->GetBase()->IsPassive()
+                && !eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell)
+                pct += eff->GetAmount();
+        int32 const heal = int32(Logic::PctPerStack(caster->GetMaxHealth(), pct, spent));
+        if (heal > 0)
+            caster->ModifyHealth(heal);
+        return heal;
+    }
+
+    int32 Lengthen(Unit* caster, uint32 auraSpell, int32 addMs, int32 maxExtraSeconds)
+    {
+        Aura* aura = caster ? caster->GetAura(auraSpell, caster->GetGUID()) : nullptr;
+        if (!aura || aura->GetDuration() <= 0)
+            return 0;
+        int32 base = aura->GetSpellInfo()->GetMaxDuration();
+        if (Player* modOwner = caster->GetSpellModOwner())
+            modOwner->ApplySpellMod(auraSpell, SPELLMOD_DURATION, base);
+        int32 const add = Logic::LengthenBy(addMs, maxExtraSeconds * IN_MILLISECONDS, aura->GetMaxDuration(), base);
+        if (add <= 0)
+            return 0;
+        aura->SetMaxDuration(aura->GetMaxDuration() + add);
+        aura->SetDuration(aura->GetDuration() + add);
+        return add;
     }
 
     void ExtendByStacks(Unit* caster, uint32 stackSpell, uint32 consumed)
