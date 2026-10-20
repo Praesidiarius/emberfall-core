@@ -850,7 +850,15 @@ class spell_ef_kit_not_bosses : public SpellScript
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_ef_kit_not_bosses::CheckCast);
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_not_bosses::FilterTargets, EFFECT_ALL, TARGET_UNIT_SRC_AREA_ENEMY);
+        // The area filter only on spells that have an enemy area (Noonday); a single-target hold (Kneel) has only the
+        // cast check, else the core logs that the hook matches no effect.
+        bool area = false;
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(m_scriptSpellId))
+            for (SpellEffectInfo const& effect : info->Effects)
+                area = area || effect.TargetA.GetTarget() == TARGET_UNIT_SRC_AREA_ENEMY ||
+                       effect.TargetB.GetTarget() == TARGET_UNIT_SRC_AREA_ENEMY;
+        if (area)
+            OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_not_bosses::FilterTargets, EFFECT_ALL, TARGET_UNIT_SRC_AREA_ENEMY);
     }
 };
 
