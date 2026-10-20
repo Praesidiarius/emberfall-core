@@ -130,6 +130,47 @@ namespace Emberfall::ClassKit::Logic
         return whole;
     }
 
+    // The Warlock's Blood Price (spell_ef_kit_health_price): `pct` percent (spell mods in: Thinned Blood) of the caster's
+    // `maxHealth`, at least 1; the cast is refused unless the caster keeps at least 1 health after paying it.
+    constexpr int32_t HealthPrice(uint32_t maxHealth, int32_t pct)
+    {
+        if (pct <= 0 || maxHealth == 0)
+            return 0;
+        return std::max<int32_t>(1, int32_t(int64_t(maxHealth) * pct / 100));
+    }
+    constexpr bool CanPay(uint32_t health, int32_t price) { return int64_t(health) > int64_t(price); }
+
+    // A share of damage handed on as healing (spell_ef_kit_transfuse: Overflow 15 %, Harvest Tide 40 %); 0 below one
+    // point (nothing to hand on).
+    constexpr int32_t Transfused(int32_t damage, int32_t pct)
+    {
+        if (damage <= 0 || pct <= 0)
+            return 0;
+        return int32_t(int64_t(damage) * pct / 100);
+    }
+
+    // Of allies with `health` of `maxHealth`, the most injured one by the share of health missing; only allies below
+    // full count. Returns the index or -1 (everyone full). Ties: the first.
+    template <typename It>
+    int32_t MostInjured(It healthBegin, It healthEnd, It maxBegin)
+    {
+        int32_t best = -1;
+        double bestShare = 1.0;
+        int32_t i = 0;
+        for (It h = healthBegin, m = maxBegin; h != healthEnd; ++h, ++m, ++i)
+        {
+            if (*m == 0 || *h >= *m)
+                continue;
+            double const share = double(*h) / double(*m);
+            if (best < 0 || share < bestShare)
+            {
+                best = i;
+                bestShare = share;
+            }
+        }
+        return best;
+    }
+
     // Charges: a cast with `recharging` charges already recharging (the charge aura's stacks) of `max`: how many recharge
     // after it, and whether one is still left (then the spell's cooldown is cleared).
     struct ChargeSpend

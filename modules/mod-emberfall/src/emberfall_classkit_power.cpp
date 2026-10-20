@@ -26,7 +26,8 @@
 //                                 trigger (the fight's marker) not on the caster, double, and the marker is cast (First
 //                                 Flash). The caster's hit bonuses for this spell run on every enemy struck (Crackling Air,
 //                                 Rising Air; self triggers once).
-//   spell_ef_kit_power_spender    a spender of the spec power (its Spell.dbc cost): a dummy on the caster with misc = a
+//   spell_ef_kit_power_spender    a spender of the spec power (its Spell.dbc cost; damage, or since the Warlock healing:
+//                                 Bequest and Dole, whose overspend and echo heal and which may target the caster): a dummy on the caster with misc = a
 //                                 talent the caster knows spends up to its value in more points, misc B tenths of a percent
 //                                 more damage each (Heavy Rend); a dummy on the caster without misc gives its value (spell
 //                                 mods in: Lightning Rod) back on a critical strike, once per cast. Spend bonuses: the
@@ -163,6 +164,12 @@ class spell_ef_kit_power_spender : public SpellScript
 
     Powers Slot() { return Powers(GetSpellInfo()->PowerType); }
 
+    // A healing spender (the Warlock's Bequest and Dole): the overspend raises the healing, the echo is a heal, and the
+    // caster may be its own target.
+    bool Heals() { return GetSpellInfo()->Effects[EFFECT_0].Effect == SPELL_EFFECT_HEAL; }
+
+    int32 HitAmount() { return Heals() ? GetHitHeal() : GetHitDamage(); }
+
     void Spend()
     {
         Unit* caster = GetCaster();
@@ -187,7 +194,14 @@ class spell_ef_kit_power_spender : public SpellScript
     void HandleHit()
     {
         Unit* target = GetHitUnit();
-        if (!target || target == GetCaster() || _extra <= 0)
+        if (!target || _extra <= 0)
+            return;
+        if (Heals())
+        {
+            SetHitHeal(Emberfall::ClassKit::Logic::OverspendDamage(GetHitHeal(), _extra, _perPoint));
+            return;
+        }
+        if (target == GetCaster())
             return;
         SetHitDamage(Emberfall::ClassKit::Logic::OverspendDamage(GetHitDamage(), _extra, _perPoint));
     }
@@ -203,11 +217,12 @@ class spell_ef_kit_power_spender : public SpellScript
     void Echo(Unit* caster, Unit* target, uint32 trigger, int32 pct)
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(trigger);
-        int32 const damage = Emberfall::ClassKit::Logic::EchoDamage(GetHitDamage(), pct);
+        int32 const damage = Emberfall::ClassKit::Logic::EchoDamage(HitAmount(), pct);
         if (!info || damage <= 0)
             return;
         int32 const delay = info->Effects[EFFECT_1].Effect == SPELL_EFFECT_DUMMY ? std::max(0, info->Effects[EFFECT_1].BasePoints + 1) : 0;
-        bool const atUnit = info->Effects[EFFECT_0].TargetA.GetTarget() == TARGET_UNIT_TARGET_ENEMY;
+        Targets const at = info->Effects[EFFECT_0].TargetA.GetTarget();
+        bool const atUnit = at == TARGET_UNIT_TARGET_ENEMY || at == TARGET_UNIT_TARGET_ALLY;
         ObjectGuid const victim = target->GetGUID();
         float const x = target->GetPositionX(), y = target->GetPositionY(), z = target->GetPositionZ();
         auto cast = [caster, victim, info, damage, atUnit, x, y, z]()
@@ -237,7 +252,7 @@ class spell_ef_kit_power_spender : public SpellScript
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
-        if (!caster || !target || target == caster)
+        if (!caster || !target || (target == caster && !Heals()))
             return;
         bool const first = _first;
         _first = false;
@@ -270,7 +285,7 @@ class spell_ef_kit_power_spender : public SpellScript
             SpellInfo const* info = sSpellMgr->GetSpellInfo(b.trigger);
             if (!info)
                 continue;
-            if (info->Effects[EFFECT_0].Effect == SPELL_EFFECT_SCHOOL_DAMAGE)
+            if (info->Effects[EFFECT_0].Effect == SPELL_EFFECT_SCHOOL_DAMAGE || info->Effects[EFFECT_0].Effect == SPELL_EFFECT_HEAL)
             {
                 if (first)
                     Echo(caster, target, b.trigger, b.amount);

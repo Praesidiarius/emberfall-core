@@ -945,6 +945,7 @@ class spell_ef_kit_hit_bonuses : public SpellScript
 };
 
 void AddEmberfallClassKitPowerScripts();
+void AddEmberfallClassKitHealScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -971,4 +972,5 @@ void AddEmberfallClassKitScripts()
     RegisterSpellScript(spell_ef_kit_extend_aura);
     RegisterSpellScript(spell_ef_kit_hit_bonuses);
     AddEmberfallClassKitPowerScripts(); // the Druid's: src/emberfall_classkit_power.cpp
+    AddEmberfallClassKitHealScripts();  // the Warlock's: src/emberfall_classkit_heal.cpp
 }

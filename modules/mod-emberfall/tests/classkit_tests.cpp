@@ -119,6 +119,29 @@ int main()
     check(SpendCharge(1, 2).recharging == 2 && !SpendCharge(1, 2).left, "second cast: both recharge, none left");
     check(SpendCharge(2, 2).recharging == 2 && !SpendCharge(2, 2).left, "never above the maximum");
 
+    // the Warlock's Blood Price: 12 % of max health, at least 1, never the last point
+    check(HealthPrice(2000, 12) == 240, "Blood Price: 12 % of 2000");
+    check(HealthPrice(2000, 8) == 160, "Thinned Blood 2: 8 %");
+    check(HealthPrice(5, 12) == 1, "at least 1");
+    check(HealthPrice(2000, 0) == 0, "no price");
+    check(CanPay(241, 240), "241 health pays 240");
+    check(!CanPay(240, 240), "never the last point");
+
+    // Overflow 15 %, Harvest Tide 40 %
+    check(Transfused(200, 15) == 30, "Overflow: 15 % of 200");
+    check(Transfused(6, 15) == 0, "below a point: nothing");
+    check(Transfused(0, 40) == 0, "no damage: nothing");
+
+    // the most injured ally
+    {
+        uint32_t const health[] = { 900, 300, 500, 1000 };
+        uint32_t const max[] = { 1000, 1000, 600, 1000 };
+        check(MostInjured(health, health + 4, max) == 1, "30 % is the most injured");
+        uint32_t const full[] = { 1000, 600 };
+        uint32_t const fullMax[] = { 1000, 600 };
+        check(MostInjured(full, full + 2, fullMax) == -1, "everyone full: nobody");
+    }
+
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }
