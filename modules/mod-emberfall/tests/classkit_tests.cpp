@@ -79,6 +79,46 @@ int main()
     check(PctPerStack(4000, 0, 5) == 0, "no refund");
     check(PctPerStack(3000, 2, 5) == 300, "Wrath's Mercy 2: 10 % of max health");
 
+    // the Druid's Static (a spec power): builders
+    check(PowerGain(20, 0, 1, true, false) == 20, "Skyspark: +20");
+    check(PowerGain(20, 0, 1, true, true) == 40, "First Flash: the first Skyspark +40");
+    check(PowerGain(30, 0, 1, true, false) == 30, "Supercell: Skyspark +30");
+    check(PowerGain(20, 0, 0, true, false) == 0, "a missed Skyspark builds nothing");
+    check(PowerGain(8, 4, 1, true, false) == 8, "Hailwind, one enemy: 8");
+    check(PowerGain(8, 4, 6, true, false) == 32, "Hailwind, six enemies: at most 4 x 8");
+    check(PowerGain(12, 4, 6, true, false) == 48, "Hailwind Surge 2, six enemies: 48");
+    check(PowerGain(0, 0, 1, true, false) == 0, "no value: nothing");
+
+    // Heavy Rend: up to 40 more of what is held beyond the cost (runic power x 10)
+    check(Overspend(40, 1000, 400, 10) == 40, "100 Static, Skyrend at 40: 40 more");
+    check(Overspend(40, 650, 400, 10) == 25, "65 Static: 25 more");
+    check(Overspend(40, 400, 400, 10) == 0, "exactly the cost: nothing more");
+    check(Overspend(40, 0, 0, 10) == 0, "a free Skyrend (Charged Air) at 0: nothing");
+    check(OverspendDamage(1000, 40, 15) == 1600, "40 more at 1.5 %: +60 %");
+    check(OverspendDamage(1000, 0, 15) == 1000, "no overspend: the damage");
+
+    // echoes: Overcast 50 %, Thunder Roll 25 %
+    check(EchoDamage(510, 50) == 255, "Overcast: half");
+    check(EchoDamage(3, 25) == 1, "at least 1");
+    check(EchoDamage(0, 50) == 0, "no damage: no echo");
+
+    // the drain: 10 a second (100 stored) after 5 s out of combat, Static Memory 2 a quarter of it
+    int64_t carry = 0;
+    check(Drain(100, 1.0f, 1000, 4000, 5000, carry) == 0, "within the delay: nothing");
+    check(Drain(100, 1.0f, 1000, 6000, 5000, carry) == 100, "a second after the delay: 10 Static");
+    carry = 0;
+    check(Drain(100, 1.0f, 1000, 5500, 5000, carry) == 50, "only the part after the delay counts");
+    carry = 0;
+    int32_t sum = 0;
+    for (int i = 1; i <= 10; ++i)
+        sum += Drain(100, 0.25f, 100, 10000 + i * 100, 5000, carry);
+    check(sum == 25, "Static Memory 2: a quarter, the fractions carried");
+
+    // charges: Second Gust, 2
+    check(SpendCharge(0, 2).recharging == 1 && SpendCharge(0, 2).left, "first cast: one recharges, one is left");
+    check(SpendCharge(1, 2).recharging == 2 && !SpendCharge(1, 2).left, "second cast: both recharge, none left");
+    check(SpendCharge(2, 2).recharging == 2 && !SpendCharge(2, 2).left, "never above the maximum");
+
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }

@@ -124,6 +124,48 @@ namespace Emberfall::ClassKit
     // Whether a creature counts as a boss for the kits' crowd control (world boss, dungeon boss, boss rank).
     bool IsBoss(Unit const* unit);
 
+    // ---- A spec's own power (Emberfall docs/design/classes/druid-stormbringer.md §3; src/classkit/EfSpecPower.cpp) ----
+    // ef_class_kit_spec_power (spec, class, power, max_power, drain_delay_ms, drain_per_second; optional table): while a
+    // player's active spec has a row, the player's power is that slot (the Stormbringer: runic power under the name
+    // Static) instead of the class's (mana); it starts at 0 and drains out of combat after the delay (an aura
+    // SPELL_AURA_MOD_POWER_REGEN_PERCENT of that power slows it: Static Memory). The class kits' helper auras that last
+    // until cancelled are fight markers (First Flash Spent): they go when the fight ends.
+    struct SpecPower
+    {
+        uint32 spec = 0;
+        uint8 classId = 0;
+        uint8 power = 0;           // Powers
+        uint32 max = 0;            // stored units (runic power x 10)
+        uint32 drainDelayMs = 0;
+        uint32 drainPerSecond = 0; // stored units
+    };
+    // Loads ef_class_kit_spec_power (Load calls it); the fight markers are registered by Load from the kit spells.
+    void LoadSpecPowers();
+    void ClearFightMarkers();
+    void AddFightMarker(uint32 spell);
+    // The power of a spec, or nullptr (the spec keeps the class's power).
+    SpecPower const* SpecPowerOf(uint32 spec);
+    // Sets the player's power to its active spec's own (or back to the class's): at login, level change and spec change.
+    void ApplySpecPower(Player* player);
+    // Every player tick: the drain out of combat and the end of the fight markers.
+    void UpdateSpecPower(Player* player, uint32 diff);
+    // Stored units per point shown (rage and runic power: 10).
+    int32 PowerScale(uint8 power);
+    // Gives `points` (as shown) of the caster's spec power (nothing while the caster's power is the class's mana) as an
+    // energize of `spellId` (the combat log). Returns the stored units given.
+    int32 GainSpecPower(Unit* caster, int32 points, uint32 spellId);
+    // End bonuses: when the aura `auraSpell` (cast by `caster`) leaves `owner`, every dummy aura effect of the caster with
+    // misc = auraSpell and a trigger casts the trigger with its amount as base points 1: on the caster when the trigger
+    // targets its caster (Stored Charge when Galeward ends), else on the owner (Slow Waking when Becalm ends, Echoing
+    // Peal when Stormpeal's stun ends).
+    void EndBonuses(Unit* caster, Unit* owner, uint32 auraSpell);
+    // Charges (Second Gust): `spell` was cast and its talent gives it `max` charges; the charge aura `chargeAura` holds the
+    // charges recharging as stacks and the time to the next as its duration. While a charge is left the cooldown is
+    // cleared; with none left it ends with the next charge's recharge.
+    void SpendCharge(Player* player, uint32 spell, uint32 chargeAura, uint32 max);
+    // The charge aura ran out: one charge is back; the next one starts recharging when more are spent.
+    void ChargeBack(Unit* owner, uint32 chargeAura, uint32 stacksBefore);
+
     // `.efkit` / `.efkit dump`: the kit of the selected player's class and what it knows of it.
     void Dump(Player* player, std::vector<std::string>& lines);
     // `.efkit auras`: the class kit auras on a unit (the selected one), one line each: "EFAURA <spell> <stacks>

@@ -19,6 +19,7 @@
 
 #include "EfTalents.h"
 #include "EfLoadouts.h"
+#include "EfClassKit.h"
 
 #include "Chat.h"
 #include "Config.h"
@@ -767,6 +768,8 @@ namespace Emberfall::Talents
             player->SendActionButtons(1);
             Commit(trans);
             LOG_DEBUG("module", "Emberfall talents: {} ({}): spec {} -> {}, {} buttons", player->GetName(), guid, old, spec, next.size());
+            // the spec's own power (the Stormbringer's Static) or the class's again (EfClassKit.h ApplySpecPower)
+            Emberfall::ClassKit::ApplySpecPower(player);
         }
 
         // Applies validated pairs to the active loadout of the active spec: save, reconcile.
@@ -1423,6 +1426,12 @@ namespace Emberfall::Talents
     void OnLogin(Player* player)
     {
         State(player);
+    }
+
+    uint32 ActiveSpec(Player* player)
+    {
+        PlayerState* st = player ? State(player) : nullptr;
+        return st ? st->activeSpec : 0;
     }
 
     void OnLevelChanged(Player* player, uint8 oldLevel)

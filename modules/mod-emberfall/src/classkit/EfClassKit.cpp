@@ -90,6 +90,7 @@ namespace Emberfall::ClassKit
     bool Load()
     {
         s_kits.clear();
+        ClearFightMarkers();
         if (!s_enabled)
         {
             LOG_INFO("server.loading", ">> Emberfall class kits: off (Emberfall.ClassKit.Enable = 0)");
@@ -142,6 +143,10 @@ namespace Emberfall::ClassKit
                     ++problems;
                 }
                 kit->second.spells.push_back(s);
+                // a helper aura that lasts until cancelled marks the fight (First Flash Spent): it goes when the fight
+                // ends (EfSpecPower.cpp)
+                if (s.source == Source::Helper && info->GetMaxDuration() == -1 && !info->IsPassive())
+                    AddFightMarker(s.spell);
                 // a shatter spell's effect 3 trigger is a shell aura (IsShellSpell), known before any AddToShell (a
                 // shell kept over a relog)
                 SpellScriptsBounds bounds = sObjectMgr->GetSpellScriptsBounds(s.spell);
@@ -165,6 +170,7 @@ namespace Emberfall::ClassKit
                                        "{} spec, {} talent, {} helper)", classId, kit.skillLine, kit.stockFamily, kit.spells.size(),
                      counts[1], counts[2], counts[3], counts[4], counts[5]);
         }
+        LoadSpecPowers();
         if (s_kits.empty())
             LOG_INFO("server.loading", ">> Emberfall class kits: on, no kits in ef_class_kit");
         else if (problems)
@@ -557,9 +563,17 @@ namespace Emberfall::ClassKit
         }
     }
 
-    void OnLogin(Player* player) { PurgeAndLog(player, "login"); }
+    void OnLogin(Player* player)
+    {
+        PurgeAndLog(player, "login");
+        ApplySpecPower(player);
+    }
 
-    void OnLevelChanged(Player* player) { PurgeAndLog(player, "level change"); }
+    void OnLevelChanged(Player* player)
+    {
+        PurgeAndLog(player, "level change");
+        ApplySpecPower(player);
+    }
 
     void Dump(Player* player, std::vector<std::string>& lines)
     {
