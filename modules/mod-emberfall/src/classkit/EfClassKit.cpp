@@ -22,6 +22,7 @@
 #include "Creature.h"
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
+#include "Group.h"
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "Player.h"
@@ -545,6 +546,42 @@ namespace Emberfall::ClassKit
         if (!creature)
             return false;
         return creature->isWorldBoss() || creature->IsDungeonBoss() || creature->GetCreatureTemplate()->rank == CREATURE_ELITE_WORLDBOSS;
+    }
+
+    Unit* MostInjuredAlly(Unit* caster, float range)
+    {
+        if (!caster || !caster->IsInWorld())
+            return nullptr;
+        std::vector<Unit*> allies;
+        auto consider = [caster, range, &allies](Unit* unit)
+        {
+            if (!unit || !unit->IsInWorld() || !unit->IsAlive() || unit->GetMap() != caster->GetMap()
+                || std::find(allies.begin(), allies.end(), unit) != allies.end())
+                return;
+            if (unit != caster && (!caster->IsWithinDistInMap(unit, range) || !caster->IsFriendlyTo(unit)))
+                return;
+            allies.push_back(unit);
+        };
+        auto withControlled = [&consider](Unit* unit)
+        {
+            consider(unit);
+            for (Unit* controlled : unit->m_Controlled)
+                consider(controlled);
+        };
+        withControlled(caster);
+        if (Player* player = caster->ToPlayer())
+            if (Group* group = player->GetGroup())
+                for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+                    if (Player* member = ref->GetSource(); member && member != player)
+                        withControlled(member);
+        std::vector<uint32> health, max;
+        for (Unit* unit : allies)
+        {
+            health.push_back(unit->GetHealth());
+            max.push_back(unit->GetMaxHealth());
+        }
+        int32 const index = Logic::MostInjured(health.begin(), health.end(), max.begin());
+        return index >= 0 ? allies[index] : nullptr;
     }
 
     namespace

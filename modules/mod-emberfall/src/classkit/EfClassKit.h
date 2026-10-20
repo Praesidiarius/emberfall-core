@@ -123,6 +123,11 @@ namespace Emberfall::ClassKit
     void RefreshConditionals(Unit* unit);
     // Whether a creature counts as a boss for the kits' crowd control (world boss, dungeon boss, boss rank).
     bool IsBoss(Unit const* unit);
+    // The most injured ally of `caster` within `range` yards, by the share of health missing (EfClassKitLogic.h
+    // MostInjured): the caster, its group's players and everything the caster or a group member controls (pets,
+    // guardians: the .efparty companions); only friendly, living units below full health. nullptr: everyone is full
+    // (the Warlock's Overflow and Harvest Tide, spell_ef_kit_transfuse).
+    Unit* MostInjuredAlly(Unit* caster, float range);
 
     // ---- A spec's own power (Emberfall docs/design/classes/druid-stormbringer.md §3; src/classkit/EfSpecPower.cpp) ----
     // ef_class_kit_spec_power (spec, class, power, max_power, drain_delay_ms, drain_per_second; optional table): while a
