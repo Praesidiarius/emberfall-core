@@ -247,6 +247,19 @@ it from `content/data/world.yaml` teleports with `town:`), the `command` rows: `
 row's 2 overrides the core's player permission; a GM account keeps the GM form `.unstuck $player [inn/graveyard/startzone]`)
 and `.stuck`.
 
+## GM command fixes
+
+`src/emberfall_gmcommands.cpp`; the logic without the core is `src/gmcommands/EfGmCommandLogic.h`
+(`tests/gmcommand_tests.cpp`). No config, no SQL. Both take over the stock handler through
+`AllCommandScript::OnTryExecuteCommand` (called after the core matched the typed words, before the handler; false skips
+it) only for a well-formed call the invoker's permission allows; anything else (a bad value, no target, a player for
+`.die`) still reaches the stock handler and its messages.
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_gmcommands_command` | `AllCommandScript::OnTryExecuteCommand` | `.modify speed [all\|walk\|backwalk\|swim\|fly] N`: the stock checks and messages (bounds 0.1-50, security, not on a flight path except `fly`), then the rate is set with `SetSpeed` (sent to the client: the stock `walk`/`backwalk`/`swim`/`fly` only stored it) and **held** per character and move type; N = 1 releases the types it covers and recalculates them (`UpdateSpeed`: auras and mount count again). `.die` on a living creature (not a pet, guardian or charmed unit): tapped for the GM unless someone tapped it already, the player damage requirement lowered as if the GM did it all (with their level), then `Unit::Kill(gm, creature)`: loot (lootable corpse, the loot sparkle), XP and quest credit like a real kill. The stock `.die` (Die.Command.Mode 1) killed without a tapper, so no loot and no reward. Logged as `Emberfall GM speed: ...` / `Emberfall .die: ...` (logger `module`) and in the GM log |
+| `emberfall_gmcommands_player` | `OnPlayerUpdate`, `OnPlayerLogin`, `OnPlayerLogout` | a held rate that a recalculation replaced (`Unit::UpdateSpeed` from any speed aura applied or removed, a daze, a mount or dismount) is set again on the player's next update (not on a flight path or mid-teleport); login and logout forget the character's rates |
+
 ## Absorbs (Emberfall `docs/design/cooldown-manager.md` §9.3)
 
 `src/emberfall_absorbs.cpp`; the logic without the core is `src/absorbs/EfAbsorbLogic.h` (`tests/absorb_tests.cpp`).

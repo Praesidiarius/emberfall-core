@@ -8,7 +8,8 @@
 # (tests/harbour_tests.cpp: src/harbours/EfHarbourLogic.h, the pier's stop and the next sailing) and the dev vendor tests
 # (tests/devvendor_tests.cpp: src/devvendor/EfDevVendorLogic.h, the switch's gating) and the world editor tests
 # (tests/editor_tests.cpp: src/editor/EfEditorLogic.h, the EFE requests, the rules, rates, ops and a decode fuzz) and the
-# class kit tests (tests/classkit_tests.cpp: src/classkit/EfClassKitLogic.h, the self stacks' cap, gains and refunds).
+# class kit tests (tests/classkit_tests.cpp: src/classkit/EfClassKitLogic.h, the self stacks' cap, gains and refunds) and
+# the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -19,7 +20,7 @@
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${TMPDIR:-/tmp}/mod-emberfall-talent-tests.$$
-trap 'rm -f "$OUT" "$OUT.companions" "$OUT.dungeons" "$OUT.unstuck" "$OUT.absorbs" "$OUT.harbours" "$OUT.devvendor" "$OUT.editor" "$OUT.classkit"' EXIT
+trap 'rm -f "$OUT" "$OUT.companions" "$OUT.dungeons" "$OUT.unstuck" "$OUT.absorbs" "$OUT.harbours" "$OUT.devvendor" "$OUT.editor" "$OUT.classkit" "$OUT.gmcommands"' EXIT
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/talents" \
     "$HERE/talent_tests.cpp" -o "$OUT"
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/companions" \
@@ -38,6 +39,8 @@ ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined
     -I"$HERE/../src/editor" "$HERE/editor_tests.cpp" -o "$OUT.editor"
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/classkit" \
     "$HERE/classkit_tests.cpp" -o "$OUT.classkit"
+${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/gmcommands" \
+    "$HERE/gmcommand_tests.cpp" -o "$OUT.gmcommands"
 if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json" "$HERE/data/talent_rules_frostguard.json"; fi
 "$OUT" "$@"
 "$OUT.companions"
@@ -48,3 +51,4 @@ if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json" "$HERE/data/
 "$OUT.devvendor"
 "$OUT.editor"
 "$OUT.classkit"
+"$OUT.gmcommands"
