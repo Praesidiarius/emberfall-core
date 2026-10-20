@@ -77,6 +77,8 @@
 //                                    seconds beyond its duration (Endless Crown)
 //   spell_ef_kit_hit_bonuses         the caster's hit bonuses for this spell on every enemy it strikes (Heavenfall's strike)
 //
+// The Druid's (a spec's own power, Static; end bonuses, charges, limited targets) are in src/emberfall_classkit_power.cpp.
+//
 // Hit bonuses (EfClassKit.h HitBonuses) need no script of their own: spell_ef_kit_add_stacks and spell_ef_kit_shatter run
 // the caster's talents that name the spell that hit (Splintering Cold, Driving Snow, Whiteout, Frozen Grip, Improved
 // Glacial Rupture); spell_ef_kit_shatter also lengthens a running storm (Hoarstorm).
@@ -852,13 +854,20 @@ class spell_ef_kit_not_bosses : public SpellScript
         OnCheckCast += SpellCheckCastFn(spell_ef_kit_not_bosses::CheckCast);
         // The area filter only on spells that have an enemy area (Noonday); a single-target hold (Kneel) has only the
         // cast check, else the core logs that the hook matches no effect.
-        bool area = false;
+        // An area round the caster (Noonday) or round the target (the Druid's Stormpeal: dest area).
+        bool area = false, destArea = false;
         if (SpellInfo const* info = sSpellMgr->GetSpellInfo(m_scriptSpellId))
             for (SpellEffectInfo const& effect : info->Effects)
+            {
                 area = area || effect.TargetA.GetTarget() == TARGET_UNIT_SRC_AREA_ENEMY ||
                        effect.TargetB.GetTarget() == TARGET_UNIT_SRC_AREA_ENEMY;
+                destArea = destArea || effect.TargetA.GetTarget() == TARGET_UNIT_DEST_AREA_ENEMY ||
+                           effect.TargetB.GetTarget() == TARGET_UNIT_DEST_AREA_ENEMY;
+            }
         if (area)
             OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_not_bosses::FilterTargets, EFFECT_ALL, TARGET_UNIT_SRC_AREA_ENEMY);
+        if (destArea)
+            OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_not_bosses::FilterTargets, EFFECT_ALL, TARGET_UNIT_DEST_AREA_ENEMY);
     }
 };
 
@@ -935,6 +944,8 @@ class spell_ef_kit_hit_bonuses : public SpellScript
     }
 };
 
+void AddEmberfallClassKitPowerScripts();
+
 void AddEmberfallClassKitScripts()
 {
     new emberfall_classkit_world();
@@ -959,4 +970,5 @@ void AddEmberfallClassKitScripts()
     RegisterSpellScript(spell_ef_kit_talent_buff);
     RegisterSpellScript(spell_ef_kit_extend_aura);
     RegisterSpellScript(spell_ef_kit_hit_bonuses);
+    AddEmberfallClassKitPowerScripts(); // the Druid's: src/emberfall_classkit_power.cpp
 }

@@ -48,6 +48,8 @@ namespace Emberfall::Talents
 
     // True when the system is on and the player's class has trees (the stock talent system is then off for it).
     bool Active(Player const* player);
+    // The player's active spec (0: none yet, the pre-spec state, or the system off for its class).
+    uint32 ActiveSpec(Player* player);
 
     // Hooks.
     void OnLogin(Player* player);

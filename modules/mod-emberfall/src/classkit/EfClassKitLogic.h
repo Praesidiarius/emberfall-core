@@ -74,4 +74,73 @@ namespace Emberfall::ClassKit::Logic
             return 0;
         return max * pctPerStack * int64_t(stacks) / 100;
     }
+
+    // ---- a spec's own power (the Druid's Stormbringer: Static, Emberfall docs/design/classes/druid-stormbringer.md) ----
+
+    // The points a builder builds (spell_ef_kit_build_power). `value` is its build effect's value (spell mods in:
+    // Supercell +50 %, Hailwind Surge +2/+4); `perEnemyMax` its misc B: above 0 the value per enemy struck, at most that
+    // many enemies (Hailwind: 8 each, at most 4); a builder whose enemy effects struck nobody builds nothing; `first`
+    // doubles it (First Flash: the first build of a fight).
+    constexpr int32_t PowerGain(int32_t value, int32_t perEnemyMax, uint32_t hits, bool needsHit, bool first)
+    {
+        if (value <= 0 || (needsHit && hits == 0))
+            return 0;
+        int32_t const gain = perEnemyMax > 0 ? value * std::min<int32_t>(int32_t(hits), perEnemyMax) : value;
+        return first ? gain * 2 : gain;
+    }
+
+    // Heavy Rend's overspend: of `want` more points, what the caster still holds beyond the spell's own cost (`have` and
+    // `cost` in stored units, `scale` stored units per point): whole points only.
+    constexpr int32_t Overspend(int32_t want, int32_t have, int32_t cost, int32_t scale)
+    {
+        if (want <= 0 || scale <= 0)
+            return 0;
+        int32_t const spare = (have - cost) / scale;
+        return std::clamp<int32_t>(spare, 0, want);
+    }
+
+    // The damage after an overspend of `points` at `perPointTenths` tenths of a percent each (Heavy Rend: 15, +1.5 %).
+    constexpr int32_t OverspendDamage(int32_t damage, int32_t points, int32_t perPointTenths)
+    {
+        if (damage <= 0 || points <= 0 || perPointTenths <= 0)
+            return damage;
+        return int32_t(int64_t(damage) * (1000 + int64_t(points) * perPointTenths) / 1000);
+    }
+
+    // An echo's damage (Overcast, Thunder Roll): `pct` percent of the damage the spell dealt, at least 1.
+    constexpr int32_t EchoDamage(int32_t damage, int32_t pct)
+    {
+        if (damage <= 0 || pct <= 0)
+            return 0;
+        return std::max<int32_t>(1, int32_t(int64_t(damage) * pct / 100));
+    }
+
+    // The out-of-combat drain of a spec power during `diffMs`: `perSecond` stored units a second times `multiplier` (the
+    // regen-percent auras: Static Memory 0.5 / 0.25), the fraction carried in `carry` (thousandths of a unit); nothing
+    // before `outOfCombatMs` passed `delayMs`. Returns the whole units to drain now.
+    inline int32_t Drain(uint32_t perSecond, float multiplier, uint32_t diffMs, uint32_t outOfCombatMs, uint32_t delayMs,
+                         int64_t& carry)
+    {
+        if (outOfCombatMs <= delayMs || perSecond == 0 || multiplier <= 0.0f)
+            return 0;
+        uint32_t const counted = std::min(diffMs, outOfCombatMs - delayMs);
+        carry += int64_t(double(perSecond) * double(multiplier) * double(counted));
+        int32_t const whole = int32_t(carry / 1000);
+        carry -= int64_t(whole) * 1000;
+        return whole;
+    }
+
+    // Charges: a cast with `recharging` charges already recharging (the charge aura's stacks) of `max`: how many recharge
+    // after it, and whether one is still left (then the spell's cooldown is cleared).
+    struct ChargeSpend
+    {
+        uint32_t recharging;
+        bool left;
+    };
+    constexpr ChargeSpend SpendCharge(uint32_t recharging, uint32_t max)
+    {
+        uint32_t const cap = std::max<uint32_t>(1, max);
+        uint32_t const now = std::min<uint32_t>(recharging + 1, cap);
+        return { now, now < cap };
+    }
 }
