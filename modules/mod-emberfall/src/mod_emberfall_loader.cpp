@@ -30,6 +30,7 @@ void AddEmberfallAbsorbsScripts();
 void AddEmberfallHarboursScripts();
 void AddEmberfallDevVendorScripts();
 void AddEmberfallEditorScripts();
+void AddEmberfallGmCommandsScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -45,4 +46,5 @@ void Addmod_emberfallScripts()
     AddEmberfallHarboursScripts();
     AddEmberfallDevVendorScripts();
     AddEmberfallEditorScripts();
+    AddEmberfallGmCommandsScripts();
 }
