@@ -41,6 +41,7 @@
 
 class Aura;
 class Player;
+class SpellInfo;
 class Unit;
 
 namespace Emberfall::ClassKit
@@ -102,11 +103,13 @@ namespace Emberfall::ClassKit
     int32 ShellPerStack(Unit* caster, uint32 shellSpell);
     // The most a shell aura can hold: ShellPerStack x its stack maximum (src/emberfall_absorbs.cpp reports it).
     int32 ShellCap(Unit* caster, uint32 shellSpell);
-    // Hit bonuses: every caster aura effect of type dummy whose misc value is `spellId` (the spell that hit), whose misc
-    // B is at most `stacks` (the stacks the target carried; 0: any) and that has a trigger spell rolls its amount as a
-    // chance in percent (0 or 100+: always) and then casts the trigger at the target; a stacking trigger (an aura with a
-    // stack maximum) adds one stack through AddStacks instead (Splintering Cold, Driving Snow, Frozen Grip, Whiteout,
-    // Improved Glacial Rupture).
+    // Hit bonuses: every caster aura effect of type dummy whose misc value is `spellId` (the spell that hit) or, with misc
+    // 0, whose class mask covers that spell (Hallowed Ground's burst for every holy sword), whose misc B is at most
+    // `stacks` (the stacks the target carried; 0: any) and that has a trigger spell rolls its amount as a chance in
+    // percent (0 or 100+: always) and then casts the trigger at the target; a stacking trigger (an aura with a stack
+    // maximum) adds one stack through AddStacks instead (Splintering Cold, Driving Snow, Frozen Grip, Whiteout, Improved
+    // Glacial Rupture). A trigger with a TargetAuraSpell goes only to a target carrying that aura of the caster's
+    // (Oathblade's sword on a Condemned enemy; Hallowed Ground's burst on an enemy standing in it).
     //   A trigger whose effect 1 targets the caster (a self aura: Dawn Ready, Endless Crown's lengthening; a self stack
     //   aura: Twin Brand's Sunblade) goes to the caster instead, and only when `selfTriggers` (the spenders pass it for
     //   their first enemy only, so an area spend counts once). A trigger whose ExcludeCasterAuraSpell the caster carries
@@ -116,9 +119,6 @@ namespace Emberfall::ClassKit
     // (effect 1's value with the caster's spell mods: Crown of Blades raises it; EfClassKitLogic.h StackCap), refreshing
     // it; stacks above a cap that fell stay. Returns the stacks.
     uint32 AddSelfStacks(Unit* caster, uint32 stackSpell, int32 count);
-    // The caster's heal per stack spent (Wrath's Mercy): every passive caster aura with a dummy effect whose misc value is
-    // `stackSpell`, misc B 0 and no trigger heals its amount in percent of max health per stack. Returns the health given.
-    int32 SpendHeals(Unit* caster, uint32 stackSpell, uint32 spent);
     // Lengthens the caster's own aura `auraSpell` by `addMs`, at most `maxExtraSeconds` beyond its duration (spell mods
     // in; Endless Crown on Crown of Blades). Returns the ms added.
     int32 Lengthen(Unit* caster, uint32 auraSpell, int32 addMs, int32 maxExtraSeconds);
@@ -133,6 +133,19 @@ namespace Emberfall::ClassKit
     // stack off the cooldown of effect 1's trigger spell, at most effect 2's amount in seconds per cooldown (Winter's
     // Embrace on Hoarstorm). Nothing while that spell is not cooling down.
     void CooldownByStacks(Unit* caster, uint32 stackSpell, uint32 consumed);
+    // Shortens the caster's running cooldown of `spell` by `cutMs` (never below nothing; SMSG_MODIFY_COOLDOWN tells the
+    // client). Returns the ms taken (Oathbound Rush on Oathblade, Endless Crown on Crown of Blades).
+    int32 ShortenCooldown(Unit* caster, uint32 spell, int32 cutMs);
+    // Empowerment: the sum of the caster's non-passive dummy aura effects with misc = `spell` and no trigger, in percent
+    // (Solenne's Wrath: +100 % on Solenne's Blessing). RefreshEmpowered recomputes the caster's aura `spell` on the caster
+    // and its group's members in the map (when the empowering aura comes or goes).
+    int32 EmpowerPct(Unit* caster, uint32 spell);
+    void RefreshEmpowered(Unit* caster, uint32 spell);
+    // Launches stacks (Crown of Blades): every caster aura effect of type dummy whose misc value is its own spell (a
+    // stacking aura), with a trigger and a class mask covering `launcher`, launches its amount of stacks (0: all) as
+    // casts of the trigger: at `target` (amount above 0), or at the enemies within misc B yards of the caster, the nearest
+    // first and round in turn (0); the stacks launched are taken off. Returns how many were launched.
+    uint32 LaunchStacks(Unit* caster, Unit* target, SpellInfo const* launcher);
     // The unit's conditional passives (spell_ef_kit_conditional) recompute their amounts now.
     void RefreshConditionals(Unit* unit);
     // Whether a creature counts as a boss for the kits' crowd control (world boss, dungeon boss, boss rank).

@@ -62,15 +62,12 @@
 //                                    (dummy): with the talent of its misc known, enemies below the threshold gain value
 //                                    stacks of its trigger (Stillpoint + Deepening Still). The stacks stay.
 //
-// The Paladin's (Emberfall docs/design/classes/paladin-wrathbringer.md: Sunblades, stacks of a self aura):
+// Built for the Paladin's first kit (Emberfall docs/design/classes/paladin-wrathbringer.md: Sunblades, stacks of a self
+// aura; since 2026-10-21 Crown of Blades raises its swords with spell_ef_kit_self_stacks):
 //
 //   spell_ef_kit_self_stacks         every dummy effect on the caster with a trigger raises its value in stacks of that
 //                                    self aura (misc B > 0: one per enemy struck, at most misc B, plus value - 1; nothing if
 //                                    the enemy effects struck nobody), up to the aura's cap (EfClassKit.h AddSelfStacks)
-//   spell_ef_kit_spend_stacks        effect 2 (dummy): misc = the self aura, misc B = the stacks needed, value = percent of
-//                                    max mana back per stack; launches all stacks: effect 1's damage x stacks; effect 3
-//                                    (dummy, optional): at misc B stacks, with the spell of its misc known, its trigger on
-//                                    the caster (Sunpierce, Solenne's Wrath: Dawn Ready)
 //   spell_ef_kit_delayed_strike      effect 1 (dummy at an enemy): value ms later the trigger is cast at the spot the enemy
 //                                    stood on (Heavenfall, Heaven's Answer)
 //   spell_ef_kit_not_bosses          never on bosses: the cast at one is refused, bosses leave the area (Kneel, Noonday)
@@ -80,7 +77,10 @@
 //                                    seconds beyond its duration (Endless Crown)
 //   spell_ef_kit_hit_bonuses         the caster's hit bonuses for this spell on every enemy it strikes (Heavenfall's strike)
 //
-// The Druid's (a spec's own power, Static; end bonuses, charges, limited targets) are in src/emberfall_classkit_power.cpp.
+// The Druid's (a spec's own power, Static; end bonuses, charges, limited targets) are in src/emberfall_classkit_power.cpp,
+// the Warlock's in src/emberfall_classkit_heal.cpp, the Wrathbringer's cards (2026-10-21: splash, Crown of Blades'
+// launches, the Blessing's main stat and its empowerment, the execute, cooldown cuts) in src/emberfall_classkit_wrath.cpp.
+// spell_ef_kit_spend_stacks (the Sunblades' spenders) went with the Sunblades on 2026-10-21 (in git history).
 //
 // Hit bonuses (EfClassKit.h HitBonuses) need no script of their own: spell_ef_kit_add_stacks and spell_ef_kit_shatter run
 // the caster's talents that name the spell that hit (Splintering Cold, Driving Snow, Whiteout, Frozen Grip, Improved
@@ -724,92 +724,6 @@ class spell_ef_kit_self_stacks : public SpellScript
     }
 };
 
-// A spender of self stacks (Sunpierce, Solenne's Wrath): needs at least effect 2's misc B stacks of effect 2's misc (the
-// self aura), launches all of them at the cast; effect 1's damage is multiplied by the stacks on every enemy; effect 2's
-// value is the percent of max mana back per stack (spell mods in: Ringing Steel); the caster's per-stack heals (Wrath's
-// Mercy, EfClassKit.h SpendHeals); effect 3 (optional, dummy): at misc B stacks or more and with the spell of its misc
-// known (0: none), its trigger on the caster (Dawn Ready, with Dawnbreak known). The hit bonuses for this spell run at
-// the stacks launched (Lingering Wrath, Edge of Dawn, Heaven's Answer, Endless Crown; self triggers once).
-class spell_ef_kit_spend_stacks : public SpellScript
-{
-    PrepareSpellScript(spell_ef_kit_spend_stacks);
-
-    uint32 _spent = 0;
-    bool _first = true;
-
-    bool Validate(SpellInfo const* spellInfo) override
-    {
-        return ValidateSpellInfo({ uint32(spellInfo->Effects[EFFECT_1].MiscValue) });
-    }
-
-    uint32 StackSpell() { return uint32(GetSpellInfo()->Effects[EFFECT_1].MiscValue); }
-
-    SpellCastResult CheckCast()
-    {
-        Unit* caster = GetCaster();
-        Aura const* aura = caster ? caster->GetAura(StackSpell(), caster->GetGUID()) : nullptr;
-        uint32 const need = uint32(std::max(1, GetSpellInfo()->Effects[EFFECT_1].MiscValueB));
-        if (!aura || aura->GetStackAmount() < need)
-            return SPELL_FAILED_CASTER_AURASTATE;
-        return SPELL_CAST_OK;
-    }
-
-    void Spend()
-    {
-        if (Unit* caster = GetCaster())
-            _spent = Emberfall::ClassKit::TakeStacks(caster, caster, StackSpell(), 0);
-    }
-
-    void HandleHit()
-    {
-        Unit* target = GetHitUnit();
-        if (!target || target == GetCaster())
-            return;
-        if (_spent > 1 && GetHitDamage() > 0)
-            SetHitDamage(GetHitDamage() * int32(_spent));
-    }
-
-    void AfterHitTarget()
-    {
-        Unit* caster = GetCaster();
-        Unit* target = GetHitUnit();
-        if (!caster || !target || target == caster || !_spent)
-            return;
-        Emberfall::ClassKit::HitBonuses(caster, target, GetSpellInfo()->Id, _spent, _first);
-        _first = false;
-    }
-
-    void Finish()
-    {
-        Unit* caster = GetCaster();
-        if (!caster || !_spent)
-            return;
-        // mana back: effect 2's value (spell mods in) percent of max mana per stack
-        int32 const mana = int32(Emberfall::ClassKit::Logic::PctPerStack(caster->GetMaxPower(POWER_MANA),
-            GetSpellInfo()->Effects[EFFECT_1].CalcValue(caster), _spent));
-        if (mana > 0)
-            caster->EnergizeBySpell(caster, GetSpellInfo()->Id, uint32(mana), POWER_MANA);
-        Emberfall::ClassKit::SpendHeals(caster, StackSpell(), _spent);
-        // effect 3: at enough stacks, with its spell known, the trigger on the caster (Dawn Ready)
-        SpellEffectInfo const& ready = GetSpellInfo()->Effects[EFFECT_2];
-        if (ready.Effect == SPELL_EFFECT_DUMMY && ready.TriggerSpell && _spent >= uint32(std::max(1, ready.MiscValueB)))
-        {
-            Player* player = caster->ToPlayer();
-            if (!ready.MiscValue || (player && player->HasSpell(uint32(ready.MiscValue))))
-                caster->CastSpell(caster, ready.TriggerSpell, true);
-        }
-    }
-
-    void Register() override
-    {
-        OnCheckCast += SpellCheckCastFn(spell_ef_kit_spend_stacks::CheckCast);
-        OnCast += SpellCastFn(spell_ef_kit_spend_stacks::Spend);
-        OnHit += SpellHitFn(spell_ef_kit_spend_stacks::HandleHit);
-        AfterHit += SpellHitFn(spell_ef_kit_spend_stacks::AfterHitTarget);
-        AfterCast += SpellCastFn(spell_ef_kit_spend_stacks::Finish);
-    }
-};
-
 // A delayed strike (Heavenfall): effect 1 (dummy at an enemy): value ms after the hit the caster casts the trigger at the
 // spot the enemy stood on (a ground strike: dest_dest + an area), whether the enemy stayed or not.
 class spell_ef_kit_delayed_strike : public SpellScript
@@ -959,6 +873,7 @@ class spell_ef_kit_hit_bonuses : public SpellScript
 
 void AddEmberfallClassKitPowerScripts();
 void AddEmberfallClassKitHealScripts();
+void AddEmberfallClassKitWrathScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -979,7 +894,6 @@ void AddEmberfallClassKitScripts()
     RegisterSpellScript(spell_ef_kit_interrupt_reset);
     RegisterSpellScript(spell_ef_kit_stack_freeze);
     RegisterSpellScript(spell_ef_kit_self_stacks);
-    RegisterSpellScript(spell_ef_kit_spend_stacks);
     RegisterSpellScript(spell_ef_kit_delayed_strike);
     RegisterSpellScript(spell_ef_kit_not_bosses);
     RegisterSpellScript(spell_ef_kit_talent_buff);
@@ -987,4 +901,5 @@ void AddEmberfallClassKitScripts()
     RegisterSpellScript(spell_ef_kit_hit_bonuses);
     AddEmberfallClassKitPowerScripts(); // the Druid's: src/emberfall_classkit_power.cpp
     AddEmberfallClassKitHealScripts();  // the Warlock's: src/emberfall_classkit_heal.cpp
+    AddEmberfallClassKitWrathScripts(); // the Wrathbringer's cards: src/emberfall_classkit_wrath.cpp
 }

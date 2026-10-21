@@ -23,6 +23,9 @@
 #include "DBCStores.h"
 #include "DataMap.h"
 #include "DatabaseEnv.h"
+#include "CellImpl.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "Group.h"
 #include "Log.h"
 #include "ObjectMgr.h"
@@ -484,10 +487,16 @@ namespace Emberfall::ClassKit
             int32 chance;
         };
         std::vector<Bonus> bonuses;
+        SpellInfo const* hitInfo = sSpellMgr->GetSpellInfo(spellId);
         for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
         {
             uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
-            if (uint32(eff->GetMiscValue()) == spellId && trigger && eff->GetMiscValueB() >= 0 && stacks >= uint32(eff->GetMiscValueB()))
+            if (!trigger || eff->GetMiscValueB() < 0 || stacks < uint32(eff->GetMiscValueB()))
+                continue;
+            // the spell named by misc, or (misc 0) every spell of the effect's class mask (Hallowed Ground: the holy swords)
+            bool const named = uint32(eff->GetMiscValue()) == spellId;
+            bool const masked = eff->GetMiscValue() == 0 && hitInfo && eff->IsAffectedOnSpell(hitInfo);
+            if (named || masked)
                 bonuses.push_back({ trigger, eff->GetAmount() });
         }
         for (Bonus const& b : bonuses)
@@ -500,6 +509,10 @@ namespace Emberfall::ClassKit
                 continue;
             // a trigger with a lockout of its own (Heaven's Answer Spent): not while the caster carries it
             if (info->ExcludeCasterAuraSpell && caster->HasAura(info->ExcludeCasterAuraSpell))
+                continue;
+            // a trigger that asks the target for an aura of the caster's (TargetAuraSpell: Oathblade's sword on a Condemned
+            // enemy, Hallowed Ground's burst on an enemy standing in it)
+            if (!self && info->TargetAuraSpell && !target->HasAura(info->TargetAuraSpell, caster->GetGUID()))
                 continue;
             if (b.chance > 0 && b.chance < 100 && !roll_chance_i(b.chance))
                 continue;
@@ -542,21 +555,6 @@ namespace Emberfall::ClassKit
         else
             aura->RefreshDuration();
         return aura->GetStackAmount();
-    }
-
-    int32 SpendHeals(Unit* caster, uint32 stackSpell, uint32 spent)
-    {
-        if (!caster || !spent || !caster->IsAlive())
-            return 0;
-        int32 pct = 0;
-        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
-            if (uint32(eff->GetMiscValue()) == stackSpell && eff->GetMiscValueB() == 0 && eff->GetBase()->IsPassive()
-                && !eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell)
-                pct += eff->GetAmount();
-        int32 const heal = int32(Logic::PctPerStack(caster->GetMaxHealth(), pct, spent));
-        if (heal > 0)
-            caster->ModifyHealth(heal);
-        return heal;
     }
 
     int32 Lengthen(Unit* caster, uint32 auraSpell, int32 addMs, int32 maxExtraSeconds)
@@ -642,6 +640,107 @@ namespace Emberfall::ClassKit
             cut.takenMs += take;
             cut.end = cd->second.end;
         }
+    }
+
+    int32 ShortenCooldown(Unit* caster, uint32 spell, int32 cutMs)
+    {
+        Player* player = caster ? caster->ToPlayer() : nullptr;
+        if (!player || !spell || !player->HasSpellCooldown(spell))
+            return 0;
+        int32 const take = Logic::CooldownCut(cutMs, int32(player->GetSpellCooldownDelay(spell)));
+        if (take > 0)
+            player->ModifySpellCooldown(spell, -take);
+        return take;
+    }
+
+    int32 EmpowerPct(Unit* caster, uint32 spell)
+    {
+        if (!caster || !spell)
+            return 0;
+        int32 pct = 0;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (uint32(eff->GetMiscValue()) == spell && !eff->GetBase()->IsPassive()
+                && !eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell)
+                pct += eff->GetAmount();
+        return pct;
+    }
+
+    void RefreshEmpowered(Unit* caster, uint32 spell)
+    {
+        if (!caster || !spell)
+            return;
+        auto refresh = [caster, spell](Unit* unit)
+        {
+            if (!unit || !unit->IsInWorld())
+                return;
+            if (Aura* aura = unit->GetAura(spell, caster->GetGUID()))
+                for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+                    if (AuraEffect* eff = aura->GetEffect(i))
+                        eff->RecalculateAmount(caster);
+        };
+        refresh(caster);
+        if (Player* player = caster->ToPlayer())
+            if (Group* group = player->GetGroup())
+                for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+                    if (Player* member = ref->GetSource(); member && member != player && member->GetMap() == caster->GetMap())
+                        refresh(member);
+    }
+
+    uint32 LaunchStacks(Unit* caster, Unit* target, SpellInfo const* launcher)
+    {
+        if (!caster || !launcher || !caster->IsAlive())
+            return 0;
+        struct Launch
+        {
+            uint32 aura;
+            uint32 trigger;
+            int32 perCast;
+            float reach;
+        };
+        std::vector<Launch> launches;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+        {
+            SpellInfo const* info = eff->GetSpellInfo();
+            uint32 const trigger = info->Effects[eff->GetEffIndex()].TriggerSpell;
+            if (trigger && uint32(eff->GetMiscValue()) == info->Id && info->StackAmount > 1 && eff->IsAffectedOnSpell(launcher))
+                // the spell's own value: a stacking aura's amounts are multiplied by its stacks
+                launches.push_back({ info->Id, trigger, info->Effects[eff->GetEffIndex()].CalcValue(caster),
+                    float(std::max(1, eff->GetMiscValueB())) });
+        }
+        uint32 launched = 0;
+        for (Launch const& l : launches)
+        {
+            Aura* aura = caster->GetAura(l.aura, caster->GetGUID());
+            int32 const count = aura ? Logic::LaunchCount(l.perCast, aura->GetStackAmount()) : 0;
+            if (count <= 0)
+                continue;
+            std::vector<Unit*> targets;
+            if (l.perCast > 0)
+            {
+                if (target && target != caster && target->IsAlive() && caster->IsValidAttackTarget(target))
+                    targets.push_back(target);
+            }
+            else
+            {
+                // all of them at the enemies near the caster, the nearest first, round in turn
+                std::list<Unit*> near;
+                Acore::AnyUnfriendlyUnitInObjectRangeCheck check(caster, caster, l.reach);
+                Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(caster, near, check);
+                Cell::VisitObjects(caster, searcher, l.reach);
+                near.remove_if([caster](Unit* u) { return !u->IsAlive() || !caster->IsValidAttackTarget(u)
+                    || (!u->IsInCombat() && !u->IsHostileTo(caster)); });
+                near.sort([caster](Unit* a, Unit* b) { return caster->GetExactDist2dSq(a) < caster->GetExactDist2dSq(b); });
+                targets.assign(near.begin(), near.end());
+            }
+            if (targets.empty())
+                continue;
+            for (int32 i = 0; i < count; ++i)
+                caster->CastSpell(targets[size_t(i) % targets.size()], l.trigger, true);
+            launched += uint32(count);
+            if (Aura* still = caster->GetAura(l.aura, caster->GetGUID()))
+                still->ModStackAmount(-count);
+        }
+        return launched;
     }
 
     void RefreshConditionals(Unit* unit)

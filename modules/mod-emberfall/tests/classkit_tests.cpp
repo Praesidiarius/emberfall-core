@@ -165,6 +165,31 @@ int main()
     check(StackCooldownCut(10, 1000, 0, 90000, 4000) == 4000, "never more than is left");
     check(StackCooldownCut(10, 1000, 0, 90000, 0) == 0, "not on cooldown: nothing");
 
+    // the Wrathbringer's cards: Last Sentence +100 % at 20 % health or below, nothing at full health
+    check(ExecuteBonusPct(100.0f, 100, 20) == 0, "Last Sentence at full health: no bonus");
+    check(ExecuteBonusPct(60.0f, 100, 20) == 50, "at 60 %: half the bonus");
+    check(ExecuteBonusPct(20.0f, 100, 20) == 100, "at 20 %: the full bonus");
+    check(ExecuteBonusPct(5.0f, 100, 20) == 100, "below 20 %: still the full bonus");
+    check(ExecuteBonusPct(50.0f, 0, 20) == 0, "no bonus value: nothing");
+    check(PctOf(400, 50) == 200, "half the cost back on a kill");
+    check(PctOf(0, 50) == 0, "a free cast refunds nothing");
+    check(PctOf(300, 50) == 150, "Sacred Brand's splash: 50 % of the hit");
+    // Solenne's Blessing: the main stat by class, doubled while Solenne's Wrath holds
+    check(MainStat(2) == 0 && MainStat(1) == 0, "paladins and warriors: strength");
+    check(MainStat(3) == 1, "hunters: agility");
+    check(MainStat(8) == 3 && MainStat(9) == 3 && MainStat(11) == 3, "mages, warlocks, druids: intellect");
+    check(Empowered(20, 100) == 40, "the Blessing doubled: 40 %");
+    check(Empowered(20, 0) == 20, "not empowered: 20 %");
+    // Crown of Blades: one sword per Sacred Brand, Edict or Oathblade; all of them for Solenne's Wrath
+    check(LaunchCount(1, 3) == 1, "one sword at a time");
+    check(LaunchCount(0, 3) == 3, "Solenne's Wrath launches all three");
+    check(LaunchCount(1, 0) == 0, "no swords held: nothing");
+    check(LaunchCount(2, 1) == 1, "never more than are held");
+    // cooldown cuts: Oathbound Rush takes 3 s off Oathblade, never more than is left
+    check(CooldownCut(3000, 5000) == 3000, "3 s off a 5 s wait");
+    check(CooldownCut(3000, 1200) == 1200, "never more than is left");
+    check(CooldownCut(3000, 0) == 0, "not on cooldown: nothing");
+
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }
