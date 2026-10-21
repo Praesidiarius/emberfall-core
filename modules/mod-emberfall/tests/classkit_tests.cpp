@@ -113,6 +113,12 @@ int main()
     for (int i = 1; i <= 10; ++i)
         sum += Drain(100, 0.25f, 100, 10000 + i * 100, 5000, carry);
     check(sum == 25, "Static Memory 2: a quarter, the fractions carried");
+    // Brooding Sky: a larger pool drains in proportion (as long to empty from full); never slower than the spec's own
+    check(DrainRate(100, 1000, 1000) == 100, "the spec's own pool: its own rate");
+    check(DrainRate(100, 1500, 1000) == 150, "Brooding Sky 1: 150 of 100, 15 a second");
+    check(DrainRate(100, 2000, 1000) == 200, "Brooding Sky 2: 200 of 100, 20 a second");
+    check(DrainRate(100, 500, 1000) == 100, "a smaller pool keeps the spec's rate");
+    check(DrainRate(100, 2000, 0) == 100, "no maximum: the rate as it is");
 
     // charges: Second Gust, 2
     check(SpendCharge(0, 2).recharging == 1 && SpendCharge(0, 2).left, "first cast: one recharges, one is left");

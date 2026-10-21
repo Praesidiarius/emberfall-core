@@ -162,6 +162,16 @@ namespace Emberfall::ClassKit::Logic
         return std::max<int32_t>(1, int32_t(int64_t(damage) * pct / 100));
     }
 
+    // The drain rate of a spec power whose pool is `max` (stored units) against the spec's own maximum `baseMax`: in
+    // proportion, so a larger pool (Brooding Sky: 1500, 2000 of 1000) empties from full in the same time; never below
+    // the spec's own rate.
+    constexpr uint32_t DrainRate(uint32_t perSecond, uint32_t max, uint32_t baseMax)
+    {
+        if (baseMax == 0 || max <= baseMax)
+            return perSecond;
+        return uint32_t(uint64_t(perSecond) * max / baseMax);
+    }
+
     // The out-of-combat drain of a spec power during `diffMs`: `perSecond` stored units a second times `multiplier` (the
     // regen-percent auras: Static Memory 0.5 / 0.25), the fraction carried in `carry` (thousandths of a unit); nothing
     // before `outOfCombatMs` passed `delayMs`. Returns the whole units to drain now.

@@ -131,7 +131,10 @@ namespace Emberfall::ClassKit
             bool const changed = player->getPowerType() != slot || st->power != power;
             if (player->getPowerType() != slot)
                 player->setPowerType(slot);
-            player->SetMaxPower(slot, power->max);
+            // the slot's own maximum (runic power: 1000 stored, the kit's `max: 100`) plus the max-power auras of the
+            // slot (SPELL_AURA_MOD_INCREASE_ENERGY, misc the power: Brooding Sky +500 / +1000), the way every aura change
+            // and stat update computes it, so neither undoes the other
+            player->UpdateMaxPower(slot);
             if (changed)
                 player->SetPower(slot, 0);
             st->power = power;
@@ -171,8 +174,9 @@ namespace Emberfall::ClassKit
         if (player->getPowerType() != slot || !player->GetPower(slot))
             return;
         float const multiplier = player->GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_POWER_REGEN_PERCENT, slot);
-        int32 const drain = Logic::Drain(st->power->drainPerSecond, multiplier, diff, st->outOfCombatMs, st->power->drainDelayMs,
-                                         st->carry);
+        // a larger pool (Brooding Sky) drains in proportion: as long to empty from full as the spec's own maximum
+        uint32 const perSecond = Logic::DrainRate(st->power->drainPerSecond, player->GetMaxPower(slot), st->power->max);
+        int32 const drain = Logic::Drain(perSecond, multiplier, diff, st->outOfCombatMs, st->power->drainDelayMs, st->carry);
         if (drain > 0)
             player->ModifyPower(slot, -drain);
     }
