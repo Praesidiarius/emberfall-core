@@ -28,8 +28,9 @@
 //                                 Rising Air; self triggers once).
 //   spell_ef_kit_power_spender    a spender of the spec power (its Spell.dbc cost; damage, or since the Warlock healing:
 //                                 Bequest and Dole, whose overspend and echo heal and which may target the caster): a dummy on the caster with misc = a
-//                                 talent the caster knows spends up to its value in more points, misc B tenths of a percent
-//                                 more damage each (Heavy Rend); a dummy on the caster without misc gives its value (spell
+//                                 talent the caster knows (or = the spell itself: always, the Warlock's Spoil) spends up to
+//                                 its value in more points, misc B tenths of a percent more damage each (Heavy Rend); a
+//                                 dummy on the caster without misc gives its value (spell
 //                                 mods in: Lightning Rod) back on a critical strike, once per cast. Spend bonuses: the
 //                                 caster's passive dummy auras with misc = this spell and a trigger, when the power before
 //                                 the cast was at least their misc B: a trigger whose effect 1 is school damage is an echo
@@ -180,8 +181,9 @@ class spell_ef_kit_power_spender : public SpellScript
         int32 const scale = Emberfall::ClassKit::PowerScale(slot);
         for (SpellEffectInfo const& eff : GetSpellInfo()->Effects)
         {
+            // misc: the talent that enables it, or the spell itself for an overspend that is always on (Spoil)
             if (eff.Effect != SPELL_EFFECT_DUMMY || eff.TargetA.GetTarget() != TARGET_UNIT_CASTER || !eff.MiscValue
-                || !caster->HasAura(uint32(eff.MiscValue)))
+                || (uint32(eff.MiscValue) != GetSpellInfo()->Id && !caster->HasAura(uint32(eff.MiscValue))))
                 continue;
             _extra = Emberfall::ClassKit::Logic::Overspend(eff.CalcValue(caster), _before, GetSpell()->GetPowerCost(), scale);
             _perPoint = eff.MiscValueB;
