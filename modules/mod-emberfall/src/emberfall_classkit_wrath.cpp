@@ -38,7 +38,10 @@
 //                                percent of the spell's cost back when the strike kills (Last Sentence)
 //   spell_ef_kit_cooldown_cut    every dummy effect with a trigger shortens the caster's cooldown of the trigger by -value ms
 //                                when it hits; its misc (optional): an aura the caster casts on itself at the cast (Oathbound
-//                                Rush: no slows during the charge, Oathblade 3 s sooner; Endless Crown's cut)
+//                                Rush: no slows during the charge, Oathblade 3 s sooner; Endless Crown's cut). A dummy with a
+//                                trigger and value 0 casts the trigger at the unit it hits instead: Oathbound Rush's blow on
+//                                arrival (a melee helper with the normal hit rules; the charge itself has damage class none
+//                                and always lands, as the stock Warrior Charge does)
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
@@ -178,7 +181,9 @@ class spell_ef_kit_execute : public SpellScript
 };
 
 // Oathbound Rush (and Endless Crown's cut): a dummy with a trigger takes -value ms off the trigger's cooldown when it hits;
-// its misc is an aura the caster takes at the cast (the charge's slow immunity).
+// its misc is an aura the caster takes at the cast (the charge's slow immunity). A dummy with a trigger and value 0 casts
+// the trigger at the unit it hits: the charge's blow, when the charge (speed > 0: its hit waits for the arrival) lands.
+// SPELL_EFFECT_TRIGGER_SPELL would not do: it is handled at the launch, before the charge has run.
 class spell_ef_kit_cooldown_cut : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_cooldown_cut);
@@ -196,8 +201,17 @@ class spell_ef_kit_cooldown_cut : public SpellScript
     void HandleDummy(SpellEffIndex effIndex)
     {
         SpellEffectInfo const& eff = GetSpellInfo()->Effects[effIndex];
-        if (eff.TriggerSpell && GetEffectValue() < 0)
+        if (!eff.TriggerSpell)
+            return;
+        if (GetEffectValue() < 0)
             Emberfall::ClassKit::ShortenCooldown(GetCaster(), eff.TriggerSpell, -GetEffectValue());
+        else if (GetEffectValue() == 0)
+        {
+            Unit* caster = GetCaster();
+            Unit* target = GetHitUnit();
+            if (caster && target && target != caster && target->IsAlive())
+                caster->CastSpell(target, eff.TriggerSpell, true);
+        }
     }
 
     void Register() override
