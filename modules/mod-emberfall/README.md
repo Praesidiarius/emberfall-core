@@ -247,6 +247,33 @@ it from `content/data/world.yaml` teleports with `town:`), the `command` rows: `
 row's 2 overrides the core's player permission; a GM account keeps the GM form `.unstuck $player [inn/graveyard/startzone]`)
 and `.stuck`.
 
+## Personal quest objects (Emberfall `docs/design/group-quest-loot.md`)
+
+`src/emberfall_questloot.cpp`; the logic without the core is `src/questloot/EfQuestLootLogic.h`
+(`tests/questloot_tests.cpp`). No config, no SQL: Emberfall's compiler names the scripts in `gameobject_template.ScriptName`
+of every chest whose loot is only quest items (a reed stook, an eel trap, oakwort) and gives those items
+`ITEM_FLAG_MULTI_DROP`, so a shared loot holds one copy per player (`LootItem::freeforall`). Ordinary chests, herb and
+ore nodes, goobers and doors keep the core's behaviour.
+
+The stock chest is one loot per object: filled for the first opener only (`Player::SendLoot`), and its release when empty
+(`WorldSession::DoLootRelease`, `GO_JUST_DEACTIVATED`) despawns it for everyone until `spawntimesecs`. Here each player
+who needs the item takes it from the same object, and only they lose sight of it until their own respawn.
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_personal_quest_object` | `GameObjectScript::GetAI` (the AI below, Hide mode) | the object disappears for the player who took their item (`GameObjectAI::CanBeSeen`; destroyed for their client once their loot window is closed, `Player::UpdateVisibilityOf`) and comes back after the spawn's respawn time (at least 10 s); everyone else keeps it, with the sparkle while their quest wants the item |
+| `emberfall_personal_quest_object_stays` | the same, Stay mode | for an object that never despawned (gameobjects.yaml `consumable: 0`, the wreck's fore-deck): stays in sight, only the lockout |
+| the AI | `GossipHello` | a locked-out player's opening is refused (`Spell::SendLoot` and `GameObject::Use` ask it first; `SMSG_LOOT_RELEASE_RESPONSE`) |
+| | `OnStateChanged` | the release of the emptied loot (`GO_JUST_DEACTIVATED` while the respawn time is 0) puts the object back to `GO_READY`: no despawn; the next opening fills fresh loot for that player. A real despawn (`DespawnOrUnsummon` sets the respawn time first) still despawns |
+| `emberfall_questloot_player` | `OnPlayerBeforeSendLoot` | a player opening the object while another's loot is open gets their own quest item list (`Loot::FillNotNormalLootFor`) |
+| | `OnPlayerLootItem` | the player who took an item from the object is locked out of it for its respawn time |
+
+The lockouts live in the AI (per spawn, in memory): a grid unload or a restart forgets them. Quest items from creatures
+need no script: `ITEM_FLAG_MULTI_DROP` on a `QuestRequired` row is enough (`Loot::FillQuestLoot` gives each group member in
+loot range their own copy at the kill; `LootView` shows a freeforall quest item as lootable under every loot method, never
+to the master looter or a roll; `Player::isAllowedToLoot` keeps the corpse lootable, `UNIT_DYNFLAG_LOOTABLE` per viewer,
+for each member with something left on it).
+
 ## GM command fixes
 
 `src/emberfall_gmcommands.cpp`; the logic without the core is `src/gmcommands/EfGmCommandLogic.h`
