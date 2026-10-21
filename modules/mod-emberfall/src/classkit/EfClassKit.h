@@ -39,6 +39,7 @@
 #include <string>
 #include <vector>
 
+class Aura;
 class Player;
 class Unit;
 
@@ -82,16 +83,24 @@ namespace Emberfall::ClassKit
     uint32 AddStacks(Unit* caster, Unit* target, uint32 stackSpell, int32 count);
     // Takes up to `count` stacks (0: all) of `stackSpell` from `target`; returns how many were taken.
     uint32 TakeStacks(Unit* caster, Unit* target, uint32 stackSpell, uint32 count);
-    // One shell per caster: `add` joins the shell aura `shellSpell` (school absorb, effect 2 = its cap in percent of
-    // max health), capped; its duration becomes the longest of the remaining and `durationMs`.
-    //   The shell spell's own spell mods apply: its effect 1's (SPELLMOD_EFFECT1) scale every amount added, its effect
-    //   2's move the cap (Deep Shell, Winter's Embrace). The caster's conditional passives follow at once.
-    void AddToShell(Unit* caster, uint32 shellSpell, int32 add, int32 durationMs);
+    // The stacked shell (Frost Shell): one shell aura per caster (school absorb; effect 2's value = the percent of max
+    // health one stack absorbs; Spell.dbc StackAmount = the most stacks). Its absorb pool is the stacks' worth, the
+    // stacks shown follow the pool (EfClassKitLogic.h ShellStacks: every started stack counts).
+    //   AddShellStacks adds `stacks` stacks' worth to the pool (a worn stack is topped up), at most the cap; the duration
+    //   becomes the longest of the remaining and `durationMs` (all stacks share it). The caster's conditional passives
+    //   follow at once.
+    void AddShellStacks(Unit* caster, uint32 shellSpell, int32 stacks, int32 durationMs);
+    // The shell is absorbing `absorbed` of a blow: its stacks follow what will be left of the pool (spell_ef_kit_shell,
+    // after the absorb, before the engine reduces the amount).
+    void FollowShell(Aura* shell, int32 absorbed);
     // Whether `spellId` is a shell aura (the trigger of a spell_ef_kit_shatter kit spell, found by Load, or any spell
-    // AddToShell was called with).
+    // AddShellStacks was called with).
     bool IsShellSpell(uint32 spellId);
-    // The most a shell aura `shellSpell` of `caster` can hold: its effect 2's percent (spell mods included) of the
-    // caster's max health (AddToShell's cap; src/emberfall_absorbs.cpp reports it).
+    // What one stack of the shell aura `shellSpell` of `caster` absorbs: effect 2's percent (its spell mods in: Deep
+    // Shell, the Rimeholder's 8 pieces) of the caster's max health, scaled by the effect 1 spell mods (the Rimeholder's
+    // 2 pieces).
+    int32 ShellPerStack(Unit* caster, uint32 shellSpell);
+    // The most a shell aura can hold: ShellPerStack x its stack maximum (src/emberfall_absorbs.cpp reports it).
     int32 ShellCap(Unit* caster, uint32 shellSpell);
     // Hit bonuses: every caster aura effect of type dummy whose misc value is `spellId` (the spell that hit), whose misc
     // B is at most `stacks` (the stacks the target carried; 0: any) and that has a trigger spell rolls its amount as a
@@ -119,6 +128,11 @@ namespace Emberfall::ClassKit
     // is `stackSpell`, whose misc B (seconds) is above 0 and that has no trigger spell lasts the effect's amount in ms
     // longer per stack, until it has run misc B seconds beyond its spell's duration (Hoarstorm).
     void ExtendByStacks(Unit* caster, uint32 stackSpell, uint32 consumed);
+    // `consumed` stacks of `stackSpell` were shattered: every caster aura of a stack-cooldown passive
+    // (spell_ef_kit_stack_cooldown, found by Load) whose effect 1 misc is `stackSpell` takes effect 1's amount in ms per
+    // stack off the cooldown of effect 1's trigger spell, at most effect 2's amount in seconds per cooldown (Winter's
+    // Embrace on Hoarstorm). Nothing while that spell is not cooling down.
+    void CooldownByStacks(Unit* caster, uint32 stackSpell, uint32 consumed);
     // The unit's conditional passives (spell_ef_kit_conditional) recompute their amounts now.
     void RefreshConditionals(Unit* unit);
     // Whether a creature counts as a boss for the kits' crowd control (world boss, dungeon boss, boss rank).

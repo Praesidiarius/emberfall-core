@@ -142,6 +142,29 @@ int main()
         check(MostInjured(full, full + 2, fullMax) == -1, "everyone full: nobody");
     }
 
+    // the stacked Frost Shell: 10 % of max health (1000 of 10000) per stack, at most 10 stacks
+    check(ShellStacks(0, 1000, 10) == 0, "an empty shell shows no stacks");
+    check(ShellStacks(3000, 1000, 10) == 3, "3 full stacks");
+    check(ShellStacks(2400, 1000, 10) == 3, "a worn stack still shows (ceil)");
+    check(ShellStacks(2001, 1000, 10) == 3, "one point into the third stack");
+    check(ShellStacks(25000, 1000, 10) == 10, "never above the maximum");
+    check(ShellAfterGain(0, 1000, 3, 10) == 3000, "3 stacks from nothing");
+    check(ShellAfterGain(2400, 1000, 1, 10) == 3400, "a gain adds to a worn pool");
+    check(ShellAfterGain(9500, 1000, 2, 10) == 10000, "at most 10 stacks' worth");
+    check(ShellGain(2, 2, 1) == 1, "Icebreak on one enemy: 2 shattered, 1 shell");
+    check(ShellGain(6, 2, 1) == 3, "Icebreak on three enemies: 3 shells");
+    check(ShellGain(5 + 6, 2, 1) == 5, "Glacial Rupture 5 + 6 stacks: 11 / 2 = 5 (summed, rounded down)");
+    check(ShellGain(1, 2, 1) == 0, "one stack gives no shell");
+    check(ShellGain(4, 0, 1) == 0, "no stacks per shell: nothing");
+
+    // Winter's Embrace: 0.5 s / 1 s per stack consumed off Hoarstorm, at most 90 s per cooldown
+    check(StackCooldownCut(6, 1000, 0, 90000, 170000) == 6000, "rank 2, 6 stacks: 6 s");
+    check(StackCooldownCut(6, 500, 0, 90000, 170000) == 3000, "rank 1, 6 stacks: 3 s");
+    check(StackCooldownCut(10, 1000, 85000, 90000, 60000) == 5000, "the last 5 s of the 90");
+    check(StackCooldownCut(10, 1000, 90000, 90000, 60000) == 0, "90 s taken: nothing more");
+    check(StackCooldownCut(10, 1000, 0, 90000, 4000) == 4000, "never more than is left");
+    check(StackCooldownCut(10, 1000, 0, 90000, 0) == 0, "not on cooldown: nothing");
+
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }

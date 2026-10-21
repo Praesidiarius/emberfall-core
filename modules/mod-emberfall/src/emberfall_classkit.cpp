@@ -26,9 +26,17 @@
 //                                    the targets it hits (the mage's Frost Stacks; EfClassKit.h AddStacks)
 //   spell_ef_kit_shatter             effect 1 damages the enemies around that carry the stacks; effect 2 (dummy): value =
 //                                    stacks shattered per enemy (0: all), misc = the stacking aura, misc B 1 = damage per
-//                                    stack; effect 3 (dummy): value = shell per unit, misc = percent of intellect, misc B =
-//                                    stacks per unit, trigger = the shell aura (its duration: this spell's, with spell
-//                                    mods). Every stack shattered refunds 1 % of max mana. (Icebreak; later Glacial Rupture)
+//                                    stack; effect 3 (dummy): value = shell stacks per unit, misc B = stacks shattered per
+//                                    unit (summed over every enemy, rounded down), trigger = the stacked shell aura
+//                                    (EfClassKit.h AddShellStacks; its duration: this spell's, with spell mods). Every
+//                                    stack shattered refunds 1 % of max mana and runs the stack-cooldown passives
+//                                    (Icebreak, Glacial Rupture)
+//   spell_ef_kit_shell               the stacked shell aura (effect 1 school absorb; effect 2 dummy: percent of max health
+//                                    per stack; StackAmount: the most stacks): its stacks follow the pool as blows wear it
+//                                    down (EfClassKit.h FollowShell; Frost Shell)
+//   spell_ef_kit_stack_cooldown      a passive: effect 1 (dummy): misc = the stacking aura, value = ms off the cooldown of
+//                                    its trigger spell per stack shattered; effect 2 (dummy): value = at most that many
+//                                    seconds off per cooldown (EfClassKit.h CooldownByStacks; Winter's Embrace on Hoarstorm)
 //   spell_ef_kit_absorb_pct_health   the school absorb's amount is its value in percent of max health (Barrier)
 //   spell_ef_kit_line_targets        the area targets are only those on a line ahead, effect 3's value yards to each side
 //                                    (Frostbound Orb)
@@ -40,11 +48,6 @@
 //                                    the owner must have (0: none), misc B 1 = only out of combat; effects 2 and 3 count only
 //                                    while the condition holds, else their amount is 0 (Light Step out of combat; Iceplate
 //                                    and Cryo Ward while a Frost Shell is up)
-//   spell_ef_kit_storm               a caster aura that follows its owner (effect 1: periodic trigger spell, the tick: area
-//                                    around the owner); effect 2 (dummy): misc = the stacking aura, value = ms longer per stack
-//                                    shattered while it lasts, misc B = at most that many seconds longer (EfClassKit.h
-//                                    ExtendByStacks); effect 3 (dummy): misc = a talent, trigger = a buff the owner keeps
-//                                    while the storm lasts if the talent is known (Hoarstorm + Winter's Embrace)
 //   spell_ef_kit_ward_stacks         effect 1 is a school absorb that takes every hit of its schools in full while it lasts;
 //                                    effect 2 (dummy): every attacker it absorbed a hit from gains value stacks of its trigger
 //                                    aura (Glacial Bulwark: physical immunity that keeps threat, attackers gain Frost Stacks)
@@ -81,7 +84,9 @@
 //
 // Hit bonuses (EfClassKit.h HitBonuses) need no script of their own: spell_ef_kit_add_stacks and spell_ef_kit_shatter run
 // the caster's talents that name the spell that hit (Splintering Cold, Driving Snow, Whiteout, Frozen Grip, Improved
-// Glacial Rupture); spell_ef_kit_shatter also lengthens a running storm (Hoarstorm).
+// Glacial Rupture); spell_ef_kit_shatter also lengthens a running storm (Hoarstorm: a periodic trigger aura with a dummy
+// effect, misc = the stacking aura, value = ms longer per stack shattered, misc B = at most that many seconds longer;
+// EfClassKit.h ExtendByStacks, no script of its own).
 
 #include "Chat.h"
 #include "ChatCommand.h"
@@ -283,17 +288,17 @@ class spell_ef_kit_shatter : public SpellScript
         int32 const mana = int32(caster->GetMaxPower(POWER_MANA) * _shattered / 100);
         if (mana > 0)
             caster->EnergizeBySpell(caster, GetSpellInfo()->Id, uint32(mana), POWER_MANA);
-        // the shell: per unit of stacks, flat + percent of intellect
+        // cooldowns shortened per stack (Winter's Embrace)
+        Emberfall::ClassKit::CooldownByStacks(caster, StackSpell(), _shattered);
+        // the shell: value stacks per misc B stacks shattered, summed over every enemy
         SpellEffectInfo const& shell = GetSpellInfo()->Effects[EFFECT_2];
-        int32 const perUnit = std::max(1, shell.MiscValueB);
-        int32 const units = int32(_shattered) / perUnit;
-        if (units <= 0)
+        int32 const gain = Emberfall::ClassKit::Logic::ShellGain(_shattered, std::max(1, shell.MiscValueB), shell.CalcValue(caster));
+        if (gain <= 0)
             return;
-        int32 const add = units * (shell.CalcValue(caster) + int32(caster->GetStat(STAT_INTELLECT) * shell.MiscValue / 100.0f));
         int32 duration = GetSpellInfo()->GetDuration();
         if (Player* player = caster->ToPlayer())
             player->ApplySpellMod(GetSpellInfo()->Id, SPELLMOD_DURATION, duration);
-        Emberfall::ClassKit::AddToShell(caster, shell.TriggerSpell, add, duration);
+        Emberfall::ClassKit::AddShellStacks(caster, shell.TriggerSpell, gain, duration);
     }
 
     void Register() override
@@ -454,33 +459,41 @@ class spell_ef_kit_conditional : public AuraScript
     }
 };
 
-// A storm around its owner: the ticks are data (effect 1); with the talent of effect 3 the owner keeps effect 3's buff
-// while it lasts. Shattered stacks lengthen it (EfClassKit.h ExtendByStacks, called by spell_ef_kit_shatter).
-class spell_ef_kit_storm : public AuraScript
+// The stacked shell: its stacks follow the pool as blows wear it down (the gains: spell_ef_kit_shatter).
+class spell_ef_kit_shell : public AuraScript
 {
-    PrepareAuraScript(spell_ef_kit_storm);
+    PrepareAuraScript(spell_ef_kit_shell);
 
-    void Apply(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
+    // the pool is set by AddShellStacks, never recalculated from the spell
+    void CalcAmount(AuraEffect const* /*aurEff*/, int32& /*amount*/, bool& canBeRecalculated)
     {
-        Unit* owner = GetUnitOwner();
-        SpellEffectInfo const& eff = GetSpellInfo()->Effects[aurEff->GetEffIndex()];
-        if (owner && eff.TriggerSpell && eff.MiscValue && owner->HasAura(uint32(eff.MiscValue)))
-            owner->CastSpell(owner, eff.TriggerSpell, true);
+        canBeRecalculated = false;
     }
 
-    void Remove(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
+    void AfterAbsorb(AuraEffect* /*aurEff*/, DamageInfo& /*dmgInfo*/, uint32& absorbAmount)
     {
-        Unit* owner = GetUnitOwner();
-        SpellEffectInfo const& eff = GetSpellInfo()->Effects[aurEff->GetEffIndex()];
-        if (owner && eff.TriggerSpell)
-            owner->RemoveAurasDueToSpell(eff.TriggerSpell, owner->GetGUID());
+        Emberfall::ClassKit::FollowShell(GetAura(), int32(absorbAmount));
     }
 
     void Register() override
     {
-        AfterEffectApply += AuraEffectApplyFn(spell_ef_kit_storm::Apply, EFFECT_2, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
-        AfterEffectRemove += AuraEffectRemoveFn(spell_ef_kit_storm::Remove, EFFECT_2, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_ef_kit_shell::CalcAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        AfterEffectAbsorb += AuraEffectAbsorbFn(spell_ef_kit_shell::AfterAbsorb, EFFECT_0);
     }
+};
+
+// A stack-cooldown passive: its numbers are read by EfClassKit.h CooldownByStacks (called by spell_ef_kit_shatter); the
+// script only names it (Load finds the passives by it).
+class spell_ef_kit_stack_cooldown : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_stack_cooldown);
+
+    bool Validate(SpellInfo const* spellInfo) override
+    {
+        return spellInfo->Effects[EFFECT_0].MiscValue && ValidateSpellInfo({ spellInfo->Effects[EFFECT_0].TriggerSpell });
+    }
+
+    void Register() override { }
 };
 
 // Every hit of the absorb's schools is taken in full; the attacker gains stacks.
@@ -959,7 +972,8 @@ void AddEmberfallClassKitScripts()
     RegisterSpellScript(spell_ef_kit_interrupt_followup);
     RegisterSpellScript(spell_ef_kit_rest_regen);
     RegisterSpellScript(spell_ef_kit_conditional);
-    RegisterSpellScript(spell_ef_kit_storm);
+    RegisterSpellScript(spell_ef_kit_shell);
+    RegisterSpellScript(spell_ef_kit_stack_cooldown);
     RegisterSpellScript(spell_ef_kit_ward_stacks);
     RegisterSpellScript(spell_ef_kit_cheat_death);
     RegisterSpellScript(spell_ef_kit_interrupt_reset);

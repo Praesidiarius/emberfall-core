@@ -111,7 +111,7 @@ untouched.
 | `emberfall_classkit_world` | `WorldScript::OnAfterConfigLoad`, `OnBeforeWorldInitialized` | reads the switch, loads the kits |
 | `emberfall_classkit_player` | `OnPlayerLogin`, `OnPlayerLevelChanged` | for a kit class: takes away the class's own stock class skill lines (a SkillRaceClassInfo row naming the class alone), spells and auras of the stock family, buttons of spells the character does not know; logs what it took |
 | `emberfall_classkit_commands` | `CommandScript` | `.efkit` (the kit and what the selected player knows of it), `.efkit purge` |
-| `spell_ef_kit_add_stacks`, `spell_ef_kit_shatter`, `spell_ef_kit_absorb_pct_health`, `spell_ef_kit_line_targets`, `spell_ef_kit_interrupt_followup`, `spell_ef_kit_rest_regen` | `SpellScript`/`AuraScript` (`spell_script_names` from the kit) | the kits' generic mechanics, each reading its numbers from the spell's own effects (contracts at the top of `src/emberfall_classkit.cpp`): stacks with thresholds, shatter + one capped shell + mana refund, an absorb in percent of max health, line targets, an interrupt follow-up, out-of-combat mana |
+| `spell_ef_kit_add_stacks`, `spell_ef_kit_shatter`, `spell_ef_kit_shell`, `spell_ef_kit_stack_cooldown`, `spell_ef_kit_absorb_pct_health`, `spell_ef_kit_line_targets`, `spell_ef_kit_interrupt_followup`, `spell_ef_kit_rest_regen` | `SpellScript`/`AuraScript` (`spell_script_names` from the kit) | the kits' generic mechanics, each reading its numbers from the spell's own effects (contracts at the top of `src/emberfall_classkit.cpp`): stacks with thresholds, shatter + a stacked shell (stacks follow the pool) + mana refund, cooldowns shortened per stack shattered, an absorb in percent of max health, line targets, an interrupt follow-up, out-of-combat mana |
 
 On Emberfall's own world (the emberfall-data profile, `class-kit-pipeline.md` §8) the same tables come from `world.sql`
 and the spells from Emberfall's own Spell.dbc; the profile sets the switch to 1.
@@ -297,7 +297,7 @@ Protocol: an addon whisper from the player to themselves (as EFP), at most one b
 aura on the player (school absorb, mana shield) whose numbers changed: `EFA\t1;0;ABS;<spellId>;<left>;<cap>`; an aura
 that went away: `EFA\t1;0;ABS;<spellId>;0;0`. `left` is the aura's current amount (its absorb effects added up; several
 auras of one spell add up); `cap` for a class kit shell (`EfClassKit.h` `IsShellSpell`, the Frost Shell) is
-`ShellCap` (effect 2's percent of max health, the cap `AddToShell` uses), for any other absorb the highest amount seen
+`ShellCap` (a full shell: its stack maximum x what one stack absorbs), for any other absorb the highest amount seen
 since the aura was (re)applied. Passive auras (Last Ward's cheat death) and unlimited ones (a negative amount, Glacial
 Bulwark's ward) are not reported. Nothing is sent at login unless an absorb is up.
 

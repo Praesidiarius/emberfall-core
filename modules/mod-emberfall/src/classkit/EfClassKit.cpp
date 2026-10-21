@@ -21,6 +21,7 @@
 #include "Config.h"
 #include "Creature.h"
 #include "DBCStores.h"
+#include "DataMap.h"
 #include "DatabaseEnv.h"
 #include "Group.h"
 #include "Log.h"
@@ -47,6 +48,20 @@ namespace Emberfall::ClassKit
         // The shell auras (IsShellSpell): written by Load and AddToShell, read by the absorb reports (map threads).
         std::set<uint32> s_shellSpells;
         std::mutex s_shellMutex;
+        // The stack-cooldown passives (spell_ef_kit_stack_cooldown: Winter's Embrace), written by Load only.
+        std::set<uint32> s_stackCooldownSpells;
+
+        // A player's cuts of a stack-cooldown spell's current cooldown (CooldownByStacks): how much was taken off it and
+        // where it then ended, so a new cooldown (another end) starts from nothing. Rides on the player (CustomData).
+        struct StackCooldownCuts : public DataMap::Base
+        {
+            struct Cut
+            {
+                uint32 end = 0;
+                int32 takenMs = 0;
+            };
+            std::map<uint32, Cut> bySpell;
+        };
 
         void AddShellSpell(uint32 spellId)
         {
@@ -91,6 +106,7 @@ namespace Emberfall::ClassKit
     bool Load()
     {
         s_kits.clear();
+        s_stackCooldownSpells.clear();
         ClearFightMarkers();
         if (!s_enabled)
         {
@@ -152,8 +168,14 @@ namespace Emberfall::ClassKit
                 // shell kept over a relog)
                 SpellScriptsBounds bounds = sObjectMgr->GetSpellScriptsBounds(s.spell);
                 for (auto it = bounds.first; it != bounds.second; ++it)
-                    if (sObjectMgr->GetScriptName(it->second) == "spell_ef_kit_shatter" && info->Effects[EFFECT_2].TriggerSpell)
+                {
+                    std::string const& script = sObjectMgr->GetScriptName(it->second);
+                    if (script == "spell_ef_kit_shatter" && info->Effects[EFFECT_2].TriggerSpell)
                         AddShellSpell(info->Effects[EFFECT_2].TriggerSpell);
+                    // a stack-cooldown passive (CooldownByStacks)
+                    if (script == "spell_ef_kit_stack_cooldown")
+                        s_stackCooldownSpells.insert(s.spell);
+                }
             } while (r->NextRow());
         }
         for (auto const& [classId, kit] : s_kits)
@@ -344,18 +366,51 @@ namespace Emberfall::ClassKit
         return take;
     }
 
-    void AddToShell(Unit* caster, uint32 shellSpell, int32 add, int32 durationMs)
+    int32 ShellPerStack(Unit* caster, uint32 shellSpell)
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(shellSpell);
-        if (!caster || !info || add <= 0)
-            return;
-        // the shell's own spell mods: effect 1's scale the amount (Winter's Embrace), effect 2's the cap (CalcValue
-        // applies them: Deep Shell, Winter's Embrace)
+        if (!caster || !info)
+            return 0;
+        // effect 2's percent with its spell mods (CalcValue applies them: Deep Shell, Rimeholder 8)
+        int32 const pct = info->Effects[EFFECT_1].CalcValue(caster);
+        int32 per = int32(caster->CountPctFromMaxHealth(pct > 0 ? pct : 10));
+        // effect 1's spell mods scale every stack (Rimeholder 2)
         if (Player* modOwner = caster->GetSpellModOwner())
-            modOwner->ApplySpellMod(shellSpell, SPELLMOD_EFFECT1, add);
+            modOwner->ApplySpellMod(shellSpell, SPELLMOD_EFFECT1, per);
+        return std::max(1, per);
+    }
+
+    namespace
+    {
+        int32 ShellMaxStacks(SpellInfo const* info) { return std::max<int32>(1, int32(info->StackAmount)); }
+
+        // the pool `left` on the shell aura: its stacks follow (ceil), then the amount is put back (SetStackAmount
+        // recalculates the amounts from the spell)
+        void SetShell(Aura* aura, int32 perStack, int64 left)
+        {
+            int32 const stacks = Logic::ShellStacks(left, perStack, ShellMaxStacks(aura->GetSpellInfo()));
+            if (stacks <= 0)
+            {
+                aura->Remove();
+                return;
+            }
+            if (aura->GetStackAmount() != stacks)
+                aura->SetStackAmount(uint8(stacks));
+            if (AuraEffect* eff = aura->GetEffect(EFFECT_0))
+                if (eff->GetAmount() != int32(left))
+                    eff->ChangeAmount(int32(left));
+        }
+    }
+
+    void AddShellStacks(Unit* caster, uint32 shellSpell, int32 stacks, int32 durationMs)
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(shellSpell);
+        if (!caster || !info || stacks <= 0)
+            return;
         AddShellSpell(shellSpell);
-        int32 const cap = ShellCap(caster, shellSpell);
+        int32 const per = ShellPerStack(caster, shellSpell);
         Aura* aura = caster->GetAura(shellSpell, caster->GetGUID());
+        int64 left = 0;
         if (!aura)
         {
             caster->CastSpell(caster, shellSpell, true);
@@ -364,20 +419,39 @@ namespace Emberfall::ClassKit
                 return;
             aura->SetMaxDuration(durationMs);
             aura->SetDuration(durationMs);
-            if (AuraEffect* eff = aura->GetEffect(EFFECT_0))
-                eff->ChangeAmount(std::min(cap, add));
         }
         else
         {
-            if (AuraEffect* eff = aura->GetEffect(EFFECT_0))
-                eff->ChangeAmount(std::min(cap, eff->GetAmount() + add));
+            if (AuraEffect const* eff = aura->GetEffect(EFFECT_0))
+                left = eff->GetAmount();
             if (aura->GetDuration() < durationMs)
             {
                 aura->SetMaxDuration(std::max(aura->GetMaxDuration(), durationMs));
                 aura->SetDuration(durationMs);
             }
         }
+        SetShell(aura, per, Logic::ShellAfterGain(left, per, stacks, ShellMaxStacks(info)));
         RefreshConditionals(caster);
+    }
+
+    void FollowShell(Aura* shell, int32 absorbed)
+    {
+        if (!shell || shell->IsRemoved())
+            return;
+        Unit* caster = shell->GetCaster();
+        AuraEffect* eff = shell->GetEffect(EFFECT_0);
+        if (!caster || !eff || eff->GetAmount() <= 0)
+            return;
+        // called before the engine takes `absorbed` off the pool (Unit::CalcAbsorbResist): the stacks follow what will
+        // be left, the amount stays for the engine to reduce; a pool worn to 0 the engine removes itself
+        int32 const before = eff->GetAmount();
+        int32 const stacks = Logic::ShellStacks(int64(before) - absorbed, ShellPerStack(caster, shell->GetId()),
+                                                ShellMaxStacks(shell->GetSpellInfo()));
+        if (stacks <= 0 || stacks == shell->GetStackAmount())
+            return;
+        shell->SetStackAmount(uint8(stacks));
+        if (eff->GetAmount() != before)
+            eff->ChangeAmount(before);
     }
 
     bool IsShellSpell(uint32 spellId)
@@ -391,8 +465,7 @@ namespace Emberfall::ClassKit
         SpellInfo const* info = sSpellMgr->GetSpellInfo(shellSpell);
         if (!caster || !info)
             return 0;
-        int32 const capPct = info->Effects[EFFECT_1].CalcValue(caster);
-        return int32(caster->CountPctFromMaxHealth(capPct > 0 ? capPct : 100));
+        return ShellPerStack(caster, shellSpell) * ShellMaxStacks(info);
     }
 
     bool TargetsCaster(uint32 spellId)
@@ -523,6 +596,51 @@ namespace Emberfall::ClassKit
                 continue;
             aura->SetMaxDuration(aura->GetMaxDuration() + add);
             aura->SetDuration(aura->GetDuration() + add);
+        }
+    }
+
+    void CooldownByStacks(Unit* caster, uint32 stackSpell, uint32 consumed)
+    {
+        Player* player = caster ? caster->ToPlayer() : nullptr;
+        if (!player || !consumed || s_stackCooldownSpells.empty())
+            return;
+        struct Want
+        {
+            uint32 spell;
+            int32 msPerStack;
+            int32 maxMs;
+        };
+        std::vector<Want> wants;
+        for (uint32 passive : s_stackCooldownSpells)
+        {
+            Aura const* aura = player->GetAura(passive, player->GetGUID());
+            AuraEffect const* eff = aura ? aura->GetEffect(EFFECT_0) : nullptr;
+            if (!eff || uint32(eff->GetMiscValue()) != stackSpell)
+                continue;
+            uint32 const spell = aura->GetSpellInfo()->Effects[EFFECT_0].TriggerSpell;
+            AuraEffect const* most = aura->GetEffect(EFFECT_1);
+            if (spell)
+                wants.push_back({ spell, eff->GetAmount(), most ? most->GetAmount() * IN_MILLISECONDS : 0 });
+        }
+        if (wants.empty())
+            return;
+        StackCooldownCuts* cuts = player->CustomData.GetDefault<StackCooldownCuts>("emberfall_stack_cooldowns");
+        for (Want const& w : wants)
+        {
+            auto cd = player->GetSpellCooldownMap().find(w.spell);
+            if (cd == player->GetSpellCooldownMap().end())
+                continue;
+            int32 const remaining = int32(player->GetSpellCooldownDelay(w.spell));
+            StackCooldownCuts::Cut& cut = cuts->bySpell[w.spell];
+            // another end than the one this left: a new cooldown, nothing taken off it yet
+            if (cut.end != cd->second.end)
+                cut = {};
+            int32 const take = Logic::StackCooldownCut(consumed, w.msPerStack, cut.takenMs, w.maxMs, remaining);
+            if (take <= 0)
+                continue;
+            player->ModifySpellCooldown(w.spell, -take);
+            cut.takenMs += take;
+            cut.end = cd->second.end;
         }
     }
 
