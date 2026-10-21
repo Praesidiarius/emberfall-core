@@ -22,6 +22,9 @@
 //   .eftest                  the list
 //   .eftest level N          your level (1 .. MaxPlayerLevel), XP 0, full health and mana; the talent system gives the
 //                            level's points (its own level hook)
+//   .eftest zone Z [L]       you as a player arriving at zone Z (at level L): the level, the quests of the zones before
+//                            it done (its breadcrumbs in the log), pool gear, flight nodes, money, at its main hub
+//                            (src/emberfall_testzone.cpp); `.eftest zone list` (or no zone): the zones in route order
 //   .eftest foe [L] [N] [idle] [hpF]  N (1-5) training foes of level L (default: yours) in front of you; they
 //                            attack you (idle: they stand at your feet until engaged; hpF: health x F, e.g. hp1.6) and
 //                            are gone after 5 minutes or when dead (creature Emberfall.TestTools.FoeEntry)
@@ -50,6 +53,7 @@
 #include "World.h"
 #include "WorldScript.h"
 #include "WorldSession.h"
+#include "testzone/EfTestZone.h"
 
 #include <algorithm>
 #include <cmath>
@@ -175,6 +179,7 @@ namespace
             static ChatCommandTable testTable =
             {
                 { "level",   HandleLevel,   SEC_PLAYER, Console::No },
+                { "zone",    HandleZone,    SEC_PLAYER, Console::No },
                 { "foe",     HandleFoe,     SEC_PLAYER, Console::No },
                 { "dummy",   HandleDummy,   SEC_PLAYER, Console::No },
                 { "clear",   HandleClear,   SEC_PLAYER, Console::No },
@@ -216,7 +221,7 @@ namespace
         {
             if (!Self(handler))
                 return false;
-            handler->SendSysMessage("Emberfall test tools: .eftest level N | foe [level] [count] [idle] [hpF] | dummy [level] | clear | refresh");
+            handler->SendSysMessage("Emberfall test tools: .eftest level N | zone <zone> [level] | zone list | foe [level] [count] [idle] [hpF] | dummy [level] | clear | refresh");
             return true;
         }
 
@@ -237,16 +242,32 @@ namespace
                 handler->SetSentErrorMessage(true);
                 return false;
             }
-            if (player->GetLevel() != level)
-            {
-                player->GiveLevel(uint8(level));
-                player->InitTalentForLevel();
-            }
-            player->SetUInt32Value(PLAYER_XP, 0);
-            player->SetFullHealth();
-            player->SetPower(POWER_MANA, player->GetMaxPower(POWER_MANA));
+            Emberfall::TestZone::SetLevel(player, uint8(level));
             handler->PSendSysMessage("EFTEST level {}", player->GetLevel());
             return true;
+        }
+
+        // `.eftest zone <zone> [level]`, `.eftest zone list` (src/emberfall_testzone.cpp)
+        static bool HandleZone(ChatHandler* handler, Optional<std::string> zone, Optional<uint32> level)
+        {
+            Player* player = Self(handler);
+            if (!player)
+                return false;
+            if (!zone || *zone == "list")
+                return Emberfall::TestZone::List(handler);
+            if (player->IsInCombat() || !player->IsAlive() || player->IsInFlight())
+            {
+                handler->SendSysMessage("Not in combat, dead or in flight.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (level && (*level < 1 || *level > MaxLevel()))
+            {
+                handler->PSendSysMessage("The level is 1 to {}.", MaxLevel());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            return Emberfall::TestZone::Arrive(handler, player, *zone, level.value_or(0));
         }
 
         static Creature* Summon(Player* player, uint32 entry, uint8 level, float distance, float angle, uint32 ms)

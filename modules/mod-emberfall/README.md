@@ -157,6 +157,7 @@ templates of Emberfall's data; 0 turns that command off). Every command acts on 
 | Command | What |
 |---|---|
 | `.eftest level N` | own level 1 .. MaxPlayerLevel, XP 0, full health and mana (the talent system's level hook gives the points) |
+| `.eftest zone Z [L]` | the player as one arriving at zone Z: its entry level (or L), the quests of the zones before it on the race's route rewarded without XP, money or items (its breadcrumbs put in the log, the quests after them left alone, Z's own untouched), the item pools' greens for class and level worn, the flight nodes so far, a purse of L x L silver, saved, at Z's main hub; `.eftest zone list`: the zones in route order (`src/emberfall_testzone.cpp`, `src/testzone/`) |
 | `.eftest foe [L] [N] [idle] [hpF]` | 1-5 foes of level L (default the player's) 10 yd ahead that attack (`idle`: at the player's feet until engaged; `hp1.6`: health x 1.6, as a template's HealthModifier); 5 min or until dead |
 | `.eftest dummy [L]` | a dummy of level L: rooted, passive, no health regeneration, 200 x its health, keeps 1 health (`UnitScript::OnDamage`); 10 min |
 | `.eftest clear` / `.eftest refresh` | the player's summons gone / full health and mana, cooldowns ended |
@@ -166,6 +167,12 @@ the command), so health, damage and armour are the `creature_classlevelstats` ro
 to their summon point while they fight (`OnAllCreatureUpdate` keeps their leash timer fresh); a player who dies takes
 their foes and dummies along (`OnPlayerJustDied`). Help texts:
 `data/sql/db-world/mod_emberfall_2026_10_17_00_testtools.sql`. Boot line: `>> Emberfall test tools: on (...)`.
+
+`.eftest zone` reads its route from four world tables at every use (`data/sql/db-world/mod_emberfall_2026_10_21_00_testzone.sql`:
+`ef_test_zone`, `ef_test_zone_quest`, `ef_test_zone_taxi`, `ef_test_gear`), whose rows Emberfall's compiler writes from its
+zone briefs, the journey contract, the quests, people, teleports, flights and item pools (Emberfall
+`tools/py/emberfall_content/zone_route.py`): a new zone works after Emberfall's `make content` and a world reload, with
+no code change. The route logic without the core is `src/testzone/EfTestZoneLogic.h` (`tests/testzone_tests.cpp`).
 
 ## Companions (Emberfall `docs/design/companions.md`)
 
