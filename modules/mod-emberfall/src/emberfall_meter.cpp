@@ -124,7 +124,8 @@ namespace
     }
 
     // A companion's class for its bar's colour: by its archetype's role (its creature's unit class is a stat row, and
-    // our archetypes all use the warrior's): tank warrior, healer priest, melee rogue, ranged mage.
+    // our archetypes all use the warrior's), among the classes our own world has: tank and melee warrior, healer
+    // paladin, ranged mage.
     uint8 CompanionClass(Creature* c)
     {
         Emberfall::Companions::CompanionAIBase* ai = Emberfall::Companions::AIOf(c);
@@ -132,8 +133,8 @@ namespace
         switch (a ? a->role : Emberfall::Companions::Role::None)
         {
             case Emberfall::Companions::Role::Tank: return CLASS_WARRIOR;
-            case Emberfall::Companions::Role::Healer: return CLASS_PRIEST;
-            case Emberfall::Companions::Role::Melee: return CLASS_ROGUE;
+            case Emberfall::Companions::Role::Healer: return CLASS_PALADIN;
+            case Emberfall::Companions::Role::Melee: return CLASS_WARRIOR;
             case Emberfall::Companions::Role::Ranged: return CLASS_MAGE;
             default: return c->getClass();
         }
