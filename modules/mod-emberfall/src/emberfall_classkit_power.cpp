@@ -51,6 +51,8 @@
 //                                 Charge, Slow Waking, Echoing Peal)
 //   spell_ef_kit_limit_targets    effect 2 (dummy): at most its value enemies hold the aura at a time, misc B with the
 //                                 talent of its misc known (Becalm: one, two with Twin Calm); a new one frees the oldest
+//   spell_ef_kit_hold_not_bosses  the spell's aura (its hold: a root, a stun) never stays on a boss; its damage still lands
+//                                 and a boss may be its target (Glassroot)
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
@@ -474,6 +476,26 @@ class spell_ef_kit_limit_targets : public SpellScript
     }
 };
 
+// The hold never on bosses (Glassroot): unlike spell_ef_kit_not_bosses a boss may be the target and takes the damage;
+// only the spell's aura (the root) comes off it at once.
+class spell_ef_kit_hold_not_bosses : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_hold_not_bosses);
+
+    void AfterHitTarget()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (caster && target && Emberfall::ClassKit::IsBoss(target))
+            target->RemoveAurasDueToSpell(GetSpellInfo()->Id, caster->GetGUID());
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_ef_kit_hold_not_bosses::AfterHitTarget);
+    }
+};
+
 void AddEmberfallClassKitPowerScripts()
 {
     new emberfall_classkit_power_player();
@@ -483,6 +505,7 @@ void AddEmberfallClassKitPowerScripts()
     RegisterSpellScript(spell_ef_kit_charges);
     RegisterSpellScript(spell_ef_kit_charge_aura);
     RegisterSpellScript(spell_ef_kit_proc_while);
+    RegisterSpellScript(spell_ef_kit_hold_not_bosses);
     RegisterSpellScript(spell_ef_kit_end_bonuses);
     RegisterSpellScript(spell_ef_kit_limit_targets);
 }

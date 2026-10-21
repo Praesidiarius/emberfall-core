@@ -159,9 +159,10 @@ namespace Emberfall::ClassKit
     // ---- A spec's own power (Emberfall docs/design/classes/druid-stormbringer.md §3; src/classkit/EfSpecPower.cpp) ----
     // ef_class_kit_spec_power (spec, class, power, max_power, drain_delay_ms, drain_per_second; optional table): while a
     // player's active spec has a row, the player's power is that slot (the Stormbringer: runic power under the name
-    // Static) instead of the class's (mana); it starts at 0 and drains out of combat after the delay (an aura
-    // SPELL_AURA_MOD_POWER_REGEN_PERCENT of that power slows it: Static Memory). The class kits' helper auras that last
-    // until cancelled are fight markers (First Flash Spent): they go when the fight ends.
+    // Static) instead of the class's (mana); its maximum is the slot's own plus the slot's max-power auras (Brooding Sky);
+    // it starts at 0 and drains out of combat after the delay (in proportion to a larger pool; an aura
+    // SPELL_AURA_MOD_POWER_REGEN_PERCENT of that power slows it, as Static Memory did until 2026-10-21). The class kits'
+    // helper auras that last until cancelled are fight markers (First Flash Spent): they go when the fight ends.
     struct SpecPower
     {
         uint32 spec = 0;
