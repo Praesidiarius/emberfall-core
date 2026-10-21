@@ -314,6 +314,30 @@ Bulwark's ward) are not reported. Nothing is sent at login unless an absorb is u
 | `emberfall_absorbs_commands` | `CommandScript` | `.efabsorb` (GM): the selected player's (or one's own) tracked values, `EFABS <spellId> <left> <cap>` per absorb, then `EFABS end` |
 | `emberfall_absorbs_world` | `WorldScript` | reads the config; boot line `>> Emberfall absorbs: on (EFA, every 100 ms)` |
 
+## Damage meter (Emberfall `docs/design/damage-meter.md`)
+
+`src/emberfall_meter.cpp`; the logic without the core is `src/meter/EfMeterLogic.h` (`tests/meter_tests.cpp`). The
+server counts every group's fights (or a solo player's) from the combat log at its source (the core's
+`Emberfall::CombatLog` sink, PATCHES.md #12) and tells every member the same numbers. `Emberfall.Meter.Enable` (1;
+`AC_EMBERFALL_METER_ENABLE`); 0 sets no sink and answers HELLO with OFF.
+
+- Meters: one per group GUID or solo player; rows for players and companions (at most 40), pets, guardians and totems
+  as sources of their owner's spells; a fight from the first hostile event to 3 s after everyone left combat (or 20 s
+  of nothing), the last 10 fights and overall. Per participant: damage done (overkill and absorbed by the target
+  apart), healing (effective, overheal, shields provided), damage taken (environmental apart), healing received,
+  interrupts, dispels, deaths with a recap of the last 5 hits and heals, active time; per spell hits, crits, misses,
+  total, over, absorbed, max, min.
+- Protocol `EFM` (an addon whisper from the player to themselves, as EFA): `HELLO`, `VIEW`, `SPELLS`, `DEATHS`, `RESET`
+  from the client; `ON`/`OFF`, `WHO`, `LIST`, `SEG`, `SUM` pushed once a second (only what changed), `SPL`, `DTH`/`DEV`,
+  `END`, `OK`, `ERR` on demand (the header of `EfMeterLogic.h` has the fields). 30 requests per 10 s.
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_meter_world` | `WorldScript` | reads the config, sets the sink; boot line `>> Emberfall meter: on (EFM, ...)` |
+| `emberfall_meter_player` | `PlayerScript` `OnPlayerUpdate`, `OnPlayerLogin`, `OnPlayerLogout`, `OnPlayerCanUseChat` | the combat flags of the player and its companions (every 250 ms), the push (every 1 s, after HELLO), the requests (`EFM\t` whispers to oneself, all consumed), the meter switch on a group change |
+| `emberfall_meter_unit` | `UnitScript` `OnUnitDeath` | deaths of players and companions with their recap |
+| `emberfall_meter_commands` | `CommandScript` | `.efmeter status` (the meter, the client's bytes and bytes per second in fights, the current fight and overall per participant), `.efmeter reset` (solo or the group's leader); both for every player |
+
 ## Harbours (Emberfall `docs/design/harbours-and-ships.md`)
 
 `src/emberfall_harbours.cpp`; the logic without the core is `src/harbours/EfHarbourLogic.h` (`tests/harbour_tests.cpp`).

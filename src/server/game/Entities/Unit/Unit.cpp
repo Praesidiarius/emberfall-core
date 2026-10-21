@@ -16,6 +16,7 @@
  */
 
 #include "Unit.h"
+#include "EmberfallCombatLog.h"
 #include "AbstractFollower.h"
 #include "AreaDefines.h"
 #include "ArenaSpectator.h"
@@ -2180,6 +2181,21 @@ void Unit::DealDamageShieldDamage(Unit* victim)
 
         Unit::DealDamageMods(this, damage, &absorb);
 
+        // EMBERFALL: the combat log tap (PATCHES.md #12): the shield's owner (victim) hits this
+        if (Emberfall::CombatLog::Active())
+        {
+            Emberfall::CombatLog::Event e;
+            e.kind = Emberfall::CombatLog::Kind::DamageShield;
+            e.source = victim;
+            e.target = this;
+            e.spellId = i_spellProto->Id;
+            e.amount = damage;
+            e.targetHealthBefore = GetHealth();
+            e.overkill = damage > e.targetHealthBefore ? damage - e.targetHealthBefore : 0;
+            e.absorbed = absorb;
+            Emberfall::CombatLog::Emit(e);
+        }
+
         /// @todo: Move this to a packet handler
         WorldPacket data(SMSG_SPELLDAMAGESHIELD, (8 + 8 + 4 + 4 + 4 + 4));
         data << victim->GetGUID();
@@ -2337,6 +2353,22 @@ float Unit::GetEffectiveResistChance(Unit const* owner, SpellSchoolMask schoolMa
     return std::min(victimResistance / (victimResistance + resistanceConstant), 0.75f);
 }
 
+// EMBERFALL: the combat log tap (PATCHES.md #12): a shield absorbed damage; its caster gets the credit.
+static void EmberfallLogAbsorb(Unit* attacker, Unit* victim, AuraEffect const* absorbAurEff, SpellInfo const* spellInfo, int32 absorbed)
+{
+    if (absorbed <= 0 || !Emberfall::CombatLog::Active())
+        return;
+    Emberfall::CombatLog::Event e;
+    e.kind = Emberfall::CombatLog::Kind::Absorb;
+    e.source = attacker;
+    e.target = victim;
+    e.caster = absorbAurEff->GetCaster();
+    e.spellId = absorbAurEff->GetId();
+    e.extraSpellId = spellInfo ? spellInfo->Id : 0;
+    e.amount = uint32(absorbed);
+    Emberfall::CombatLog::Emit(e);
+}
+
 void Unit::CalcAbsorbResist(DamageInfo& dmgInfo, bool Splited, uint8 casterLevel /*= 0*/)
 {
     Unit* victim = dmgInfo.GetVictim();
@@ -2466,6 +2498,7 @@ void Unit::CalcAbsorbResist(DamageInfo& dmgInfo, bool Splited, uint8 casterLevel
         AddPct(currentAbsorb, -auraAbsorbMod);
 
         dmgInfo.AbsorbDamage(currentAbsorb);
+        EmberfallLogAbsorb(attacker, victim, absorbAurEff, spellInfo, currentAbsorb); // EMBERFALL (PATCHES.md #12)
 
         tempAbsorb = currentAbsorb;
         absorbAurEff->GetBase()->CallScriptEffectAfterAbsorbHandlers(absorbAurEff, aurApp, dmgInfo, tempAbsorb);
@@ -2528,6 +2561,7 @@ void Unit::CalcAbsorbResist(DamageInfo& dmgInfo, bool Splited, uint8 casterLevel
         currentAbsorb = currentAbsorb ? int32(float(currentAbsorb) * (float(manaTaken) / float(manaReduction))) : 0;
 
         dmgInfo.AbsorbDamage(currentAbsorb);
+        EmberfallLogAbsorb(attacker, victim, absorbAurEff, spellInfo, currentAbsorb); // EMBERFALL (PATCHES.md #12)
 
         tempAbsorb = currentAbsorb;
         absorbAurEff->GetBase()->CallScriptEffectAfterManaShieldHandlers(absorbAurEff, aurApp, dmgInfo, tempAbsorb);
@@ -6496,6 +6530,24 @@ void Unit::SendSpellNonMeleeReflectLog(SpellNonMeleeDamage* log, Unit* attacker)
 
 void Unit::SendSpellNonMeleeDamageLog(SpellNonMeleeDamage* log)
 {
+    // EMBERFALL: the combat log tap (PATCHES.md #12)
+    if (Emberfall::CombatLog::Active())
+    {
+        Emberfall::CombatLog::Event e;
+        e.kind = Emberfall::CombatLog::Kind::SpellDamage;
+        e.source = log->attacker;
+        e.target = log->target;
+        e.spellId = log->spellInfo->Id;
+        e.amount = log->damage;
+        e.targetHealthBefore = log->target->GetHealth();
+        e.overkill = log->damage > e.targetHealthBefore ? log->damage - e.targetHealthBefore : 0;
+        e.absorbed = log->absorb;
+        e.resisted = log->resist;
+        e.blocked = log->blocked;
+        e.crit = (log->HitInfo & SPELL_HIT_TYPE_CRIT) != 0;
+        Emberfall::CombatLog::Emit(e);
+    }
+
     WorldPacket data(SMSG_SPELLNONMELEEDAMAGELOG, (16 + 4 + 4 + 4 + 1 + 4 + 4 + 1 + 1 + 4 + 4 + 1)); // we guess size
     //IF we are in cheat mode we swap absorb with damage and set damage to 0, this way we can still debug damage but our hp bar will not drop
     uint32 damage = log->damage;
@@ -6598,6 +6650,41 @@ void Unit::ProcSkillsAndAuras(Unit* actor, Unit* victim, uint32 procAttacker, ui
 void Unit::SendPeriodicAuraLog(SpellPeriodicAuraLogInfo* pInfo)
 {
     AuraEffect const* aura = pInfo->auraEff;
+    // EMBERFALL: the combat log tap (PATCHES.md #12)
+    if (Emberfall::CombatLog::Active())
+    {
+        Emberfall::CombatLog::Event e;
+        bool known = true;
+        switch (aura->GetAuraType())
+        {
+            case SPELL_AURA_PERIODIC_DAMAGE:
+            case SPELL_AURA_PERIODIC_DAMAGE_PERCENT:
+                e.kind = Emberfall::CombatLog::Kind::PeriodicDamage;
+                e.resisted = pInfo->resist;
+                break;
+            case SPELL_AURA_PERIODIC_HEAL:
+            case SPELL_AURA_OBS_MOD_HEALTH:
+                e.kind = Emberfall::CombatLog::Kind::PeriodicHeal;
+                e.healthAfter = true; // logged after the heal
+                break;
+            default:
+                known = false;
+                break;
+        }
+        if (known)
+        {
+            e.source = aura->GetCaster();
+            e.target = this;
+            e.spellId = aura->GetId();
+            e.amount = pInfo->damage;
+            e.overkill = pInfo->overDamage;
+            e.absorbed = pInfo->absorb;
+            e.crit = pInfo->critical;
+            e.targetHealthBefore = GetHealth();
+            Emberfall::CombatLog::Emit(e);
+        }
+    }
+
     WorldPacket data(SMSG_PERIODICAURALOG, 30);
     data << GetPackGUID();
     data << aura->GetCasterGUID().WriteAsPacked();
@@ -6674,6 +6761,31 @@ void Unit::SendSpellDamageImmune(Unit* target, uint32 spellId)
 void Unit::SendAttackStateUpdate(CalcDamageInfo* damageInfo)
 {
     LOG_DEBUG("entities.unit", "WORLD: Sending SMSG_ATTACKERSTATEUPDATE");
+
+    // EMBERFALL: the combat log tap (PATCHES.md #12); sparring (fake damage between creatures) is not combat
+    if (Emberfall::CombatLog::Active() && !(damageInfo->HitInfo & HITINFO_FAKE_DAMAGE))
+    {
+        Emberfall::CombatLog::Event e;
+        e.kind = Emberfall::CombatLog::Kind::Melee;
+        e.source = damageInfo->attacker;
+        e.target = damageInfo->target;
+        for (uint8 i = 0; i < MAX_ITEM_PROTO_DAMAGES; ++i)
+        {
+            e.amount += damageInfo->damages[i].damage;
+            e.absorbed += damageInfo->damages[i].absorb;
+            e.resisted += damageInfo->damages[i].resist;
+        }
+        e.blocked = damageInfo->blocked_amount;
+        e.targetHealthBefore = damageInfo->target->GetHealth();
+        e.overkill = e.amount > e.targetHealthBefore ? e.amount - e.targetHealthBefore : 0;
+        e.crit = (damageInfo->HitInfo & HITINFO_CRITICALHIT) != 0;
+        VictimState const state = VictimState(damageInfo->TargetState);
+        bool const avoided = (damageInfo->HitInfo & HITINFO_MISS) || state == VICTIMSTATE_DODGE || state == VICTIMSTATE_PARRY
+            || state == VICTIMSTATE_EVADES || state == VICTIMSTATE_IS_IMMUNE || state == VICTIMSTATE_DEFLECTS
+            || (!e.amount && !e.absorbed && e.blocked);
+        e.missInfo = avoided ? 1 : 0;
+        Emberfall::CombatLog::Emit(e);
+    }
 
     uint32 tmpDamage[MAX_ITEM_PROTO_DAMAGES] = { };
     uint32 tmpAbsorb[MAX_ITEM_PROTO_DAMAGES] = { };
@@ -8123,6 +8235,23 @@ void Unit::UnsummonAllTotems(bool onDeath /*= false*/)
 void Unit::SendHealSpellLog(HealInfo const& healInfo, bool critical)
 {
     uint32 overheal = healInfo.GetHeal() - healInfo.GetEffectiveHeal();
+
+    // EMBERFALL: the combat log tap (PATCHES.md #12); logged after the heal
+    if (Emberfall::CombatLog::Active())
+    {
+        Emberfall::CombatLog::Event e;
+        e.kind = Emberfall::CombatLog::Kind::Heal;
+        e.source = this;
+        e.target = healInfo.GetTarget();
+        e.spellId = healInfo.GetSpellInfo()->Id;
+        e.amount = healInfo.GetHeal();
+        e.overkill = overheal;
+        e.absorbed = healInfo.GetAbsorb();
+        e.crit = critical;
+        e.targetHealthBefore = e.target->GetHealth();
+        e.healthAfter = true;
+        Emberfall::CombatLog::Emit(e);
+    }
 
     // we guess size
     WorldPacket data(SMSG_SPELLHEALLOG, (8 + 8 + 4 + 4 + 4 + 4 + 1 + 1));

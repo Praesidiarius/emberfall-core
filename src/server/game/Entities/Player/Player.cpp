@@ -16,6 +16,7 @@
  */
 
 #include "Player.h"
+#include "EmberfallCombatLog.h"
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "AreaDefines.h"
@@ -841,6 +842,21 @@ uint32 Player::EnvironmentalDamage(EnviromentalDamage type, uint32 damage)
     }
 
     Unit::DealDamageMods(this, damage, &absorb);
+
+    // EMBERFALL: the combat log tap (PATCHES.md #12)
+    if (Emberfall::CombatLog::Active())
+    {
+        Emberfall::CombatLog::Event e;
+        e.kind = Emberfall::CombatLog::Kind::Environmental;
+        e.target = this;
+        e.amount = damage;
+        e.absorbed = absorb;
+        e.resisted = resist;
+        e.envType = uint8(type != DAMAGE_FALL_TO_VOID ? type : DAMAGE_FALL);
+        e.targetHealthBefore = GetHealth();
+        e.overkill = damage > e.targetHealthBefore ? damage - e.targetHealthBefore : 0;
+        Emberfall::CombatLog::Emit(e);
+    }
 
     WorldPackets::CombatLog::EnvironmentalDamageLog packet;
     packet.Victim = GetGUID();

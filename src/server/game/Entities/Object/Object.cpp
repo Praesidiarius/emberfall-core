@@ -16,6 +16,7 @@
  */
 
 #include "Object.h"
+#include "EmberfallCombatLog.h"
 #include "Battlefield.h"
 #include "BattlefieldMgr.h"
 #include "CellImpl.h"
@@ -3830,6 +3831,19 @@ SpellMissInfo WorldObject::SpellHitResult(Unit* victim, Spell const* spell, bool
 
 void WorldObject::SendSpellMiss(Unit* target, uint32 spellID, SpellMissInfo missInfo)
 {
+    // EMBERFALL: the combat log tap (PATCHES.md #12)
+    if (Emberfall::CombatLog::Active() && target)
+    {
+        Emberfall::CombatLog::Event e;
+        e.kind = Emberfall::CombatLog::Kind::SpellMiss;
+        e.source = ToUnit();
+        e.target = target;
+        e.spellId = spellID;
+        e.missInfo = uint8(missInfo);
+        e.targetHealthBefore = target->GetHealth();
+        Emberfall::CombatLog::Emit(e);
+    }
+
     WorldPacket data(SMSG_SPELLLOGMISS, (4 + 8 + 1 + 4 + 8 + 1));
     data << uint32(spellID);
     data << GetGUID();
