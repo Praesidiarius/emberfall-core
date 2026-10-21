@@ -16,6 +16,7 @@
  */
 
 #include "Spell.h"
+#include "EmberfallCombatLog.h"
 #include "ArenaSpectator.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
@@ -5274,6 +5275,19 @@ void Spell::ExecuteLogEffectExtraAttacks(uint8 effIndex, Unit* victim, uint32 at
 
 void Spell::ExecuteLogEffectInterruptCast(uint8 effIndex, Unit* victim, uint32 spellId)
 {
+    // EMBERFALL: the combat log tap (PATCHES.md #12)
+    if (Emberfall::CombatLog::Active() && victim)
+    {
+        Emberfall::CombatLog::Event e;
+        e.kind = Emberfall::CombatLog::Kind::Interrupt;
+        e.source = m_caster ? m_caster->ToUnit() : nullptr;
+        e.target = victim;
+        e.spellId = m_spellInfo->Id;
+        e.extraSpellId = spellId;
+        e.amount = 1;
+        Emberfall::CombatLog::Emit(e);
+    }
+
     InitEffectExecuteData(effIndex);
     *m_effectExecuteData[effIndex] << victim->GetPackGUID();
     *m_effectExecuteData[effIndex] << uint32(spellId);

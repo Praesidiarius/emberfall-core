@@ -52,6 +52,7 @@
 #include "SpellAuraEffects.h"
 #include "SpellAuras.h"
 #include "SpellMgr.h"
+#include "EmberfallCombatLog.h"
 #include "TemporarySummon.h"
 #include "Totem.h"
 #include "Transport.h"
@@ -2802,6 +2803,18 @@ void Spell::EffectDispel(SpellEffIndex effIndex)
 
     if (success_list.empty())
         return;
+
+    // EMBERFALL: the combat log tap (PATCHES.md #12)
+    if (Emberfall::CombatLog::Active())
+    {
+        Emberfall::CombatLog::Event e;
+        e.kind = Emberfall::CombatLog::Kind::Dispel;
+        e.source = unitCaster;
+        e.target = unitTarget;
+        e.spellId = m_spellInfo->Id;
+        e.amount = uint32(success_list.size());
+        Emberfall::CombatLog::Emit(e);
+    }
 
     WorldPacket dataSuccess(SMSG_SPELLDISPELLOG, 8 + 8 + 4 + 1 + 4 + success_list.size() * 5);
     // Send packet header
@@ -5992,6 +6005,18 @@ void Spell::EffectStealBeneficialBuff(SpellEffIndex effIndex)
 
     if (success_list.empty())
         return;
+
+    // EMBERFALL: the combat log tap (PATCHES.md #12)
+    if (Emberfall::CombatLog::Active())
+    {
+        Emberfall::CombatLog::Event e;
+        e.kind = Emberfall::CombatLog::Kind::Dispel;
+        e.source = unitCaster;
+        e.target = unitTarget;
+        e.spellId = m_spellInfo->Id;
+        e.amount = uint32(success_list.size());
+        Emberfall::CombatLog::Emit(e);
+    }
 
     WorldPacket dataSuccess(SMSG_SPELLSTEALLOG, 8 + 8 + 4 + 1 + 4 + damage * 5);
     dataSuccess << unitTarget->GetPackGUID();       // Victim GUID

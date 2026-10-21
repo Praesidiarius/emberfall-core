@@ -32,6 +32,7 @@ void AddEmberfallDevVendorScripts();
 void AddEmberfallEditorScripts();
 void AddEmberfallGmCommandsScripts();
 void AddEmberfallQuestLootScripts();
+void AddEmberfallMeterScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -49,4 +50,5 @@ void Addmod_emberfallScripts()
     AddEmberfallEditorScripts();
     AddEmberfallGmCommandsScripts();
     AddEmberfallQuestLootScripts();
+    AddEmberfallMeterScripts();
 }
