@@ -75,6 +75,52 @@ namespace Emberfall::ClassKit::Logic
         return max * pctPerStack * int64_t(stacks) / 100;
     }
 
+    // ---- the stacked shell (the Frostguard's Frost Shell, Emberfall docs/design/classes/mage-frostguard.md) ----
+    // One absorb pool shown as stacks: each stack is worth `perStack` (a share of max health), at most `maxStacks`.
+
+    // The stacks a pool of `left` shows: every started stack counts (ceil), at most `maxStacks`; 0 when empty.
+    constexpr int32_t ShellStacks(int64_t left, int64_t perStack, int32_t maxStacks)
+    {
+        if (left <= 0 || perStack <= 0 || maxStacks <= 0)
+            return 0;
+        int64_t const stacks = (left + perStack - 1) / perStack;
+        return int32_t(std::min<int64_t>(stacks, maxStacks));
+    }
+
+    // The pool after gaining `gain` stacks: `gain` x `perStack` more, at most `maxStacks` x `perStack` (a stack worn
+    // down by a blow is topped up by the next gain, not lost).
+    constexpr int64_t ShellAfterGain(int64_t left, int64_t perStack, int32_t gain, int32_t maxStacks)
+    {
+        if (perStack <= 0 || maxStacks <= 0)
+            return std::max<int64_t>(0, left);
+        int64_t const cap = perStack * maxStacks;
+        int64_t const now = std::max<int64_t>(0, left) + perStack * std::max<int32_t>(0, gain);
+        return std::min<int64_t>(cap, now);
+    }
+
+    // The shell stacks a shatter gives: one per `stacksPerShell` stacks shattered, summed over every enemy and rounded
+    // down, times `shellsPerUnit` (Icebreak and Glacial Rupture: 1 per 2 Frost Stacks).
+    constexpr int32_t ShellGain(uint32_t shattered, int32_t stacksPerShell, int32_t shellsPerUnit)
+    {
+        if (stacksPerShell <= 0 || shellsPerUnit <= 0)
+            return 0;
+        return int32_t(shattered / uint32_t(stacksPerShell)) * shellsPerUnit;
+    }
+
+    // A cooldown shortened by stacks consumed (Winter's Embrace on Hoarstorm): `consumed` x `msPerStack`, but at most
+    // what is left of `maxMs` for this cooldown (`alreadyMs` taken off it so far; 0: no limit) and never more than the
+    // `remainingMs`.
+    constexpr int32_t StackCooldownCut(uint32_t consumed, int32_t msPerStack, int32_t alreadyMs, int32_t maxMs,
+                                       int32_t remainingMs)
+    {
+        if (msPerStack <= 0 || remainingMs <= 0 || consumed == 0)
+            return 0;
+        int64_t want = int64_t(consumed) * msPerStack;
+        if (maxMs > 0)
+            want = std::min<int64_t>(want, std::max<int32_t>(0, maxMs - alreadyMs));
+        return int32_t(std::min<int64_t>(want, remainingMs));
+    }
+
     // ---- a spec's own power (the Druid's Stormbringer: Static, Emberfall docs/design/classes/druid-stormbringer.md) ----
 
     // The points a builder builds (spell_ef_kit_build_power). `value` is its build effect's value (spell mods in:

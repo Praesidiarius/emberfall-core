@@ -20,8 +20,8 @@
 // with absorb auras (school absorb, mana shield) is told, as an addon whisper to themselves (the EFP way), each one
 // whose numbers changed: `EFA\t1;0;ABS;<spellId>;<left>;<cap>`; one that went away: `EFA\t1;0;ABS;<spellId>;0;0`.
 //   left  the aura's current amount (its absorb effects added up; several auras of one spell add up)
-//   cap   a class kit shell (EfClassKit.h IsShellSpell: Frost Shell): ShellCap, effect 2's percent of max health, the
-//         cap AddToShell uses; any other absorb: the highest amount seen since the aura was (re)applied
+//   cap   a class kit shell (EfClassKit.h IsShellSpell: Frost Shell): ShellCap, a full shell (the stack maximum x what
+//         one stack absorbs); any other absorb: the highest amount seen since the aura was (re)applied
 // Skipped: passive auras (Last Ward's cheat death) and unlimited ones (a negative amount: Glacial Bulwark's ward).
 // The logic without the core is src/absorbs/EfAbsorbLogic.h (tests/absorb_tests.cpp).
 //
