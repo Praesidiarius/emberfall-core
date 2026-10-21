@@ -52,6 +52,8 @@ ARG CMODULES="static"
 ARG CSCRIPTS_DEFAULT_LINKAGE="static"
 ARG CWITH_WARNINGS="ON"
 ARG CMAKE_EXTRA_OPTIONS=""
+# EMBERFALL: the compile's parallel jobs (empty: nproc + 1, the stock value); Emberfall's ef_server.sh passes its core budget
+ARG CBUILD_JOBS=""
 ARG GIT_DISCOVERY_ACROSS_FILESYSTEM=1
 
 ARG CCACHE_DIR="/ccache"
@@ -103,7 +105,7 @@ RUN --mount=type=cache,target=/ccache,sharing=locked \
        -DCMAKE_C_COMPILER_LAUNCHER="ccache"            \
        -DBoost_USE_STATIC_LIBS="ON"                    \
        $CMAKE_EXTRA_OPTIONS                            \
-    && cmake --build . --config "$CTYPE" -j $(($(nproc) + 1)) \
+    && cmake --build . --config "$CTYPE" -j "${CBUILD_JOBS:-$(($(nproc) + 1))}" \
     && cmake --install . --config "$CTYPE"
 
 #############################
