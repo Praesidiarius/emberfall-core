@@ -17,9 +17,10 @@
 
 #pragma once
 
-// Emberfall class kits: the arithmetic of the self-stack resource (the Paladin's Sunblades, Emberfall
-// docs/design/classes/paladin-wrathbringer.md) without the core, so tests/classkit_tests.cpp can check it. EfClassKit.cpp
-// and src/emberfall_classkit.cpp (spell_ef_kit_self_stacks, spell_ef_kit_spend_stacks, spell_ef_kit_extend_aura) use it.
+// Emberfall class kits: the arithmetic of the kits' mechanics without the core, so tests/classkit_tests.cpp can check it
+// (self stacks: the Paladin's Crown of Blades, once its Sunblades; the Frostguard's shell; the Druid's Static; the
+// Warlock's prices; the Wrathbringer's cards, Emberfall docs/design/classes/paladin-wrathbringer.md). EfClassKit.cpp and
+// the spell scripts (src/emberfall_classkit*.cpp) use it.
 
 #include <algorithm>
 #include <cstdint>
@@ -229,5 +230,67 @@ namespace Emberfall::ClassKit::Logic
         uint32_t const cap = std::max<uint32_t>(1, max);
         uint32_t const now = std::min<uint32_t>(recharging + 1, cap);
         return { now, now < cap };
+    }
+    // ---- the Wrathbringer's cards (Emberfall docs/design/classes/paladin-wrathbringer.md §7, 2026-10-21) ----
+
+    // Last Sentence (spell_ef_kit_execute): the bonus in percent for a target at `healthPct` of its health: none at full
+    // health, rising with the health missing to `maxBonus` at `fullAtPct` or below (100 % at 20 %).
+    constexpr int32_t ExecuteBonusPct(float healthPct, int32_t maxBonus, int32_t fullAtPct)
+    {
+        if (maxBonus <= 0)
+            return 0;
+        int32_t const full = std::clamp<int32_t>(fullAtPct, 0, 99);
+        if (healthPct <= float(full))
+            return maxBonus;
+        if (healthPct >= 100.0f)
+            return 0;
+        return int32_t(float(maxBonus) * (100.0f - healthPct) / float(100 - full));
+    }
+
+    // A share of an amount (Last Sentence's refund on a kill: 50 % of its cost; Sacred Brand's splash: 50 %).
+    constexpr int32_t PctOf(int32_t amount, int32_t pct)
+    {
+        if (amount <= 0 || pct <= 0)
+            return 0;
+        return int32_t(int64_t(amount) * pct / 100);
+    }
+
+    // A player's main stat for Solenne's Blessing (spell_ef_kit_main_stat), by class (SharedDefines.h Classes): strength
+    // (0) for warriors, paladins and death knights, agility (1) for hunters and rogues, intellect (3) for the casters
+    // (priest, shaman, mage, warlock, druid: Emberfall's Druid is the Stormbringer, a caster).
+    constexpr int32_t MainStat(uint8_t classId)
+    {
+        switch (classId)
+        {
+            case 1: case 2: case 6: return 0;
+            case 3: case 4: return 1;
+            default: return 3;
+        }
+    }
+
+    // An amount `pct` percent stronger (Solenne's Wrath doubles Solenne's Blessing: +100 %).
+    constexpr int32_t Empowered(int32_t amount, int32_t pct)
+    {
+        if (pct <= 0)
+            return amount;
+        return int32_t(int64_t(amount) * (100 + pct) / 100);
+    }
+
+    // How many swords a launch takes from `stacks` held (spell_ef_kit_launch_stack): `perCast` (1: Sacred Brand, Edict,
+    // Oathblade), all of them for 0 (Solenne's Wrath).
+    constexpr int32_t LaunchCount(int32_t perCast, int32_t stacks)
+    {
+        if (stacks <= 0)
+            return 0;
+        return perCast > 0 ? std::min(perCast, stacks) : stacks;
+    }
+
+    // A cooldown cut (spell_ef_kit_cooldown_cut: Oathbound Rush on Oathblade, Endless Crown on Crown of Blades): `cutMs`
+    // off, never more than the `remainingMs`.
+    constexpr int32_t CooldownCut(int32_t cutMs, int32_t remainingMs)
+    {
+        if (cutMs <= 0 || remainingMs <= 0)
+            return 0;
+        return std::min(cutMs, remainingMs);
     }
 }
