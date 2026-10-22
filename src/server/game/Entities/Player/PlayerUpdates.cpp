@@ -40,6 +40,7 @@
 #include "WeatherMgr.h"
 #include "WorldState.h"
 #include "WorldStatePackets.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
 //  however, for some reasons removing it would cause a damn linking issue
@@ -786,6 +787,63 @@ inline int32 CraftSkillGainChance(uint32 skillValue, uint32 grayLevel, uint32 ye
         (grayLevel - yellowLevel));
 }
 
+// EMBERFALL: upstream's roll of UpdateGatherSkill, moved out unchanged but for the thresholds (PATCHES.md #14)
+static bool UpdateGatherSkillRoll(Player* player, uint32 SkillId, uint32 SkillValue, uint32 grayLevel, uint32 greenLevel,
+                                  uint32 yellowLevel, uint32 Multiplicator, uint32 gathering_skill_gain)
+{
+    // For skinning and Mining chance decrease with level. 1-74 - no decrease,
+    // 75-149 - 2 times, 225-299 - 8 times
+    switch (SkillId)
+    {
+    case SKILL_HERBALISM:
+    case SKILL_LOCKPICKING:
+    case SKILL_JEWELCRAFTING:
+    case SKILL_INSCRIPTION:
+        return player->UpdateSkillPro(SkillId,
+                              SkillGainChance(SkillValue, grayLevel, greenLevel, yellowLevel) *
+                                  Multiplicator,
+                              gathering_skill_gain);
+    case SKILL_SKINNING:
+        if (sWorld->getIntConfig(CONFIG_SKILL_CHANCE_SKINNING_STEPS) == 0)
+            return player->UpdateSkillPro(SkillId,
+                                  SkillGainChance(SkillValue, grayLevel, greenLevel, yellowLevel) *
+                                      Multiplicator,
+                                  gathering_skill_gain);
+        else
+            return player->UpdateSkillPro(
+                SkillId,
+                (SkillGainChance(SkillValue, grayLevel, greenLevel, yellowLevel) *
+                 Multiplicator) >>
+                    (SkillValue /
+                     sWorld->getIntConfig(CONFIG_SKILL_CHANCE_SKINNING_STEPS)),
+                gathering_skill_gain);
+    case SKILL_MINING:
+        if (sWorld->getIntConfig(CONFIG_SKILL_CHANCE_MINING_STEPS) == 0)
+            return player->UpdateSkillPro(SkillId,
+                                  SkillGainChance(SkillValue, grayLevel, greenLevel, yellowLevel) *
+                                      Multiplicator,
+                                  gathering_skill_gain);
+        else
+            return player->UpdateSkillPro(
+                SkillId,
+                (SkillGainChance(SkillValue, grayLevel, greenLevel, yellowLevel) *
+                 Multiplicator) >>
+                    (SkillValue /
+                     sWorld->getIntConfig(CONFIG_SKILL_CHANCE_MINING_STEPS)),
+                gathering_skill_gain);
+    }
+    return false;
+}
+
+// EMBERFALL: own data (PATCHES.md #14, #15) - Sundered Vale's orange bonus (professions.md §4): a skill-up from an
+// action whose requirement is within 10 of the skill has a 25 % chance of a second point
+static void EmberfallOrangeBonus(Player* player, uint32 skillId, bool gained, uint32 skillValue, uint32 requirement,
+                                 uint32 multiplicator, uint32 step)
+{
+    if (gained && skillValue < requirement + 10)
+        player->UpdateSkillPro(skillId, 250 * multiplicator, step);
+}
+
 bool Player::UpdateGatherSkill(uint32 SkillId, uint32 SkillValue,
                                uint32 RedLevel, uint32 Multiplicator)
 {
@@ -795,57 +853,23 @@ bool Player::UpdateGatherSkill(uint32 SkillId, uint32 SkillValue,
 
     uint32 gathering_skill_gain =
         sWorld->getIntConfig(CONFIG_SKILL_GAIN_GATHERING);
-    sScriptMgr->OnPlayerUpdateGatheringSkill(this, SkillId, SkillValue, RedLevel + 100, RedLevel + 50, RedLevel + 25, gathering_skill_gain);
 
-    // For skinning and Mining chance decrease with level. 1-74 - no decrease,
-    // 75-149 - 2 times, 225-299 - 8 times
-    switch (SkillId)
+    // EMBERFALL: own data (PATCHES.md #14) - Sundered Vale's gathering colours, 40 points wide: yellow from +40 over
+    // the requirement, green +80, grey +120 (upstream +25, +50, +100); and its orange bonus below
+    bool const svColours = Emberfall::OwnData();
+    uint32 const yellowLevel = RedLevel + (svColours ? 40 : 25);
+    uint32 const greenLevel = RedLevel + (svColours ? 80 : 50);
+    uint32 const grayLevel = RedLevel + (svColours ? 120 : 100);
+    sScriptMgr->OnPlayerUpdateGatheringSkill(this, SkillId, SkillValue, grayLevel, greenLevel, yellowLevel, gathering_skill_gain);
+    if (svColours)
     {
-    case SKILL_HERBALISM:
-    case SKILL_LOCKPICKING:
-    case SKILL_JEWELCRAFTING:
-    case SKILL_INSCRIPTION:
-        return UpdateSkillPro(SkillId,
-                              SkillGainChance(SkillValue, RedLevel + 100,
-                                              RedLevel + 50, RedLevel + 25) *
-                                  Multiplicator,
-                              gathering_skill_gain);
-    case SKILL_SKINNING:
-        if (sWorld->getIntConfig(CONFIG_SKILL_CHANCE_SKINNING_STEPS) == 0)
-            return UpdateSkillPro(SkillId,
-                                  SkillGainChance(SkillValue, RedLevel + 100,
-                                                  RedLevel + 50,
-                                                  RedLevel + 25) *
-                                      Multiplicator,
-                                  gathering_skill_gain);
-        else
-            return UpdateSkillPro(
-                SkillId,
-                (SkillGainChance(SkillValue, RedLevel + 100, RedLevel + 50,
-                                 RedLevel + 25) *
-                 Multiplicator) >>
-                    (SkillValue /
-                     sWorld->getIntConfig(CONFIG_SKILL_CHANCE_SKINNING_STEPS)),
-                gathering_skill_gain);
-    case SKILL_MINING:
-        if (sWorld->getIntConfig(CONFIG_SKILL_CHANCE_MINING_STEPS) == 0)
-            return UpdateSkillPro(SkillId,
-                                  SkillGainChance(SkillValue, RedLevel + 100,
-                                                  RedLevel + 50,
-                                                  RedLevel + 25) *
-                                      Multiplicator,
-                                  gathering_skill_gain);
-        else
-            return UpdateSkillPro(
-                SkillId,
-                (SkillGainChance(SkillValue, RedLevel + 100, RedLevel + 50,
-                                 RedLevel + 25) *
-                 Multiplicator) >>
-                    (SkillValue /
-                     sWorld->getIntConfig(CONFIG_SKILL_CHANCE_MINING_STEPS)),
-                gathering_skill_gain);
+        bool const up = UpdateGatherSkillRoll(this, SkillId, SkillValue, grayLevel, greenLevel, yellowLevel,
+                                              Multiplicator, gathering_skill_gain);
+        EmberfallOrangeBonus(this, SkillId, up, SkillValue, RedLevel, Multiplicator, gathering_skill_gain);
+        return up;
     }
-    return false;
+    return UpdateGatherSkillRoll(this, SkillId, SkillValue, grayLevel, greenLevel, yellowLevel, Multiplicator,
+                                 gathering_skill_gain);
 }
 
 bool Player::UpdateCraftSkill(uint32 spellid)
@@ -874,6 +898,21 @@ bool Player::UpdateCraftSkill(uint32 spellid)
             uint32 craft_skill_gain =
                 sWorld->getIntConfig(CONFIG_SKILL_GAIN_CRAFTING);
             sScriptMgr->OnPlayerUpdateCraftingSkill(this, _spell_idx->second, SkillValue, craft_skill_gain);
+
+            // EMBERFALL: own data (PATCHES.md #15) - Sundered Vale's stepped bands (orange, then yellow from
+            // TrivialSkillLineRankLow, green from the midpoint, grey from TrivialSkillLineRankHigh: 100/75/25/0 % by
+            // the SkillChance.* settings) instead of the linear fall, and its orange bonus
+            if (Emberfall::OwnData())
+            {
+                SkillLineAbilityEntry const* ability = _spell_idx->second;
+                uint32 const low = ability->TrivialSkillLineRankLow, high = ability->TrivialSkillLineRankHigh;
+                int32 const chance = high > low ? SkillGainChance(SkillValue, high, (low + high) / 2, low)
+                                                : CraftSkillGainChance(SkillValue, high, low);
+                bool const up = UpdateSkillPro(ability->SkillLine, chance, craft_skill_gain);
+                EmberfallOrangeBonus(this, ability->SkillLine, up, SkillValue, ability->MinSkillLineRank, 1,
+                                     craft_skill_gain);
+                return up;
+            }
 
             return UpdateSkillPro(
                 _spell_idx->second->SkillLine,

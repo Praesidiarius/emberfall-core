@@ -14092,7 +14092,9 @@ void Player::_LoadSkills(PreparedQueryResult result)
             {
                 for (uint32 i = 0; i < MAX_SKILL_STEP; ++i)
                 {
-                    if (skillTier->Value[skillStep] == max)
+                    // EMBERFALL: the rank whose maximum this is (PATCHES.md #13; upstream compared Value[0] every
+                    // time, so a skill of rank 2 or more loaded with step 0)
+                    if (skillTier->Value[i] == max)
                     {
                         skillStep = i + 1;
                         break;

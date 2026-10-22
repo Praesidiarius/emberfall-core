@@ -147,6 +147,29 @@ switch `Emberfall.ProfSpecs.Enable` (default 1, `AC_EMBERFALL_PROFSPECS_ENABLE`)
 Gather speed and duration are the rank spells' own `add_pct_modifier` auras (Emberfall's spell family 120); the module
 only teaches and removes the rank spells.
 
+## Profession XP (Emberfall `docs/design/professions.md`, the rank system)
+
+Character XP from the primary professions (SkillLine category 11), Sundered Vale's `progression.md` §5 scaled to our
+curve: every gather (a node, a skinned corpse) and every craft gives XP by its colour for the player. On with
+`Emberfall.OwnData = 1` and `Emberfall.Professions.Xp.Enable` (default 1).
+
+| Setting | Default | What |
+|---|---|---|
+| `Emberfall.Professions.Xp.Enable` | 1 | the switch |
+| `Emberfall.Professions.Xp.Base` | 70 | XP of an orange or yellow action of requirement 0 |
+| `Emberfall.Professions.Xp.PerSkill` | 0.06 | plus this per point of the action's requirement (175: 81, 325: 90, 500: 100) |
+| `Emberfall.Professions.Xp.GreenPercent` | 50 | a green action's share; grey gives nothing |
+
+| File | What |
+|---|---|
+| `src/professions/EfProfessionXp.h` | pure: the colour of an action from the skill and its thresholds, the XP (`tests/professionxp_tests.cpp`, run by `tests/run_tests.sh`) |
+| `src/emberfall_professions.cpp` | `emberfall_professions_world` (`OnAfterConfigLoad`: the settings, boot line `>> Emberfall profession XP: on ...`), `emberfall_professions_player`: `OnPlayerUpdateGatheringSkill` (the thresholds the core hands it, PATCHES.md #14: the requirement is yellow - 40) and `OnPlayerUpdateCraftingSkill` (the recipe's SkillLineAbility row: `MinSkillLineRank`, yellow `TrivialSkillLineRankLow`, green the midpoint, grey `TrivialSkillLineRankHigh`; a row without a high gives nothing) |
+
+The XP is given with `Player::GiveXP(xp, nullptr)`: the client shows "You gain N experience."; rested XP does not double
+it (the core adds the rest bonus only for kills), and at the level cap the core gives nothing. A debug line per action on
+the `module` logger (skill, requirement, colour, XP). The colours and the skill-up chances themselves are the core's
+(PATCHES.md #14, #15).
+
 ## Test tools (Emberfall `docs/design/class-kit-pipeline.md` §8.2)
 
 A test realm's players try a class kit at any level without a GM account: `src/emberfall_testtools.cpp`. Switch
