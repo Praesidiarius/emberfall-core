@@ -32,6 +32,7 @@
 #include "SpellInfo.h"
 #include "Tokenize.h"
 #include "World.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 
 #include <algorithm>
 
@@ -1452,6 +1453,21 @@ void SpellMgr::LoadSpellRequired()
     LOG_INFO("server.loading", " ");
 }
 
+// EMBERFALL: own data (PATCHES.md #13) - the maximum of rank `step` of `skill` in its SkillTiers row (the first
+// SkillRaceClassInfo row of the skill with a tier), 0 when there is none
+extern DBCStorage<SkillRaceClassInfoEntry> sSkillRaceClassInfoStore; // DBCStores.cpp (not in its header)
+
+static uint32 EmberfallSkillTierMax(uint32 skill, uint32 step)
+{
+    if (!step || step > MAX_SKILL_STEP)
+        return 0;
+    for (SkillRaceClassInfoEntry const* rc : sSkillRaceClassInfoStore)
+        if (rc && rc->SkillID == skill)
+            if (SkillTiersEntry const* tier = sSkillTiersStore.LookupEntry(rc->SkillTierID))
+                return tier->Value[step - 1];
+    return 0;
+}
+
 void SpellMgr::LoadSpellLearnSkills()
 {
     uint32 oldMSTime = getMSTime();
@@ -1484,6 +1500,11 @@ void SpellMgr::LoadSpellLearnSkills()
                         dbc_node.value = dbc_node.step * 75;
                     }
                     dbc_node.maxvalue = dbc_node.step * 75;
+                    // EMBERFALL: own data (PATCHES.md #13) - a rank's maximum from the skill's SkillTiers row
+                    // (Emberfall's professions: 75, 175, 325, 500), not step x 75
+                    if (Emberfall::OwnData() && dbc_node.skill != SKILL_RIDING)
+                        if (uint32 tierMax = EmberfallSkillTierMax(dbc_node.skill, dbc_node.step))
+                            dbc_node.maxvalue = tierMax;
                     break;
                 case SPELL_EFFECT_DUAL_WIELD:
                     dbc_node.skill = SKILL_DUAL_WIELD;

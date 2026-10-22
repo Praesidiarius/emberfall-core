@@ -53,6 +53,7 @@
 #include "SpellAuras.h"
 #include "SpellMgr.h"
 #include "EmberfallCombatLog.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "TemporarySummon.h"
 #include "Totem.h"
 #include "Transport.h"
@@ -2966,7 +2967,14 @@ void Spell::EffectLearnSkill(SpellEffIndex effIndex)
 
     uint32 skillid = m_spellInfo->Effects[effIndex].MiscValue;
     uint16 skillval = unitTarget->ToPlayer()->GetPureSkillValue(skillid);
-    unitTarget->ToPlayer()->SetSkill(skillid, m_spellInfo->Effects[effIndex].CalcValue(), skillval ? skillval : 1, damage * 75);
+    uint16 maxval = damage * 75;
+    // EMBERFALL: own data (PATCHES.md #13) - the rank's maximum LoadSpellLearnSkills took from SkillTiers: casting a
+    // profession spell (Mining, Herbalism and Skinning are their gather spells) must not cut it back to step x 75
+    if (Emberfall::OwnData())
+        if (SpellLearnSkillNode const* node = sSpellMgr->GetSpellLearnSkill(m_spellInfo->Id))
+            if (node->skill == skillid && node->maxvalue)
+                maxval = node->maxvalue;
+    unitTarget->ToPlayer()->SetSkill(skillid, m_spellInfo->Effects[effIndex].CalcValue(), skillval ? skillval : 1, maxval);
 }
 
 void Spell::EffectAddHonor(SpellEffIndex /*effIndex*/)
