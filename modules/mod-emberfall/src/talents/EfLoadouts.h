@@ -28,7 +28,7 @@
 
 namespace ef::talents
 {
-    constexpr uint32_t kMaxActionButtons = 144; // Player.h MAX_ACTION_BUTTONS
+    constexpr uint32_t kMaxActionButtons = 168; // Player.h MAX_ACTION_BUTTONS
     constexpr uint32_t kFirstBarButtons = 12;   // buttons 0-11: the first bar
     constexpr uint8_t kSpellButton = 0x00;      // ACTION_BUTTON_SPELL
     constexpr uint32_t kMaxLoadoutId = 255;     // ef_character_loadout.loadout is a TINYINT UNSIGNED

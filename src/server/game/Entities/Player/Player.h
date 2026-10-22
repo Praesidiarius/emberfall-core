@@ -258,7 +258,7 @@ struct ActionButton
     }
 };
 
-#define  MAX_ACTION_BUTTONS 144                             //checked in 3.2.0
+#define  MAX_ACTION_BUTTONS 168                             // 3.3.5a: 144; Emberfall: +24 for action bars 7 and 8 (slots 145-168)
 
 typedef std::map<uint8, ActionButton> ActionButtonList;
 
