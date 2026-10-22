@@ -203,7 +203,7 @@ namespace Emberfall::Talents
                     guid, spec, b.button, b.action, b.type);
         }
 
-        // The player's current 144 buttons (the core's active set).
+        // The player's current 168 buttons (the core's active set).
         std::vector<BarButton> CurrentBars(Player* player)
         {
             std::vector<BarButton> out;
