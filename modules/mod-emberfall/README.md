@@ -368,3 +368,23 @@ The world tables `ef_editor_zone`, `ef_editor_spawn`, `ef_editor_entry` come fro
 (`python -m emberfall_content.editor.realmdata`), loaded after `world.sql` only where the editor runs. Config:
 `Emberfall.Editor.Mode` `realm` (default) or `local` (a maintainer's server: every account a maintainer, Submit accepts).
 
+## Account friends (Emberfall `docs/design/account-friends.md`)
+
+Friends by account next to the stock character friends (`character_social`, untouched): a request goes to a character's
+account, the other side accepts, and from then on each sees which character the other plays ("<label> is now online
+playing <character>."). On unless `Emberfall.AccountFriends.Enable = 0` (`AC_EMBERFALL_ACCOUNTFRIENDS_ENABLE`); off,
+HELLO answers `ERR OFF`.
+
+| File | What |
+|---|---|
+| `src/accountfriends/EfAccountFriendsLogic.h` | the EFF bodies, labels, what an ADD comes to (an ignore answers as sent and stores nothing), the limits, the rate limit, the offline debounce; `tests/accountfriends_tests.cpp` |
+| `src/emberfall_accountfriends.cpp` | the links of the accounts in the world, the requests, presence pushes (login: `on`; logout: `off` after 5 s unless another character came), the hooks |
+| `data/sql/db-auth/mod_emberfall_2026_10_22_00_account_friends.sql` | `ef_account_friend` (one row per pair, each side's label), `ef_account_friend_request`, `ef_account_seen` |
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_accountfriends_world` | `OnAfterConfigLoad`, `OnBeforeWorldInitialized`, `OnUpdate` | the switch; requests older than 30 days go, the boot log line (`>> Emberfall account friends: on ...`); once a second, `off` for accounts that left 5 s ago and did not come back |
+| `emberfall_accountfriends_player` | `OnPlayerLogin`, `OnPlayerLogout`, `OnPlayerCanUseChat` (whisper) | `on` to the friends in the world; last seen and the offline clock; consumes every `EFF\t` addon whisper and answers the player's own |
+
+Presence is this worldserver's (a friend on another realm shows as offline).
+
