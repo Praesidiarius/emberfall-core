@@ -68,8 +68,8 @@
 //   spell_ef_kit_self_stacks         every dummy effect on the caster with a trigger raises its value in stacks of that
 //                                    self aura (misc B > 0: one per enemy struck, at most misc B, plus value - 1; nothing if
 //                                    the enemy effects struck nobody), up to the aura's cap (EfClassKit.h AddSelfStacks)
-//   spell_ef_kit_delayed_strike      effect 1 (dummy at an enemy): value ms later the trigger is cast at the spot the enemy
-//                                    stood on (Heavenfall, Heaven's Answer)
+//   spell_ef_kit_delayed_strike      effect 1 (dummy at an enemy): value ms later the trigger is cast where the enemy stands
+//                                    then, or on its last spot if it is gone (Heavenfall, Heaven's Answer)
 //   spell_ef_kit_not_bosses          never on bosses: the cast at one is refused, bosses leave the area (Kneel, Noonday)
 //   spell_ef_kit_talent_buff         an aura whose dummy effects with misc = a talent the owner has keep their trigger on the
 //                                    owner while it lasts (Unbowed + Unbowed Grace)
@@ -93,6 +93,7 @@
 #include "CommandScript.h"
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
@@ -725,7 +726,7 @@ class spell_ef_kit_self_stacks : public SpellScript
 };
 
 // A delayed strike (Heavenfall): effect 1 (dummy at an enemy): value ms after the hit the caster casts the trigger at the
-// spot the enemy stood on (a ground strike: dest_dest + an area), whether the enemy stayed or not.
+// enemy's spot when it falls (a ground strike: dest_dest + an area); its last spot if the enemy died or left.
 class spell_ef_kit_delayed_strike : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_delayed_strike);
@@ -742,12 +743,20 @@ class spell_ef_kit_delayed_strike : public SpellScript
         uint32 const strike = GetSpellInfo()->Effects[effIndex].TriggerSpell;
         if (!caster || !target || !strike)
             return;
+        // The strike follows the enemy (Nathanael, 2026-10-23: "heavenfall should follow the target not stand still"): it
+        // lands where the enemy stands when it falls; on the spot it last stood on if it died, left or changed map.
         float const x = target->GetPositionX(), y = target->GetPositionY(), z = target->GetPositionZ();
+        ObjectGuid const targetGuid = target->GetGUID();
         int32 const delay = std::max(0, GetEffectValue());
         // the event lives in the caster's own queue: it goes with the caster
-        caster->m_Events.AddEventAtOffset([caster, x, y, z, strike]()
+        caster->m_Events.AddEventAtOffset([caster, targetGuid, x, y, z, strike]()
         {
-            if (caster->IsInWorld())
+            if (!caster->IsInWorld())
+                return;
+            if (Unit* now = ObjectAccessor::GetUnit(*caster, targetGuid);
+                now && now->IsInWorld() && now->IsAlive() && now->GetMapId() == caster->GetMapId())
+                caster->CastSpell(now->GetPositionX(), now->GetPositionY(), now->GetPositionZ(), strike, true);
+            else
                 caster->CastSpell(x, y, z, strike, true);
         }, Milliseconds(delay));
     }
