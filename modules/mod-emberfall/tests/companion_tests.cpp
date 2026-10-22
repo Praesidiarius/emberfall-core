@@ -220,8 +220,74 @@ namespace
     }
 }
 
+namespace
+{
+    // ---- boss mechanics: telegraphs, run-out marks, interrupts (companions.md §3 "Mechanics") ------------------------
+    void TestDangers()
+    {
+        float const pi = 3.14159265f;
+        // A 120-degree frontal of 10 yd (+ bodies 2.5) facing +x from the origin.
+        Danger cone{ DangerShape::Cone, Vec2{ 0, 0 }, 12.5f, 0.0f, 120.0f * pi / 180.0f };
+        check(InDanger(cone, Vec2{ 5, 0 }, 1.5f) && InDanger(cone, Vec2{ 5, 6 }, 1.5f), "in front: inside");
+        check(!InDanger(cone, Vec2{ -3, 0 }, 1.5f) && !InDanger(cone, Vec2{ 0, 6 }, 0.0f), "behind and beside: outside");
+        check(!InDanger(cone, Vec2{ 16, 0 }, 1.5f), "beyond its reach: outside");
+        check(InDanger(cone, Vec2{ 0.3f, -0.2f }, 0.0f), "at its feet: inside (the core's boundary rule)");
+        // Its escape: round the nearer side, outside with room to spare, never farther than needed.
+        for (Vec2 p : { Vec2{ 5, 1 }, Vec2{ 5, -1 }, Vec2{ 2, 0.1f }, Vec2{ 9, 3 } })
+        {
+            Vec2 const to = EscapePoint(cone, p, 2.5f, Vec2{ -10, 0 });
+            check(!InDanger(cone, to, 1.5f), "the cone's escape is outside");
+            check(Dist(to, p) < 12.0f, "a short walk out of the cone");
+            check((to.y >= 0) == (p.y >= 0), "out the nearer side");
+        }
+        // A circle of 10 yd (+ 0.5) round the origin: straight out; from its very middle towards `prefer`.
+        Danger circle{ DangerShape::Circle, Vec2{ 0, 0 }, 10.5f, 0, 0 };
+        check(InDanger(circle, Vec2{ 7, 7 }, 1.5f) && !InDanger(circle, Vec2{ 9, 9 }, 0.0f), "the circle's edge");
+        Vec2 const out = EscapePoint(circle, Vec2{ 3, 4 }, 2.5f, Vec2{ 0, 0 });
+        check(near(Dist(out, Vec2{ 0, 0 }), 13.0f) && near(out.x / out.y, 0.75f), "out of the circle straight away from its middle");
+        Vec2 const mid = EscapePoint(circle, Vec2{ 0, 0 }, 2.5f, Vec2{ -20, 0 });
+        check(near(mid.x, -13.0f) && near(mid.y, 0.0f), "from the middle towards the owner");
+        check(near(AngleDiff(0.1f, 6.2f), 0.1832f, 0.001f) && near(AngleDiff(pi, -pi), 0.0f), "angle differences wrap");
+    }
+
+    void TestRunOut()
+    {
+        auto open = [](Vec2) { return true; };
+        // Marked in the middle of the group (four others round us within 4 yd): the spot is 8 + 2 clear of all of them.
+        std::vector<Vec2> others{ { 3, 0 }, { -3, 0 }, { 0, 3 }, { 1, -3 } };
+        Vec2 const to = RunOutPoint(Vec2{ 0, 0.5f }, others, 8.0f, 2.0f, 12.0f, open);
+        float gap = 1e9f;
+        for (Vec2 const& o : others)
+            gap = std::min(gap, Dist(o, to));
+        check(gap >= 8.0f, "the marked one ends out of reach of everyone: " + std::to_string(gap));
+        // With the first directions walled off it takes the next open one.
+        auto east = [](Vec2 c) { return c.x > 5.0f; };
+        Vec2 const to2 = RunOutPoint(Vec2{ 0, 0 }, { { -2, 0 } }, 8.0f, 2.0f, 12.0f, east);
+        check(to2.x > 5.0f && Dist(to2, Vec2{ -2, 0 }) >= 10.0f, "round a wall to the open side");
+        // Nowhere open: stays where it is.
+        Vec2 const stay = RunOutPoint(Vec2{ 1, 1 }, { { 2, 2 } }, 8.0f, 2.0f, 12.0f, [](Vec2) { return false; });
+        check(near(stay.x, 1) && near(stay.y, 1), "no open spot: no move");
+        check(NearRunOut(Vec2{ 0, 0 }, Vec2{ 9, 0 }, 8.0f, 1.5f) && !NearRunOut(Vec2{ 0, 0 }, Vec2{ 10, 0 }, 8.0f, 1.5f), "near a mark");
+    }
+
+    void TestKicks()
+    {
+        KickRule const r;
+        // Keen: 3 s; at once no, after half a second yes, in its last quarter second no.
+        check(!WorthKicking(r, 3000, 2900, true, true), "not before a human's reaction");
+        check(WorthKicking(r, 3000, 2400, true, true), "a boss's cast after the reaction");
+        check(!WorthKicking(r, 3000, 200, true, true), "too late to land");
+        // While a boss fights, a companion keeps its kick for the boss; without one, trash casts are fair game.
+        check(!WorthKicking(r, 2500, 1500, false, true) && WorthKicking(r, 2500, 1500, false, false), "a boss's casts first");
+        check(!WorthKicking(r, 800, 400, true, true), "short casts are not worth the cooldown");
+    }
+}
+
 int main()
 {
+    TestDangers();
+    TestRunOut();
+    TestKicks();
     TestRoles();
     TestAddArgs();
     TestFormation();

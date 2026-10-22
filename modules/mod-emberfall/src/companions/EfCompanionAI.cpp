@@ -22,12 +22,14 @@
 #include "StringFormat.h"
 #include "DynamicObject.h"
 #include "EfCompanions.h"
+#include "Log.h"
 #include "MotionMaster.h"
 #include "MoveSpline.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
+#include "Spell.h"
 #include "SpellAuras.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
@@ -44,6 +46,7 @@ namespace Emberfall::Companions
         constexpr uint32 kWeakenedSoul = 6788;
         constexpr uint32 kAvoidPoint = 0xEFC0;
         constexpr uint32 kMovePoint = 0xEFC1;
+        constexpr uint32 kDodgePoint = 0xEFC2;      // out of a telegraph or away from a run-out mark
         constexpr float kMeleeAoeRadius = 8.0f;
 
         class CompanionAI : public CompanionAIBase
@@ -157,6 +160,8 @@ namespace Emberfall::Companions
                 _clock += diff;
                 if (_avoidMs)
                     _avoidMs = _avoidMs > diff ? _avoidMs - diff : 0;
+                if (_dodgeMs)
+                    _dodgeMs = _dodgeMs > diff ? _dodgeMs - diff : 0;
             }
 
             // ---- movement --------------------------------------------------------------------------------------------
@@ -208,10 +213,50 @@ namespace Emberfall::Companions
             }
 
             // A spot `dist` yards from `target` at `angle` (absolute), at the target's height.
+            // Burning ground we know of (a hostile dynamic object we stood in, or a telegraphed cast that leaves one):
+            // where it is, how far it reaches, until when.
+            struct Fire
+            {
+                float x, y, r;
+                uint32 until;
+            };
+
+            void RememberFire(float x, float y, float r, uint32 ms)
+            {
+                std::erase_if(_fires, [this](Fire const& f) { return f.until <= _clock; });
+                for (Fire& f : _fires)
+                    if (std::hypot(f.x - x, f.y - y) < 1.5f)
+                    {
+                        f.r = std::max(f.r, r);
+                        f.until = std::max(f.until, _clock + ms);
+                        return;
+                    }
+                if (_fires.size() < 8)
+                    _fires.push_back(Fire{ x, y, r, _clock + ms });
+            }
+
+            // A destination inside known fire is pushed out past its edge (away from its middle): no companion walks
+            // back into burning ground, and a tank whose mob stands in it stands outside, so the mob follows it out.
+            void OutOfFire(float& x, float& y) const
+            {
+                for (Fire const& f : _fires)
+                {
+                    if (f.until <= _clock)
+                        continue;
+                    float const dx = x - f.x, dy = y - f.y, d = std::hypot(dx, dy);
+                    if (d >= f.r + 1.0f)
+                        continue;
+                    float const a = d > 0.3f ? std::atan2(dy, dx) : me->GetAbsoluteAngle(f.x, f.y) + float(M_PI);
+                    x = f.x + std::cos(a) * (f.r + 2.5f);
+                    y = f.y + std::sin(a) * (f.r + 2.5f);
+                }
+            }
+
             void Approach(Unit* target, float dist, float angle, float tolerance)
             {
-                float const x = target->GetPositionX() + std::cos(angle) * dist;
-                float const y = target->GetPositionY() + std::sin(angle) * dist;
+                float x = target->GetPositionX() + std::cos(angle) * dist;
+                float y = target->GetPositionY() + std::sin(angle) * dist;
+                OutOfFire(x, y);
                 float const z = target->GetPositionZ() + 0.2f;
                 if (!target->IsWithinLOS(x, y, z))
                 {
@@ -298,6 +343,7 @@ namespace Emberfall::Companions
                     if (!dyn)
                         continue;
                     float const radius = dyn->GetRadius();
+                    RememberFire(dyn->GetPositionX(), dyn->GetPositionY(), radius, uint32(std::max(dyn->GetDuration(), 0)));
                     float angle = dyn->GetAbsoluteAngle(me);
                     if (dyn->GetExactDist2d(me) < 0.5f)
                         angle = dyn->GetAbsoluteAngle(owner);
@@ -309,6 +355,260 @@ namespace Emberfall::Companions
                     me->GetMotionMaster()->MovePoint(kAvoidPoint, x, y, z);
                     _moving = false;
                     _avoidMs = 3000;
+                    return true;
+                }
+                return false;
+            }
+
+            // ---- boss mechanics ----------------------------------------------------------------------------------------
+            // A spot we can walk to: in sight, and on a floor near our height where the map knows its ground.
+            bool Walkable(float x, float y, float z) const
+            {
+                if (!me->IsWithinLOS(x, y, z + 1.0f))
+                    return false;
+                float const ground = me->GetMapHeight(x, y, z + 3.0f);
+                return ground <= INVALID_HEIGHT || std::fabs(ground - z) < 3.5f;
+            }
+
+            void Dodge(float x, float y, uint32 holdMs, std::string const& why)
+            {
+                float const z = me->GetPositionZ();
+                me->InterruptNonMeleeSpells(false);
+                me->GetMotionMaster()->Clear();
+                me->GetMotionMaster()->MovePoint(kDodgePoint, x, y, z);
+                _moving = false;
+                _dodgeMs = holdMs;
+                _why = why;
+            }
+
+            // The area a hostile's telegraphed cast will hit (mob-abilities.md: a cone ahead of it, a circle round it, a
+            // circle at a point), with the core's own leeway: the effect radius plus both bodies. Nothing for casts that
+            // cover a whole room (Keen's 30 yd: those are for interrupting, not dodging).
+            bool DangerOf(Unit* caster, Spell* spell, Danger& d) const
+            {
+                SpellInfo const* info = spell->GetSpellInfo();
+                for (SpellEffectInfo const& eff : info->Effects)
+                {
+                    if (!eff.Effect)
+                        continue;
+                    float const radius = eff.CalcRadius(caster);
+                    if (radius <= 0.0f || radius > 15.0f)
+                        continue;
+                    uint32 const a = eff.TargetA.GetTarget(), b = eff.TargetB.GetTarget();
+                    auto is = [&](uint32 t) { return a == t || b == t; };
+                    if (is(TARGET_UNIT_CONE_ENEMY_104) || is(TARGET_UNIT_CONE_ENEMY_54) || is(TARGET_UNIT_CONE_ENEMY_24))
+                    {
+                        d.shape = DangerShape::Cone;
+                        d.origin = Vec2{ caster->GetPositionX(), caster->GetPositionY() };
+                        d.radius = radius + caster->GetCombatReach() + me->GetCombatReach();
+                        float deg = is(TARGET_UNIT_CONE_ENEMY_24) ? 24.0f : is(TARGET_UNIT_CONE_ENEMY_54) ? 54.0f : 104.0f;
+                        if (SpellCone const* sc = sSpellMgr->GetSpellCone(info->Id))
+                            deg = float(sc->cone_degrees);
+                        d.angle = deg * float(M_PI) / 180.0f;
+                        // The caster faces its explicit target from the cast's start (mob-abilities.md §3).
+                        Unit* t = spell->m_targets.GetUnitTarget();
+                        d.facing = t && t != caster ? caster->GetAbsoluteAngle(t) : caster->GetOrientation();
+                        return true;
+                    }
+                    if (is(TARGET_UNIT_SRC_AREA_ENEMY))
+                    {
+                        d.shape = DangerShape::Circle;
+                        d.origin = Vec2{ caster->GetPositionX(), caster->GetPositionY() };
+                        d.radius = radius + me->GetCombatReach();
+                        return true;
+                    }
+                    if (is(TARGET_UNIT_DEST_AREA_ENEMY) || (eff.Effect == SPELL_EFFECT_PERSISTENT_AREA_AURA && spell->m_targets.HasDst()))
+                    {
+                        d.shape = DangerShape::Circle;
+                        if (spell->m_targets.HasDst())
+                            d.origin = Vec2{ spell->m_targets.GetDstPos()->GetPositionX(), spell->m_targets.GetDstPos()->GetPositionY() };
+                        else if (Unit* t = spell->m_targets.GetUnitTarget())
+                            d.origin = Vec2{ t->GetPositionX(), t->GetPositionY() };
+                        else
+                            continue;
+                        d.radius = radius + me->GetCombatReach();
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            // Out of a telegraph before its cast ends: the shortest walk to outside its edge (round a cone's side, out of
+            // a circle), another direction if a wall is in the way; we hold there until the cast is over.
+            bool AvoidTelegraphs(Player* owner, std::vector<Unit*> const& enemies)
+            {
+                if (_dodgeMs)
+                    return true;
+                Vec2 const self{ me->GetPositionX(), me->GetPositionY() };
+                for (Unit* e : enemies)
+                {
+                    Spell* spell = e->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+                    if (!spell || spell->getState() != SPELL_STATE_PREPARING || spell->GetCastTime() < 1000)
+                        continue;
+                    int32 const left = spell->GetCastTimeRemaining();
+                    if (left <= 150)
+                        continue;
+                    // A cast that leaves burning ground where it lands (Pyre Ash): remembered, so nobody walks back in.
+                    for (SpellEffectInfo const& eff : spell->GetSpellInfo()->Effects)
+                    {
+                        if (eff.Effect != SPELL_EFFECT_PERSISTENT_AREA_AURA)
+                            continue;
+                        uint32 const ms = uint32(left + std::max(spell->GetSpellInfo()->GetMaxDuration(), 0));
+                        if (eff.TargetA.GetTarget() == TARGET_DEST_CASTER)
+                            RememberFire(e->GetPositionX(), e->GetPositionY(), eff.CalcRadius(e), ms);   // round its own feet (Bank the Fires)
+                        else if (spell->m_targets.HasDst())
+                            RememberFire(spell->m_targets.GetDstPos()->GetPositionX(), spell->m_targets.GetDstPos()->GetPositionY(),
+                                         eff.CalcRadius(e), ms);
+                    }
+                    Danger d;
+                    if (!DangerOf(e, spell, d) || !InDanger(d, self, 1.5f))
+                        continue;
+                    Vec2 const prefer{ owner->GetPositionX(), owner->GetPositionY() };
+                    Vec2 to = EscapePoint(d, self, 2.5f, prefer);
+                    float const z = me->GetPositionZ();
+                    if (!Walkable(to.x, to.y, z))
+                    {
+                        // Round the danger's middle in steps until a spot is outside and walkable.
+                        float const r = Dist(d.origin, to);
+                        float const a0 = std::atan2(to.y - d.origin.y, to.x - d.origin.x);
+                        bool found = false;
+                        for (int i = 1; i <= 8 && !found; ++i)
+                            for (float sgn : { 1.0f, -1.0f })
+                            {
+                                float const a = a0 + sgn * 0.4f * float(i);
+                                Vec2 const c{ d.origin.x + std::cos(a) * r, d.origin.y + std::sin(a) * r };
+                                if (!InDanger(d, c, 1.0f) && Walkable(c.x, c.y, z))
+                                {
+                                    to = c;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                    }
+                    Dodge(to.x, to.y, uint32(left) + 300, Acore::StringFormat("out of {}'s {}", e->GetName(), spell->GetSpellInfo()->SpellName[0]));
+                    return true;
+                }
+                return false;
+            }
+
+            // Run-out marks (RegisterRunOut): with one on us, walk clear of the group and stay there until it ends; next
+            // to someone carrying one, step out of its reach.
+            bool RunOut(Player* owner)
+            {
+                if (RunOuts().empty())
+                    return false;
+                if (_dodgeMs)
+                    return true;
+                std::vector<Unit*> const group = GroupUnits(owner, 60.0f);
+                Vec2 const self{ me->GetPositionX(), me->GetPositionY() };
+                float const z = me->GetPositionZ();
+                for (auto const& [spell, radius] : RunOuts())
+                {
+                    if (Aura const* mark = me->GetAura(spell))
+                    {
+                        std::vector<Vec2> others;
+                        float nearest = 1e9f;
+                        for (Unit* u : group)
+                            if (u != me && u->IsAlive())
+                            {
+                                others.push_back(Vec2{ u->GetPositionX(), u->GetPositionY() });
+                                nearest = std::min(nearest, Dist(others.back(), self));
+                            }
+                        uint32 const left = uint32(std::max(mark->GetDuration(), 0));
+                        if (nearest > radius + 1.0f)
+                        {
+                            // Clear: stand still until it ends (never back into the group).
+                            if (me->GetVictim())
+                                me->AttackStop();
+                            _holding = true;
+                            _why = Acore::StringFormat("clear of the group with {}", spell);
+                            return true;
+                        }
+                        Vec2 const to = RunOutPoint(self, others, radius, 2.0f, radius + 4.0f,
+                                                    [&](Vec2 c) { return Walkable(c.x, c.y, z); });
+                        Dodge(to.x, to.y, std::min<uint32>(left, 2500), Acore::StringFormat("running out with {}", spell));
+                        return true;
+                    }
+                    for (Unit* u : group)
+                    {
+                        if (u == me || !u->HasAura(spell))
+                            continue;
+                        Vec2 const bearer{ u->GetPositionX(), u->GetPositionY() };
+                        if (!NearRunOut(bearer, self, radius, 1.5f))
+                            continue;
+                        float a = std::atan2(self.y - bearer.y, self.x - bearer.x);
+                        if (Dist(bearer, self) < 0.3f)
+                            a += float(M_PI) * 0.5f;
+                        Vec2 to{ bearer.x + std::cos(a) * (radius + 3.0f), bearer.y + std::sin(a) * (radius + 3.0f) };
+                        for (int i = 1; i <= 6 && !Walkable(to.x, to.y, z); ++i)
+                        {
+                            float const b = a + (i % 2 ? 1.0f : -1.0f) * 0.5f * float((i + 1) / 2);
+                            to = Vec2{ bearer.x + std::cos(b) * (radius + 3.0f), bearer.y + std::sin(b) * (radius + 3.0f) };
+                        }
+                        Dodge(to.x, to.y, 1500, Acore::StringFormat("away from {}'s {}", u->GetName(), spell));
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            // A kick for an interruptible cast (the core stops only casts of the silence prevention type with the
+            // interrupt flag): one companion per cast (the roster's claims), after a human's reaction, a boss's casts
+            // first (while a boss is in the fight the kick waits for it).
+            bool TryInterrupt(Player* owner, Roster* roster, std::vector<Unit*> const& enemies)
+            {
+                SpellRow const* row = nullptr;
+                for (SpellRow const& r : _a.spells)
+                    if (r.kind == Kind::Interrupt && RankOf(r) && Ready(RankOf(r)))
+                    {
+                        row = &r;
+                        break;
+                    }
+                if (!row)
+                    return false;
+                uint32 const id = RankOf(*row);
+                SpellInfo const* kick = sSpellMgr->GetSpellInfo(id);
+                if (!kick)
+                    return false;
+                bool bossIn = false;
+                for (Unit* e : enemies)
+                    if (IsBoss(e))
+                        bossIn = true;
+                KickRule const rule;
+                for (Unit* e : enemies)
+                {
+                    Spell* spell = e->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+                    if (!spell || spell->getState() != SPELL_STATE_PREPARING)
+                        continue;
+                    SpellInfo const* info = spell->GetSpellInfo();
+                    if (!(info->InterruptFlags & SPELL_INTERRUPT_FLAG_INTERRUPT) || !(info->PreventionType & SPELL_PREVENTION_TYPE_SILENCE))
+                        continue;
+                    int32 const castMs = spell->GetCastTime(), left = spell->GetCastTimeRemaining();
+                    if (castMs <= 0 || left <= 0 || !WorthKicking(rule, uint32(castMs), uint32(left), IsBoss(e), bossIn))
+                        continue;
+                    auto claim = roster->kickClaims.find(e->GetGUID());
+                    if (claim != roster->kickClaims.end() && roster->clockMs - claim->second < uint32(castMs))
+                        continue;   // someone went for this cast already
+                    float const dist = me->GetDistance(e);
+                    float const maxRange = kick->GetMaxRange(false, me);
+                    if ((maxRange > 0.0f && dist > maxRange) || !me->IsWithinLOSInMap(e))
+                        continue;
+                    if (me->IsNonMeleeSpellCast(false))
+                        me->InterruptNonMeleeSpells(false);
+                    uint32 flags = TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_SHAPESHIFT | TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT |
+                                   TRIGGERED_IGNORE_CASTER_AURASTATE;
+                    if (_a.freeCost)
+                        flags |= TRIGGERED_IGNORE_POWER_AND_REAGENT_COST;
+                    if (me->CastSpell(e, id, TriggerCastFlags(flags)) != SPELL_CAST_OK)
+                    {
+                        _cd[id] = 1000;
+                        continue;
+                    }
+                    roster->kickClaims[e->GetGUID()] = roster->clockMs;
+                    _cd[id] = std::max<uint32>({ kick->RecoveryTime, kick->CategoryRecoveryTime, row->cooldownMs, 1000 });
+                    _why = Acore::StringFormat("interrupting {}'s {}", e->GetName(), info->SpellName[0]);
+                    LOG_DEBUG("module", "Emberfall companions: {} interrupts {}'s {} ({} ms left)", me->GetName(), e->GetName(), info->Id, left);
+                    (void)owner;
                     return true;
                 }
                 return false;
@@ -543,6 +843,14 @@ namespace Emberfall::Companions
                     _why = "avoiding a ground effect";
                     return;
                 }
+                // Boss mechanics (companions.md §3 "Mechanics"): out of telegraphs, clear of run-out marks, a kick for an
+                // interruptible cast.
+                if (AvoidTelegraphs(owner, enemies))
+                    return;
+                if (RunOut(owner))
+                    return;
+                if (TryInterrupt(owner, roster, enemies))
+                    return;
 
                 // The leash: too far from the owner, break off and come back.
                 if (distOwner > cfg.leash || (_returning && distOwner > cfg.leash * 0.5f))
@@ -664,7 +972,16 @@ namespace Emberfall::Companions
                 Unit* tank = Tank(owner);
                 bool const haveTank = tank && tank->IsAlive();
                 Unit* target = nullptr;
-                if (roster->assist)
+                // An add that must die (SetKillPriority: a shade on its way, a cinder, a ward-bearer) before anything else,
+                // the nearest first.
+                float bestPrio = 1e9f;
+                for (Unit* e : enemies)
+                    if (IsKillPriority(e) && Valid(owner, e, enemies) && me->GetDistance(e) < bestPrio)
+                    {
+                        bestPrio = me->GetDistance(e);
+                        target = e;
+                    }
+                if (!target && roster->assist)
                 {
                     // The owner's target, else the tank's, else what we had, else what attacks a group member.
                     if (owner->IsAlive())
@@ -682,7 +999,7 @@ namespace Emberfall::Companions
                                 break;
                             }
                 }
-                else
+                else if (!target)
                 {
                     // Assist off: only what attacks this companion.
                     for (Unit* e : enemies)
@@ -712,7 +1029,11 @@ namespace Emberfall::Companions
                 if (!onMe && haveTank && !tankHolds)
                     wait = true;
                 float const myThreat = target->GetThreatMgr().GetThreat(me);
-                bool const hold = wait || MustHold(cfg.gate, tankHolds, myThreat, tankThreat, _bigHit);
+                // A priority add is nobody's to hold: at once, whatever the threat.
+                bool const priority = IsKillPriority(target);
+                if (priority)
+                    wait = false;
+                bool const hold = !priority && (wait || MustHold(cfg.gate, tankHolds, myThreat, tankThreat, _bigHit));
                 bool const placed = TakePosition(target);
                 if (hold)
                 {
@@ -791,6 +1112,14 @@ namespace Emberfall::Companions
                     hc.hotBelow = 0.0f;
                 }
                 HealChoice const choice = ChooseHeal(list, manaPct, fight, hc);
+                bool danger = false;
+                for (HealTarget const& h : list)
+                    if (h.alive && h.hpPct < 50.0f)
+                        danger = true;
+                // A dispel when nobody is in danger, before a top-up (a boss's DoT on someone is worth more than a small
+                // heal: companions.md §3 "Mechanics").
+                if (!danger && choice.kind != HealKind::Fast && choice.kind != HealKind::Big && TryDispel(group))
+                    return;
                 if (choice.kind != HealKind::None)
                 {
                     Unit* u = group[choice.id];
@@ -824,34 +1153,9 @@ namespace Emberfall::Companions
                     if (!list[choice.id].inRange)
                         Approach(u, 15.0f, u->GetAbsoluteAngle(me), 3.0f);
                 }
-                // Dispels when nobody is in danger.
-                bool danger = false;
-                for (HealTarget const& h : list)
-                    if (h.alive && h.hpPct < 50.0f)
-                        danger = true;
-                if (!danger)
-                    for (SpellRow const& row : _a.spells)
-                    {
-                        if (row.kind != Kind::Dispel)
-                            continue;
-                        uint32 const id = RankOf(row);
-                        SpellInfo const* info = id ? sSpellMgr->GetSpellInfo(id) : nullptr;
-                        if (!info || !Ready(id))
-                            continue;
-                        uint32 mask = 0;
-                        for (SpellEffectInfo const& eff : info->Effects)
-                            if (eff.Effect == SPELL_EFFECT_DISPEL)
-                                mask |= SpellInfo::GetDispelMask(DispelType(eff.MiscValue));
-                        for (Unit* u : group)
-                        {
-                            if (!u->IsAlive() || !me->IsWithinDistInMap(u, cfg.healRange))
-                                continue;
-                            DispelChargesList dl;
-                            u->GetDispellableAuraList(me, mask, dl, info);
-                            if (!dl.empty() && TryCast(row, u))
-                                return;
-                        }
-                    }
+                // Dispels when nobody is in danger (a heal went for someone below 50 % or could not go).
+                if (!danger && TryDispel(group))
+                    return;
                 // Idle with mana in a fight: a little damage on the tank's target, once the tank has held it.
                 if (fight && !danger && manaPct >= 80.0f && tank && tank->GetVictim() && Valid(owner, tank->GetVictim(), enemies) &&
                     TankHeldMs(owner, tank->GetVictim()) >= Cfg().gate.waitMs)
@@ -865,6 +1169,37 @@ namespace Emberfall::Companions
                         CastKind(Kind::Nuke, t);
                 }
                 (void)roster;
+            }
+
+            // A group member with a debuff our dispel removes (by the dispel effects' types): the dispel at them.
+            bool TryDispel(std::vector<Unit*> const& group)
+            {
+                for (SpellRow const& row : _a.spells)
+                {
+                    if (row.kind != Kind::Dispel)
+                        continue;
+                    uint32 const id = RankOf(row);
+                    SpellInfo const* info = id ? sSpellMgr->GetSpellInfo(id) : nullptr;
+                    if (!info || !Ready(id))
+                        continue;
+                    uint32 mask = 0;
+                    for (SpellEffectInfo const& eff : info->Effects)
+                        if (eff.Effect == SPELL_EFFECT_DISPEL)
+                            mask |= SpellInfo::GetDispelMask(DispelType(eff.MiscValue));
+                    for (Unit* u : group)
+                    {
+                        if (!u->IsAlive() || !me->IsWithinDistInMap(u, Cfg().healRange))
+                            continue;
+                        DispelChargesList dl;
+                        u->GetDispellableAuraList(me, mask, dl, info);
+                        if (!dl.empty() && TryCast(row, u))
+                        {
+                            _why = Acore::StringFormat("dispelling {}", u->GetName());
+                            return true;
+                        }
+                    }
+                }
+                return false;
             }
 
             // Would this heal on `healed` take the healer past 110 % of the tank's threat on a mob the tank holds? Heal
@@ -1023,7 +1358,7 @@ namespace Emberfall::Companions
             ObjectGuid _target, _resGuid;
             Position _dest;
             bool _moving = false;
-            uint32 _think = 0, _gcd = 0, _sinceCast = 0, _idleMs = 0, _avoidMs = 0, _resMs = 0;
+            uint32 _think = 0, _gcd = 0, _sinceCast = 0, _idleMs = 0, _avoidMs = 0, _resMs = 0, _dodgeMs = 0;
             float _regenAcc = 0, _bigHit = 0;
             bool _sitting = false, _holding = false, _returning = false;
             std::map<uint32, uint32> _cd;
@@ -1031,6 +1366,7 @@ namespace Emberfall::Companions
             std::string _why = "new", _lastFail;
             uint32 _lastCast = 0, _clock = 0;
             std::map<ObjectGuid, uint32> _shieldAt;
+            std::vector<Fire> _fires;
         };
     }
 

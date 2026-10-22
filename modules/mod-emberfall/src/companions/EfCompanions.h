@@ -60,6 +60,7 @@ namespace Emberfall::Companions
         Shield,     // with Weakened Soul (6788) as the lockout
         Dispel,     // dispels magic (or disease, by the spell's dispel type) from a group member
         Res,        // out of combat, a dead group member
+        Interrupt,  // an engaged hostile's interruptible cast (a boss's first; one companion per cast, companions.md §3)
     };
 
     Kind ParseKind(std::string const& s);
@@ -155,6 +156,7 @@ namespace Emberfall::Companions
         bool resummonPending = false; // the owner died: the core unsummoned the guardians (Unit::RemoveAllControlled)
         uint32 fightStartMs = 0;
         std::map<ObjectGuid, MobTrack> mobs;
+        std::map<ObjectGuid, uint32> kickClaims; // caster -> clockMs a companion went for its cast (one kick per cast)
         FightStats stats;
     };
 
@@ -218,4 +220,19 @@ namespace Emberfall::Companions
     uint32 TankHeldMs(Player* owner, Unit const* mob);
     // The mob is crowd-controlled in a way damage would break (polymorph, sap, stasis-like stuns, fear, sleep ...).
     bool IsCrowdControlled(Unit const* mob);
+
+    // ---- boss mechanics the AIs know (companions.md §3 "Mechanics"; the dungeon scripts tell them) ------------------
+    // An add that must die: the DPS switch to it whatever the owner or the tank is on, without the start gate (it is
+    // nobody's to hold: a shade walking to its mistress, a cinder after someone, a ward-bearer). Kept on the creature.
+    void SetKillPriority(Unit* mob, bool on);
+    bool IsKillPriority(Unit const* mob);
+    // A boss to the companions: its interruptible casts come before anyone else's (the core's own boss flags, or this
+    // mark, which our boss scripts set: our dungeons have no DungeonEncounter rows that would set the core's).
+    void SetBossMark(Unit* mob);
+    bool IsBoss(Unit const* mob);
+    // A run-out mark: when it ends it hurts everyone within `radius` of whoever carries it. Its bearer walks clear of
+    // the group, the others keep clear of its bearer. Registered once at startup (the script loaders).
+    void RegisterRunOut(uint32 spell, float radius);
+    float RunOutRadius(uint32 spell);   // 0: not a run-out mark
+    std::vector<std::pair<uint32, float>> const& RunOuts();
 }
