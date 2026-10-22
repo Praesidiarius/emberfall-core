@@ -18,8 +18,8 @@
 // Emberfall's dungeons (Emberfall docs/design/dungeon-barrows.md): the Barrows of Cairnmoor's instance script and the
 // test realm's dungeon warden.
 //
-//   instance_ef_barrows      map 751 (instance_template.script): the three seals. The barrow bosses report their deaths
-//                            with SmartAI set_inst_data 1-3 (content/data/barrows/creatures.yaml); when all three are
+//   instance_ef_barrows      map 751 (instance_template.script): the three seals. The barrow bosses' scripts report deaths
+//                            (SetData 1-3, emberfall_barrows_bosses.cpp; until 2026-10-22 SmartAI); when all three are
 //                            broken the First Interred (97015) wakes (selectable, no longer immune to players, its yell)
 //                            and summons its honour guard (97008, three) in the Honour Hall, who come up the vault
 //                            stair at the group. The seals are saved with the instance.

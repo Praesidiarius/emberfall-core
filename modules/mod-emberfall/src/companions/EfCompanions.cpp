@@ -255,7 +255,7 @@ namespace Emberfall::Companions
             { "taunt", Kind::Taunt }, { "aoe_threat", Kind::AoeThreat }, { "threat", Kind::Threat }, { "nuke", Kind::Nuke },
             { "aoe", Kind::Aoe }, { "behind", Kind::Behind }, { "shoot", Kind::Shoot }, { "dot", Kind::Dot },
             { "heal_fast", Kind::HealFast }, { "heal_big", Kind::HealBig }, { "heal_small", Kind::HealSmall }, { "hot", Kind::Hot },
-            { "shield", Kind::Shield }, { "dispel", Kind::Dispel }, { "res", Kind::Res },
+            { "shield", Kind::Shield }, { "dispel", Kind::Dispel }, { "res", Kind::Res }, { "interrupt", Kind::Interrupt },
         };
         auto it = kinds.find(Lower(s));
         return it == kinds.end() ? Kind::None : it->second;
@@ -280,6 +280,7 @@ namespace Emberfall::Companions
             case Kind::Shield: return "shield";
             case Kind::Dispel: return "dispel";
             case Kind::Res: return "res";
+            case Kind::Interrupt: return "interrupt";
             default: return "none";
         }
     }
@@ -563,6 +564,72 @@ namespace Emberfall::Companions
                             (1ULL << MECHANIC_SLEEP) | (1ULL << MECHANIC_SHACKLE) | (1ULL << MECHANIC_HORROR);
         return mob->HasAuraWithMechanic(mask);
     }
+
+    // ---- boss mechanics -----------------------------------------------------------------------------------------------
+    namespace
+    {
+        constexpr char kKillPriorityKey[] = "EfKillPriority";
+        constexpr char kBossKey[] = "EfBossMark";
+        struct KillPriority : DataMap::Base { };
+
+        // Filled by the script loaders before any map updates, read-only afterwards.
+        std::vector<std::pair<uint32, float>>& RunOutList()
+        {
+            static std::vector<std::pair<uint32, float>> list;
+            return list;
+        }
+    }
+
+    void SetKillPriority(Unit* mob, bool on)
+    {
+        if (!mob)
+            return;
+        if (on)
+            mob->CustomData.GetDefault<KillPriority>(kKillPriorityKey);
+        else
+            mob->CustomData.Erase(kKillPriorityKey);
+    }
+
+    bool IsKillPriority(Unit const* mob)
+    {
+        return mob && mob->CustomData.Get<KillPriority>(kKillPriorityKey) != nullptr;
+    }
+
+    void SetBossMark(Unit* mob)
+    {
+        if (mob)
+            mob->CustomData.GetDefault<KillPriority>(kBossKey);
+    }
+
+    bool IsBoss(Unit const* mob)
+    {
+        if (!mob)
+            return false;
+        if (Creature const* c = mob->ToCreature(); c && (c->IsDungeonBoss() || c->isWorldBoss()))
+            return true;
+        return mob->CustomData.Get<KillPriority>(kBossKey) != nullptr;
+    }
+
+    void RegisterRunOut(uint32 spell, float radius)
+    {
+        for (auto& [id, r] : RunOutList())
+            if (id == spell)
+            {
+                r = radius;
+                return;
+            }
+        RunOutList().emplace_back(spell, radius);
+    }
+
+    float RunOutRadius(uint32 spell)
+    {
+        for (auto const& [id, r] : RunOutList())
+            if (id == spell)
+                return r;
+        return 0.0f;
+    }
+
+    std::vector<std::pair<uint32, float>> const& RunOuts() { return RunOutList(); }
 
     // ---- scaling ----------------------------------------------------------------------------------------------------
     void ApplyScaling(Creature* c, Archetype const& arch, uint8 level)

@@ -121,7 +121,7 @@ namespace Emberfall::Dungeons
     }
 
     // --- the seals ----------------------------------------------------------------------------------------------------
-    // The barrows' bosses report their deaths with SmartAI set_inst_data (content/data/barrows/creatures.yaml): the three
+    // The barrows' bosses report their deaths through their scripts (emberfall_barrows_bosses.cpp, SetData): the three
     // barrow bosses break a seal each (data 1-3); when all three are broken the First Interred wakes (selectable, no longer
     // immune) and its honour guard comes up the vault stair. 4 = the First Interred, 5 = the Post-Keeper.
     enum BarrowsData : std::uint32_t
