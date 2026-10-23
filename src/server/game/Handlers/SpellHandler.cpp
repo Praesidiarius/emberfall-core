@@ -342,6 +342,11 @@ void WorldSession::HandleGameObjectUseOpcode(WorldPacket& recvData)
         if (!obj->IsWithinDistInMap(GetPlayer(), obj->GetInteractionDistance()))
             return;
 
+        // EMBERFALL: (PATCHES.md #19) a fishing pool is fished, never used: only a bobber landing in it opens its loot
+        // (GameObject::Use, type 17, calls the pool's Use itself); a client's own use would loot it without a cast
+        if (obj->GetGoType() == GAMEOBJECT_TYPE_FISHINGHOLE)
+            return;
+
         // ignore for remote control state
         if (GetPlayer()->m_mover != GetPlayer())
             if (!(GetPlayer()->IsOnVehicle(GetPlayer()->m_mover) || GetPlayer()->IsMounted()) && !obj->GetGOInfo()->IsUsableMounted())
