@@ -41,16 +41,30 @@
 //
 // Everyone else keeps seeing it, with the sparkle while their quest wants the item (GO_DYNFLAG_LO_ACTIVATE /
 // LO_SPARKLE per viewer, GameObject::ActivateToQuest; the client lets a quest chest be opened only with it).
+//
+// Personal quest goobers (emberfall_personal_quest_goober; the compiler names it on every goober whose quest objective
+// counts more than one: the lifters' fold's three gates, the deserters' four cook-fires). The stock goober credits
+// every use (GameObject::Use: KillCreditGO for the user, or every group member in reward distance, while the quest is
+// incomplete) and stays usable, so one gate clicked three times made 3/3. Here the AI's GossipHello, which Use asks
+// first, takes the use over: it credits the user and their group members in reward distance who are not locked out of
+// this spawn, plays the open animation (UseDoorOrButton: GO_STATE_ACTIVE for the template's auto_close, then the core's
+// goober update closes it and keeps it, consumable 0) and locks each credited player out of the spawn (UseLocks: while
+// their quest is incomplete and their count still covers this credit). A locked player is refused and, once the open
+// animation has played, does not see the spawn any more (CanBeSeen); it comes back when the lock ends (turned in,
+// abandoned). Everyone else keeps seeing and using it.
 
 #include "GameObject.h"
 #include "GameObjectAI.h"
 #include "GameObjectScript.h"
 #include "GameTime.h"
+#include "Group.h"
 #include "Log.h"
 #include "LootMgr.h"
 #include "Map.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Player.h"
+#include "QuestDef.h"
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
 
@@ -137,6 +151,126 @@ namespace
         uint32 m_timer = 0;
     };
 
+    // A goober whose use credits a quest objective of more than one: each player is credited once per spawn.
+    class PersonalQuestGooberAI : public GameObjectAI
+    {
+    public:
+        explicit PersonalQuestGooberAI(GameObject* go) : GameObjectAI(go)
+        {
+            m_quest = go->GetGOInfo()->goober.questId;
+            if (Quest const* quest = sObjectMgr->GetQuestTemplate(m_quest))
+                for (uint8 j = 0; j < QUEST_OBJECTIVES_COUNT; ++j)
+                    if (quest->RequiredNpcOrGo[j] == -int32(go->GetEntry()))
+                        m_objective = j;
+        }
+
+        bool CanBeSeen(Player const* seer) override
+        {
+            bool incomplete = false;
+            uint32 count = 0;
+            Progress(seer, incomplete, count);
+            return !m_uses.Hidden(seer->GetGUID().GetRawValue(), incomplete, count, Now());
+        }
+
+        // GameObject::Use asks this first; true means the use is handled here (the stock goober use never runs). The
+        // client's CMSG_GAMEOBJ_REPORT_USE after a use (reportUse) only counts achievements: left to the core.
+        bool GossipHello(Player* player, bool reportUse) override
+        {
+            if (reportUse)
+                return false;
+            if (player->GetQuestStatus(m_quest) != QUEST_STATUS_INCOMPLETE || Locked(player))
+                return true;
+            std::vector<Player*> credited;
+            if (Group* group = player->GetGroup())
+            {
+                for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+                    if (Player* member = itr->GetSource())
+                        if (member == player || member->IsAtGroupRewardDistance(me))
+                            credited.push_back(member);
+            }
+            else
+                credited.push_back(player);
+
+            uint32 const openMs = me->GetGOInfo()->GetAutoCloseTime() ? me->GetGOInfo()->GetAutoCloseTime() : 3000;
+            int64_t const hideAt = Now() + int64_t((openMs + 999) / 1000);
+            for (Player* member : credited)
+            {
+                if (Locked(member) || !member->HasQuestForGO(me->GetEntry()))
+                    continue;
+                member->KillCreditGO(me->GetEntry(), me->GetGUID());
+                bool incomplete = false;
+                uint32 count = 0;
+                Progress(member, incomplete, count);
+                m_uses.Used(member->GetGUID().GetRawValue(), count, hideAt);
+                LOG_DEBUG("scripts", "Emberfall personal quest goober {} (spawn {}): {} credited ({}), locked out",
+                          me->GetEntry(), me->GetSpawnId(), member->GetName(), count);
+            }
+            m_timer = 0;
+            if (me->getLootState() == GO_READY)
+                me->UseDoorOrButton(openMs, false, player);
+            return true;
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            if (m_uses.Empty())
+                return;
+            if (m_timer > diff)
+            {
+                m_timer -= diff;
+                return;
+            }
+            m_timer = 500;
+            for (uint64_t raw : m_uses.TakeHideReady(Now()))
+                Refresh(raw);
+            auto progress = [this](uint64_t raw, bool& incomplete, uint32_t& count)
+            {
+                Player* player = ObjectAccessor::GetPlayer(*me, ObjectGuid(raw));
+                if (!player || !player->IsInWorld() || player->GetMap() != me->GetMap())
+                    return false;
+                uint32 c = 0;
+                Progress(player, incomplete, c);
+                count = c;
+                return true;
+            };
+            for (uint64_t raw : m_uses.TakeReleased(progress))
+                Refresh(raw);
+        }
+
+    private:
+        // The player's quest state for this object: incomplete, and their count of its objective while the quest is in
+        // their log (also once complete: the credit that completed it is recorded as the full count, so abandoning a
+        // completed quest and taking it again, back to 0, frees the object).
+        void Progress(Player const* player, bool& incomplete, uint32& count) const
+        {
+            incomplete = player->GetQuestStatus(m_quest) == QUEST_STATUS_INCOMPLETE;
+            count = 0;
+            uint16 const slot = player->FindQuestSlot(m_quest);
+            if (slot < MAX_QUEST_LOG_SIZE && m_objective < QUEST_OBJECTIVES_COUNT)
+                count = player->GetQuestSlotCounter(slot, m_objective);
+        }
+
+        bool Locked(Player const* player) const
+        {
+            bool incomplete = false;
+            uint32 count = 0;
+            Progress(player, incomplete, count);
+            return m_uses.Locked(player->GetGUID().GetRawValue(), incomplete, count);
+        }
+
+        void Refresh(uint64_t raw)
+        {
+            if (Player* player = ObjectAccessor::GetPlayer(*me, ObjectGuid(raw)))
+                if (player->IsInWorld() && player->GetMap() == me->GetMap())
+                    player->UpdateVisibilityOf(me);
+        }
+
+        uint32 m_quest = 0;
+        uint8 m_objective = QUEST_OBJECTIVES_COUNT;
+        UseLocks m_uses;
+        uint32 m_timer = 0;
+    };
+
     PersonalQuestObjectAI* PersonalAI(GameObject* go)
     {
         return go ? dynamic_cast<PersonalQuestObjectAI*>(go->AI()) : nullptr;
@@ -161,6 +295,13 @@ namespace
     public:
         emberfall_personal_quest_object_stays() : GameObjectScript(kScriptStay.data()) { }
         GameObjectAI* GetAI(GameObject* go) const override { return new PersonalQuestObjectAI(go, Mode::Stay); }
+    };
+
+    class emberfall_personal_quest_goober : public GameObjectScript
+    {
+    public:
+        emberfall_personal_quest_goober() : GameObjectScript(kScriptGoober.data()) { }
+        GameObjectAI* GetAI(GameObject* go) const override { return new PersonalQuestGooberAI(go); }
     };
 
     class emberfall_questloot_player : public PlayerScript
@@ -190,5 +331,6 @@ void AddEmberfallQuestLootScripts()
 {
     new emberfall_personal_quest_object();
     new emberfall_personal_quest_object_stays();
+    new emberfall_personal_quest_goober();
     new emberfall_questloot_player();
 }

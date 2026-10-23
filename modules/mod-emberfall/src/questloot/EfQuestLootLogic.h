@@ -45,6 +45,11 @@ namespace Emberfall::QuestLoot
     constexpr std::string_view kScriptHide = "emberfall_personal_quest_object";
     constexpr std::string_view kScriptStay = "emberfall_personal_quest_object_stays";
 
+    // A clicked quest object (a goober whose use credits a quest objective of more than one: the fold's gates, the
+    // deserters' cook-fires): each player is credited once per spawn, so three gates take three gates. Emberfall's
+    // compiler names this script on such goobers (gameobjects.yaml `type: goober` with `data.quest`).
+    constexpr std::string_view kScriptGoober = "emberfall_personal_quest_goober";
+
     // The stock chest despawns when its loot is empty at a release (WorldSession::DoLootRelease: GO_JUST_DEACTIVATED,
     // then GameObject::Update deletes it until its respawn). A personal object keeps standing: it goes back to GO_READY
     // and the next player's opening fills fresh loot. DespawnOrUnsummon (a GM's despawn, a script) sets the respawn
@@ -119,5 +124,83 @@ namespace Emberfall::QuestLoot
     private:
         std::unordered_map<uint64_t, int64_t> m_until;
         std::vector<uint64_t> m_pendingHide;
+    };
+
+    // One spawned quest goober's uses. A player who was credited by it is locked out of it (refused, and hidden once
+    // its open animation has played) while their quest is incomplete and their objective count is still at least what
+    // that use made it: abandoning and taking the quest again (the count falls back to 0) or a repeatable quest's next
+    // round frees the object again without a hook, and so does turning the quest in (no longer incomplete).
+    class UseLocks
+    {
+    public:
+        // The player was credited by the object; `countAfter` is their objective count after the credit; they are
+        // hidden from `hideAt` on (game time in seconds, the end of the object's open animation).
+        void Used(uint64_t player, uint32_t countAfter, int64_t hideAt)
+        {
+            m_uses[player] = Use{countAfter, hideAt, false};
+        }
+
+        // True while the player may not use the object again: their quest is incomplete and their count still covers
+        // the credit this object gave.
+        bool Locked(uint64_t player, bool incomplete, uint32_t count) const
+        {
+            auto it = m_uses.find(player);
+            return it != m_uses.end() && incomplete && count >= it->second.countAfter;
+        }
+
+        // Locked and past the open animation: the player does not see the object.
+        bool Hidden(uint64_t player, bool incomplete, uint32_t count, int64_t now) const
+        {
+            auto it = m_uses.find(player);
+            return Locked(player, incomplete, count) && now >= it->second.hideAt;
+        }
+
+        // The players whose open animation has played at `now` (to be hidden by a visibility update), once each.
+        std::vector<uint64_t> TakeHideReady(int64_t now)
+        {
+            std::vector<uint64_t> ready;
+            for (auto& [player, use] : m_uses)
+                if (!use.hideSent && now >= use.hideAt)
+                {
+                    use.hideSent = true;
+                    ready.push_back(player);
+                }
+            std::sort(ready.begin(), ready.end());
+            return ready;
+        }
+
+        // The players whose lock has ended; `progress(player, incomplete, count)` fills their quest state and returns
+        // false when the player is not near (kept). They are forgotten and see and may use the object again.
+        template <class Progress>
+        std::vector<uint64_t> TakeReleased(Progress&& progress)
+        {
+            std::vector<uint64_t> released;
+            for (auto it = m_uses.begin(); it != m_uses.end();)
+            {
+                bool incomplete = false;
+                uint32_t count = 0;
+                if (progress(it->first, incomplete, count) && !(incomplete && count >= it->second.countAfter))
+                {
+                    released.push_back(it->first);
+                    it = m_uses.erase(it);
+                }
+                else
+                    ++it;
+            }
+            std::sort(released.begin(), released.end());
+            return released;
+        }
+
+        bool Empty() const { return m_uses.empty(); }
+        size_t Size() const { return m_uses.size(); }
+
+    private:
+        struct Use
+        {
+            uint32_t countAfter;
+            int64_t hideAt;
+            bool hideSent;
+        };
+        std::unordered_map<uint64_t, Use> m_uses;
     };
 }

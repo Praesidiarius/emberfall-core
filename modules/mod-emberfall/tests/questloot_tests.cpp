@@ -112,10 +112,54 @@ namespace
         l.Looted(kA, 170, 60);
         check(l.Locked(kA, 200) && !l.Locked(kA, 230), "after the respawn A may take it again and is locked anew");
     }
+
+    // A quest goober (the fold's gates): one credit per player per spawn while the quest is on.
+    void TestGooberUses()
+    {
+        UseLocks u;
+        check(!u.Locked(kA, true, 0), "nobody used it: free");
+        u.Used(kA, 1, 103);
+        check(u.Locked(kA, true, 1), "A used the gate (1/3): refused");
+        check(!u.Locked(kB, true, 0), "B did not: free");
+        check(u.Locked(kA, true, 2), "A opened another gate (2/3): this one still refused");
+        check(!u.Hidden(kA, true, 1, 102) && u.Hidden(kA, true, 1, 103), "hidden once the open animation has played");
+        check(u.TakeHideReady(102).empty(), "not yet");
+        auto ready = u.TakeHideReady(103);
+        check(ready.size() == 1 && ready[0] == kA, "A is hidden at 103");
+        check(u.TakeHideReady(200).empty(), "once");
+        check(!u.Locked(kA, false, 3), "A's quest is no longer incomplete (complete or turned in): free");
+        check(!u.Locked(kA, true, 0), "A abandoned and took it again (0/3): free");
+
+        // released: not near (kept), still locked (kept), the count fell back (released)
+        u.Used(kB, 2, 0);
+        auto notNear = [](uint64_t, bool&, uint32_t&) { return false; };
+        check(u.TakeReleased(notNear).empty() && u.Size() == 2, "players not near are kept");
+        auto onQuest = [](uint64_t p, bool& incomplete, uint32_t& count)
+        {
+            incomplete = true;
+            count = p == kA ? 0 : 2;
+            return true;
+        };
+        auto released = u.TakeReleased(onQuest);
+        check(released.size() == 1 && released[0] == kA && u.Size() == 1, "A (0/3) released, B (2/3) still locked");
+        auto done = [](uint64_t, bool& incomplete, uint32_t& count)
+        {
+            incomplete = false;
+            count = 0;
+            return true;
+        };
+        released = u.TakeReleased(done);
+        check(released.size() == 1 && released[0] == kB && u.Empty(), "B turned the quest in: released, empty");
+
+        u.Used(kC, 1, 0);
+        u.Used(kC, 3, 0);   // a later credit moves the mark
+        check(!u.Locked(kC, true, 2) && u.Locked(kC, true, 3), "the latest credit is the mark");
+    }
 }
 
 int main()
 {
+    TestGooberUses();
     TestKeep();
     TestLockouts();
     TestMinimum();

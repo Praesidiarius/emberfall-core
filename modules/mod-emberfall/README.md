@@ -283,7 +283,8 @@ and `.stuck`.
 (`tests/questloot_tests.cpp`). No config, no SQL: Emberfall's compiler names the scripts in `gameobject_template.ScriptName`
 of every chest whose loot is only quest items (a reed stook, an eel trap, oakwort) and gives those items
 `ITEM_FLAG_MULTI_DROP`, so a shared loot holds one copy per player (`LootItem::freeforall`). Ordinary chests, herb and
-ore nodes, goobers and doors keep the core's behaviour.
+ore nodes, single-use goobers and doors keep the core's behaviour; a goober whose quest objective counts more than one
+(the lifters' fold's three gates) gets `emberfall_personal_quest_goober` (below).
 
 The stock chest is one loot per object: filled for the first opener only (`Player::SendLoot`), and its release when empty
 (`WorldSession::DoLootRelease`, `GO_JUST_DEACTIVATED`) despawns it for everyone until `spawntimesecs`. Here each player
@@ -297,6 +298,7 @@ who needs the item takes it from the same object, and only they lose sight of it
 | | `OnStateChanged` | the release of the emptied loot (`GO_JUST_DEACTIVATED` while the respawn time is 0) puts the object back to `GO_READY`: no despawn; the next opening fills fresh loot for that player. A real despawn (`DespawnOrUnsummon` sets the respawn time first) still despawns |
 | `emberfall_questloot_player` | `OnPlayerBeforeSendLoot` | a player opening the object while another's loot is open gets their own quest item list (`Loot::FillNotNormalLootFor`) |
 | | `OnPlayerLootItem` | the player who took an item from the object is locked out of it for its respawn time |
+| `emberfall_personal_quest_goober` | `GameObjectScript::GetAI` (`PersonalQuestGooberAI`) | a clicked quest object credits each player once per spawn. Its `GossipHello` (asked first by `GameObject::Use`) takes the use over: credits the user and their group members in reward distance who are not locked out of the spawn (`KillCreditGO`), plays the open animation (`UseDoorOrButton`, the template's auto_close, 3 s without), and locks each credited player out (`UseLocks`: while their quest is incomplete and their objective count still covers that credit; abandoning, turning in or a repeatable's next round frees it). A locked player is refused and, after the open animation, no longer sees the spawn (`CanBeSeen`). The stock goober credited every click, so one gate clicked three times made 3/3 |
 
 The lockouts live in the AI (per spawn, in memory): a grid unload or a restart forgets them. Quest items from creatures
 need no script: `ITEM_FLAG_MULTI_DROP` on a `QuestRequired` row is enough (`Loot::FillQuestLoot` gives each group member in
