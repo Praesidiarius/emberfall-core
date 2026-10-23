@@ -91,6 +91,7 @@ private:
     std::shared_ptr<VMAP::WorldModel> iModel;
     std::unique_ptr<GameObjectModelOwnerBase> owner;
     bool isWmo{false};
+    bool iBlocksSight{true}; // EMBERFALL: line of sight by size (PATCHES.md #20) - false: an M2 too small (EmberfallSight.h)
 };
 
 void LoadGameObjectModelList(std::string const& dataPath);

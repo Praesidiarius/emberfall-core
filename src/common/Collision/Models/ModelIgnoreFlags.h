@@ -25,7 +25,10 @@ namespace VMAP
     enum class ModelIgnoreFlags : uint32
     {
         Nothing = 0x00,
-        M2      = 0x01
+        M2      = 0x01,
+        // EMBERFALL: line of sight by size (PATCHES.md #20) - only the M2 models too small to block sight
+        // (EmberfallSight.h): small clutter is seen and cast over, a big rock, a thick trunk or a hut is not
+        SmallM2 = 0x02
     };
 
     inline ModelIgnoreFlags operator&(ModelIgnoreFlags left, ModelIgnoreFlags right)

@@ -16,7 +16,9 @@
  */
 
 #include "ModelInstance.h"
+#include "EmberfallSight.h"
 #include "MapTree.h"
+#include "ModelIgnoreFlags.h"
 #include "WorldModel.h"
 
 using G3D::Vector3;
@@ -28,6 +30,9 @@ namespace VMAP
     {
         iInvRot = G3D::Matrix3::fromEulerAnglesZYX(G3D::pi() * iRot.y / 180.f, G3D::pi() * iRot.x / 180.f, G3D::pi() * iRot.z / 180.f).inverse();
         iInvScale = 1.f / iScale;
+        // EMBERFALL: line of sight by size (PATCHES.md #20)
+        if ((flags & MOD_M2) && iModel)
+            iBlocksSight = EmberfallSight::M2BlocksSight(iModel->GetBound(), iScale);
     }
 
     bool ModelInstance::intersectRay(G3D::Ray const& pRay, float& pMaxDist, bool StopAtFirstHit, ModelIgnoreFlags ignoreFlags) const
@@ -37,6 +42,9 @@ namespace VMAP
             //std::cout << "<object not loaded>\n";
             return false;
         }
+        // EMBERFALL: line of sight by size (PATCHES.md #20)
+        if (!iBlocksSight && (ignoreFlags & ModelIgnoreFlags::SmallM2) != ModelIgnoreFlags::Nothing)
+            return false;
         float time = pRay.intersectionTime(iBound);
         if (time == G3D::inf())
         {

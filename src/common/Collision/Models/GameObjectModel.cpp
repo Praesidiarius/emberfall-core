@@ -16,8 +16,10 @@
  */
 
 #include "GameObjectModel.h"
+#include "EmberfallSight.h"
 #include "Log.h"
 #include "MapTree.h"
+#include "ModelIgnoreFlags.h"
 #include "ModelInstance.h"
 #include "Timer.h"
 #include "VMapDefinitions.h"
@@ -155,6 +157,8 @@ bool GameObjectModel::initialize(std::unique_ptr<GameObjectModelOwnerBase> model
 
     owner = std::move(modelOwner);
     isWmo = it->second.isWmo;
+    // EMBERFALL: line of sight by size (PATCHES.md #20)
+    iBlocksSight = isWmo || VMAP::EmberfallSight::M2BlocksSight(iModel->GetBound(), iScale);
     return true;
 }
 
@@ -173,6 +177,12 @@ GameObjectModel* GameObjectModel::Create(std::unique_ptr<GameObjectModelOwnerBas
 bool GameObjectModel::intersectRay(G3D::Ray const& ray, float& MaxDist, bool StopAtFirstHit, uint32 ph_mask, VMAP::ModelIgnoreFlags ignoreFlags) const
 {
     if (!(phasemask & ph_mask) || !owner->IsSpawned())
+    {
+        return false;
+    }
+
+    // EMBERFALL: line of sight by size (PATCHES.md #20)
+    if (!iBlocksSight && (ignoreFlags & VMAP::ModelIgnoreFlags::SmallM2) != VMAP::ModelIgnoreFlags::Nothing)
     {
         return false;
     }

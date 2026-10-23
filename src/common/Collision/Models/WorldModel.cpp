@@ -539,6 +539,16 @@ namespace VMAP
         bool hit;
     };
 
+    // EMBERFALL: line of sight by size (PATCHES.md #20)
+    G3D::AABox WorldModel::GetBound() const
+    {
+        G3D::AABox bound = G3D::AABox::empty();
+        for (GroupModel const& group : groupModels)
+            if (!group.GetMeshTreeBound().isEmpty())
+                bound.merge(group.GetMeshTreeBound());
+        return bound;
+    }
+
     bool WorldModel::IntersectRay(G3D::Ray const& ray, float& distance, bool stopAtFirstHit, ModelIgnoreFlags ignoreFlags) const
     {
         // If the caller asked us to ignore certain objects we should check flags

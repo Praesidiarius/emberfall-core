@@ -17,6 +17,7 @@
 
 #include "Player.h"
 #include "EmberfallCombatLog.h"
+#include "EmberfallOwnData.h"
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "AreaDefines.h"
@@ -2125,6 +2126,28 @@ bool Player::CanInteractWithQuestGiver(Object* questGiver)
     return false;
 }
 
+// EMBERFALL: NPC interaction in sight (PATCHES.md #21)
+static bool EmberfallCanSeeToInteract(Player const* player, Creature const* creature)
+{
+    constexpr float margin = 0.5f; // yards before the NPC that do not count
+    for (float share : { 1.0f, 0.5f })
+    {
+        float const x1 = player->GetPositionX(), y1 = player->GetPositionY(), z1 = player->GetPositionZ() + player->GetCollisionHeight() * share;
+        float x2 = creature->GetPositionX(), y2 = creature->GetPositionY(), z2 = creature->GetPositionZ() + creature->GetCollisionHeight() * share;
+        float const dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
+        float const length = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (length <= margin)
+            return true;
+        float const keep = (length - margin) / length;
+        x2 = x1 + dx * keep;
+        y2 = y1 + dy * keep;
+        z2 = z1 + dz * keep;
+        if (player->GetMap()->isInLineOfSight(x1, y1, z1, x2, y2, z2, player->GetPhaseMask(), LINEOFSIGHT_CHECK_VMAP, VMAP::ModelIgnoreFlags::M2))
+            return true;
+    }
+    return false;
+}
+
 Creature* Player::GetNPCIfCanInteractWith(ObjectGuid const& guid, uint32 npcflagmask)
 {
     // unit checks
@@ -2172,6 +2195,14 @@ Creature* Player::GetNPCIfCanInteractWith(ObjectGuid const& guid, uint32 npcflag
 
     // not too far
     if (!creature->IsWithinDistInMap(this, INTERACTION_DISTANCE))
+        return nullptr;
+
+    // EMBERFALL: NPC interaction in sight (PATCHES.md #21) - no talking, trading or training through a wall
+    // (feedback #23, 2026-10-23). The static world only (vmaps, the M2s by their size: EmberfallSight.h), eyes to eyes or
+    // chest to chest (a counter, a stall's awning or a low wall between them leaves one of the two clear), each line to
+    // the NPC's own position (not its hit sphere: with its combat reach that ends in front of the wall) less the half
+    // yard it stands in (its counter, the wall at its back). The Emberfall client asks the same (world/Sight.h canSee).
+    if (Emberfall::OwnData() && creature != GetPet() && !EmberfallCanSeeToInteract(this, creature))
         return nullptr;
 
     return creature;

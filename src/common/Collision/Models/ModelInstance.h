@@ -73,6 +73,7 @@ namespace VMAP
         G3D::Matrix3 iInvRot;
         float iInvScale{0.0f};
         std::shared_ptr<WorldModel> iModel;
+        bool iBlocksSight{true}; // EMBERFALL: line of sight by size (PATCHES.md #20) - false: an M2 too small (EmberfallSight.h)
     };
 } // namespace VMAP
 

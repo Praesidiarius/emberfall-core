@@ -116,6 +116,8 @@ namespace VMAP
         bool writeFile(std::string const& filename);
         bool readFile(std::string const& filename);
         void GetGroupModels(std::vector<GroupModel>& outGroupModels);
+        // EMBERFALL: line of sight by size (PATCHES.md #20) - the box round every group's triangles (model space)
+        [[nodiscard]] G3D::AABox GetBound() const;
         uint32 Flags;
     protected:
         uint32 RootWMOID{0};

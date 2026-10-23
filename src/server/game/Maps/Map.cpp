@@ -21,6 +21,7 @@
 #include "Chat.h"
 #include "DisableMgr.h"
 #include "DynamicTree.h"
+#include "EmberfallOwnData.h"
 #include "GameTime.h"
 #include "Geometry.h"
 #include "GridNotifiers.h"
@@ -1582,6 +1583,16 @@ bool Map::isInLineOfSight(float x1, float y1, float z1, float x2, float y2, floa
         }
     }
 
+    // EMBERFALL: line of sight by size (PATCHES.md #20) - on Emberfall's own data a caller's blizzlike sight (M2: no M2
+    // blocks) becomes the size rule (SmallM2: the small ones do not, a big rock or trunk does; EmberfallSight.h), and
+    // with it the game objects' M2s it checks (upstream: every one blocks, however small). Nothing stays everything.
+    static bool const sizeRule = Emberfall::OwnData();
+    bool const sightBySize = sizeRule && (ignoreFlags & VMAP::ModelIgnoreFlags::M2) != VMAP::ModelIgnoreFlags::Nothing;
+    if (sightBySize)
+    {
+        ignoreFlags = VMAP::ModelIgnoreFlags::SmallM2;
+    }
+
     if ((checks & LINEOFSIGHT_CHECK_VMAP) && !_mapCollisionData.GetStaticTree().isInLineOfSight(x1, y1, z1, x2, y2, z2, ignoreFlags))
     {
         return false;
@@ -1589,7 +1600,7 @@ bool Map::isInLineOfSight(float x1, float y1, float z1, float x2, float y2, floa
 
     if (sWorld->getBoolConfig(CONFIG_CHECK_GOBJECT_LOS) && (checks & LINEOFSIGHT_CHECK_GOBJECT_ALL))
     {
-        ignoreFlags = VMAP::ModelIgnoreFlags::Nothing;
+        ignoreFlags = sightBySize ? VMAP::ModelIgnoreFlags::SmallM2 : VMAP::ModelIgnoreFlags::Nothing; // EMBERFALL: PATCHES.md #20
         if (!(checks & LINEOFSIGHT_CHECK_GOBJECT_M2))
         {
             ignoreFlags = VMAP::ModelIgnoreFlags::M2;
