@@ -157,7 +157,8 @@ namespace Emberfall::ClassKit
     Unit* MostInjuredAlly(Unit* caster, float range);
 
     // ---- A spec's own power (Emberfall docs/design/classes/druid-stormbringer.md §3; src/classkit/EfSpecPower.cpp) ----
-    // ef_class_kit_spec_power (spec, class, power, max_power, drain_delay_ms, drain_per_second; optional table): while a
+    // ef_class_kit_spec_power (spec, class, power, max_power, drain_delay_ms, drain_per_second; optional table) and
+    // ef_class_kit_spec_power_tier (spec, at_power, aura, requires_spell; optional, the Pyromancer's Heat): while a
     // player's active spec has a row, the player's power is that slot (the Stormbringer: runic power under the name
     // Static) instead of the class's (mana); its maximum is the slot's own plus the slot's max-power auras (Brooding Sky);
     // it starts at 0 and drains out of combat after the delay (in proportion to a larger pool; an aura
@@ -171,6 +172,17 @@ namespace Emberfall::ClassKit
         uint32 max = 0;            // stored units (runic power x 10)
         uint32 drainDelayMs = 0;
         uint32 drainPerSecond = 0; // stored units
+        // Tiers (ef_class_kit_spec_power_tier, optional; the Pyromancer's Heat): while the power is at least `at` stored
+        // units and the player knows `requiredSpell` (0: always), the player carries the tier's aura (Blazing at 30, Inferno
+        // at 70, Maximum at 100 Heat). The auras follow the power on every player tick, so a spell sees the tier it was
+        // cast at even when its own cost takes the power below it (the cost is paid inside the cast).
+        struct Tier
+        {
+            uint32 at = 0;         // stored units
+            uint32 aura = 0;
+            uint32 requiredSpell = 0;
+        };
+        std::vector<Tier> tiers;
     };
     // Loads ef_class_kit_spec_power (Load calls it); the fight markers are registered by Load from the kit spells.
     void LoadSpecPowers();
@@ -184,6 +196,13 @@ namespace Emberfall::ClassKit
     void UpdateSpecPower(Player* player, uint32 diff);
     // Stored units per point shown (rage and runic power: 10).
     int32 PowerScale(uint8 power);
+    // A hold on the player's spec power (Overheat, spell_ef_kit_power_hold): while at least one holds, nothing drains it
+    // out of combat (its spenders are free by their own spell mods, so nothing consumes it either).
+    void HoldSpecPower(Unit* owner, bool on);
+    // Sets the player's spec power to `points` as shown (nothing while its power is the class's): Overheat's end, 0.
+    void SetSpecPowerPoints(Unit* owner, int32 points);
+    // The player's spec power as shown (0 while its power is the class's).
+    int32 SpecPowerPoints(Unit* owner);
     // Gives `points` (as shown) of the caster's spec power (nothing while the caster's power is the class's mana) as an
     // energize of `spellId` (the combat log). Returns the stored units given.
     int32 GainSpecPower(Unit* caster, int32 points, uint32 spellId);

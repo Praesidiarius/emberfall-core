@@ -25,7 +25,8 @@
 //                                 nothing when the enemy effects struck nobody); with the talent of its misc known and its
 //                                 trigger (the fight's marker) not on the caster, double, and the marker is cast (First
 //                                 Flash). The caster's hit bonuses for this spell run on every enemy struck (Crackling Air,
-//                                 Rising Air; self triggers once).
+//                                 Rising Air; self triggers once). A missile (speed > 0: the Pyromancer's Cinderbolt)
+//                                 builds as it strikes (First Flash's doubling is for builders without a missile).
 //   spell_ef_kit_power_spender    a spender of the spec power (its Spell.dbc cost; damage, or since the Warlock healing:
 //                                 Bequest and Dole, whose overspend and echo heal and which may target the caster): a dummy on the caster with misc = a
 //                                 talent the caster knows (or = the spell itself: always, the Warlock's Spoil) spends up to
@@ -120,6 +121,9 @@ class spell_ef_kit_build_power : public SpellScript
             ++_hits;
     }
 
+    // A missile (Spell.dbc speed: the Pyromancer's Cinderbolt) strikes after the cast is done: its build waits for the hit.
+    bool Delayed() { return GetSpellInfo()->Speed > 0.0f && NeedsHit(GetSpellInfo()); }
+
     void AfterHitTarget()
     {
         Unit* caster = GetCaster();
@@ -128,13 +132,23 @@ class spell_ef_kit_build_power : public SpellScript
             return;
         Emberfall::ClassKit::HitBonuses(caster, target, GetSpellInfo()->Id, 0, _first);
         _first = false;
+        int8 const index = BuildEffect(GetSpellInfo());
+        if (!Delayed() || index < 0)
+            return;
+        // per enemy struck as it lands (misc B: at most that many), or once on the first
+        SpellEffectInfo const& eff = GetSpellInfo()->Effects[index];
+        if ((eff.MiscValueB > 0 && _hits > uint32(eff.MiscValueB)) || (eff.MiscValueB <= 0 && _hits > 1))
+            return;
+        int32 const gain = eff.CalcValue(caster);
+        if (gain > 0)
+            Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id);
     }
 
     void Finish()
     {
         Unit* caster = GetCaster();
         int8 const index = BuildEffect(GetSpellInfo());
-        if (!caster || index < 0)
+        if (!caster || index < 0 || Delayed())
             return;
         SpellEffectInfo const& eff = GetSpellInfo()->Effects[index];
         bool const first = eff.MiscValue && eff.TriggerSpell && caster->HasAura(uint32(eff.MiscValue))

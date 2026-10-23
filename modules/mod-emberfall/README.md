@@ -104,7 +104,7 @@ untouched.
 |---|---|
 | `data/sql/db-world/mod_emberfall_2026_10_12_10_classkit.sql` | `ef_class_kit` (class, skill line, the stock family it replaces), `ef_class_kit_spell` (class, spell, level, source); help texts of `.efkit` |
 | `src/classkit/EfClassKit.{h,cpp}` | loading and checks (every spell exists, none in the stock family, the skill line exists; boot line `>> Emberfall class kits: class 1: ...`), the purge, the dump |
-| `src/emberfall_classkit.cpp` | the hooks, `.efkit` / `.efkit purge`, the kits' spell scripts (the Druid's in `src/emberfall_classkit_power.cpp`, the Warlock's in `src/emberfall_classkit_heal.cpp`, the Paladin Wrathbringer's cards in `src/emberfall_classkit_wrath.cpp`: `spell_ef_kit_splash`, `spell_ef_kit_launch_stack`, `spell_ef_kit_main_stat`, `spell_ef_kit_empower`, `spell_ef_kit_execute`, `spell_ef_kit_cooldown_cut`) |
+| `src/emberfall_classkit.cpp` | the hooks, `.efkit` / `.efkit purge`, the kits' spell scripts (the Druid's in `src/emberfall_classkit_power.cpp`, the Warlock's in `src/emberfall_classkit_heal.cpp`, the Paladin Wrathbringer's cards in `src/emberfall_classkit_wrath.cpp`: `spell_ef_kit_splash`, `spell_ef_kit_launch_stack`, `spell_ef_kit_main_stat`, `spell_ef_kit_empower`, `spell_ef_kit_execute`, `spell_ef_kit_cooldown_cut`; the Mage Pyromancer's Heat in `src/emberfall_classkit_heat.cpp`: `spell_ef_kit_power_tiers`, `spell_ef_kit_ramp_channel`, `spell_ef_kit_power_hold`; the spec power's tiers (`ef_class_kit_spec_power_tier`) in `src/classkit/EfSpecPower.cpp`) |
 
 | Script | Hook | What |
 |---|---|---|

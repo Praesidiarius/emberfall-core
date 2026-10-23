@@ -78,7 +78,7 @@
 //   spell_ef_kit_hit_bonuses         the caster's hit bonuses for this spell on every enemy it strikes (Heavenfall's strike)
 //
 // The Druid's (a spec's own power, Static; end bonuses, charges, limited targets) are in src/emberfall_classkit_power.cpp,
-// the Warlock's in src/emberfall_classkit_heal.cpp, the Wrathbringer's cards (2026-10-21: splash, Crown of Blades'
+// the Warlock's in src/emberfall_classkit_heal.cpp, the Pyromancer's Heat in src/emberfall_classkit_heat.cpp, the Wrathbringer's cards (2026-10-21: splash, Crown of Blades'
 // launches, the Blessing's main stat and its empowerment, the execute, cooldown cuts) in src/emberfall_classkit_wrath.cpp.
 // spell_ef_kit_spend_stacks (the Sunblades' spenders) went with the Sunblades on 2026-10-21 (in git history).
 //
@@ -883,6 +883,7 @@ class spell_ef_kit_hit_bonuses : public SpellScript
 void AddEmberfallClassKitPowerScripts();
 void AddEmberfallClassKitHealScripts();
 void AddEmberfallClassKitWrathScripts();
+void AddEmberfallClassKitHeatScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -911,4 +912,5 @@ void AddEmberfallClassKitScripts()
     AddEmberfallClassKitPowerScripts(); // the Druid's: src/emberfall_classkit_power.cpp
     AddEmberfallClassKitHealScripts();  // the Warlock's: src/emberfall_classkit_heal.cpp
     AddEmberfallClassKitWrathScripts(); // the Wrathbringer's cards: src/emberfall_classkit_wrath.cpp
+    AddEmberfallClassKitHeatScripts();  // the Pyromancer's Heat: src/emberfall_classkit_heat.cpp
 }

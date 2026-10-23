@@ -23,6 +23,7 @@
 // the spell scripts (src/emberfall_classkit*.cpp) use it.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 namespace Emberfall::ClassKit::Logic
@@ -303,4 +304,46 @@ namespace Emberfall::ClassKit::Logic
             return 0;
         return std::min(cutMs, remainingMs);
     }
+    // ---- the Mage's Pyromancer (Emberfall docs/design/classes/mage-pyromancer.md: Heat and its tiers) ----
+
+    // Whether a spec power of `stored` units reaches a tier at `atShown` points as shown (`scale` stored units a point):
+    // Blazing at 30, Inferno at 70, Maximum at 100 Heat (EfSpecPower.cpp keeps the tier auras).
+    constexpr bool TierReached(int32_t stored, int32_t atShown, int32_t scale)
+    {
+        return atShown > 0 && scale > 0 && int64_t(stored) >= int64_t(atShown) * scale;
+    }
+
+    // A ramping channel's tick (Sunlance, spell_ef_kit_ramp_channel): tick n (1-based) deals `base` x (1 + rampPct /
+    // 100)^(n - 1), each tick rampPct percent more than the last; the final tick `finalPct` percent more on top (Blazing).
+    inline int32_t RampTick(int32_t base, int32_t rampPct, uint32_t tick, bool final, int32_t finalPct)
+    {
+        if (base <= 0)
+            return 0;
+        double amount = double(base);
+        for (uint32_t i = 1; i < tick; ++i)
+            amount *= 1.0 + double(std::max(0, rampPct)) / 100.0;
+        if (final && finalPct > 0)
+            amount *= 1.0 + double(finalPct) / 100.0;
+        return int32_t(amount + 0.5);
+    }
+
+    // Whether a point (px, py) lies behind the target (tx, ty) on the line from the caster (cx, cy) through it: farther
+    // along than the target, at most `length` yards beyond it, at most `halfWidth` (plus the unit's reach) to the side
+    // (Sunlance at 100 Heat pierces: the enemies behind its target).
+    inline bool BehindOnLine(float cx, float cy, float tx, float ty, float px, float py, float length, float halfWidth,
+                             float reach)
+    {
+        float dx = tx - cx, dy = ty - cy;
+        float const len = dx * dx + dy * dy;
+        if (len <= 0.0001f)
+            return false;
+        float const inv = 1.0f / std::sqrt(len);
+        dx *= inv;
+        dy *= inv;
+        float const rx = px - tx, ry = py - ty;
+        float const along = rx * dx + ry * dy;
+        float const across = -rx * dy + ry * dx;
+        return along > 0.0f && along <= length + reach && (across < 0.0f ? -across : across) <= halfWidth + reach;
+    }
 }
+
