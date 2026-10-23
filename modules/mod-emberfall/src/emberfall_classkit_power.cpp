@@ -79,9 +79,18 @@ namespace
     class emberfall_classkit_power_player : public PlayerScript
     {
     public:
-        emberfall_classkit_power_player() : PlayerScript("emberfall_classkit_power_player", { PLAYERHOOK_ON_UPDATE }) { }
+        emberfall_classkit_power_player()
+            : PlayerScript("emberfall_classkit_power_player", { PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_AFTER_UPDATE_MAX_POWER }) { }
 
         void OnPlayerUpdate(Player* player, uint32 diff) override { Emberfall::ClassKit::UpdateSpecPower(player, diff); }
+
+        // A class power's maximum (the Hunter's Focus, EfClassKit.h ClassPowerRule): the core's create power is 0 for a
+        // player, so the rule's maximum comes in here, under the slot's max-power auras (Wide Lungs) the core summed.
+        void OnPlayerAfterUpdateMaxPower(Player* player, Powers& power, float& value) override
+        {
+            if (Emberfall::ClassKit::KitOf(player))
+                value += float(Emberfall::ClassKit::ClassPowerBase(player, uint8(power)));
+        }
     };
 
     // The first dummy effect on the caster without a trigger-and-misc pair of a charge (the build effect), or -1.

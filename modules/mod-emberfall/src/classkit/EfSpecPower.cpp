@@ -43,6 +43,7 @@ namespace Emberfall::ClassKit
     namespace
     {
         std::map<uint32, SpecPower> s_specPowers;   // by spec
+        std::map<uint8, ClassPowerRule> s_classPowers;   // by class (the Hunter's Focus)
         std::set<uint32> s_fightMarkers;            // kit helper auras that last until cancelled
         constexpr char const* kStateKey = "ef_spec_power";
 
@@ -53,13 +54,23 @@ namespace Emberfall::ClassKit
             uint32 outOfCombatMs = 0;
             int64 carry = 0;
             bool inCombat = false;
+            int64 regenCarry = 0;   // the class power's regeneration (millionths of a point)
         };
 
-        bool SpecPowerTableExists()
+        bool TableExists(char const* name)
         {
             QueryResult r = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
-                                                "AND TABLE_NAME = 'ef_class_kit_spec_power'");
+                                                "AND TABLE_NAME = '{}'", name);
             return r && r->Fetch()[0].Get<uint64>() == 1;
+        }
+
+        bool SpecPowerTableExists() { return TableExists("ef_class_kit_spec_power"); }
+
+        // The player's class power rule when its power is that slot (no spec power in force), else nullptr.
+        ClassPowerRule const* ActiveClassPower(Player const* player)
+        {
+            ClassPowerRule const* rule = ClassPowerOf(player->getClass());
+            return rule && player->getPowerType() == Powers(rule->power) ? rule : nullptr;
         }
 
         Powers ClassPower(Player const* player)
@@ -106,6 +117,52 @@ namespace Emberfall::ClassKit
         }
     }
 
+    void LoadClassPowers()
+    {
+        s_classPowers.clear();
+        if (!TableExists("ef_class_kit_class_power"))
+        {
+            LOG_INFO("server.loading", ">> Emberfall class kits: no ef_class_kit_class_power table (no class has a power of its own)");
+            return;
+        }
+        if (QueryResult r = WorldDatabase.Query("SELECT `class`, `power`, `max_power`, `regen_per_second`, `regen_out_of_combat` "
+                                                "FROM `ef_class_kit_class_power`"))
+        {
+            do
+            {
+                Field* f = r->Fetch();
+                ClassPowerRule p;
+                p.classId = f[0].Get<uint8>();
+                p.power = f[1].Get<uint8>();
+                p.max = f[2].Get<uint32>();
+                p.regen = f[3].Get<float>();
+                p.regenOutOfCombat = f[4].Get<float>();
+                if (p.power >= MAX_POWERS || p.power == POWER_MANA || p.power == POWER_RUNE || p.power == POWER_HAPPINESS)
+                {
+                    LOG_ERROR("server.loading", ">> Emberfall class kits: class {}: power {} cannot be a class power", p.classId, p.power);
+                    continue;
+                }
+                s_classPowers[p.classId] = p;
+                LOG_INFO("server.loading", ">> Emberfall class kits: class {} uses power {} (max {}, {} a second in a fight, {} out of one)",
+                         p.classId, p.power, p.max, p.regen, p.regenOutOfCombat);
+            } while (r->NextRow());
+        }
+    }
+
+    ClassPowerRule const* ClassPowerOf(uint8 classId)
+    {
+        auto it = s_classPowers.find(classId);
+        return it != s_classPowers.end() ? &it->second : nullptr;
+    }
+
+    uint32 ClassPowerBase(Player const* player, uint8 power)
+    {
+        if (!player)
+            return 0;
+        ClassPowerRule const* rule = ClassPowerOf(player->getClass());
+        return rule && rule->power == power ? rule->max : 0;
+    }
+
     SpecPower const* SpecPowerOf(uint32 spec)
     {
         auto it = s_specPowers.find(spec);
@@ -147,10 +204,39 @@ namespace Emberfall::ClassKit
             player->setPowerType(own);
             player->UpdateMaxPower(own);
         }
+        // a class power (the Hunter's Focus): its maximum (the core's create power is 0 for a player; the hook after
+        // UpdateMaxPower adds the rule's) and full, at login, level up and spec change (the core sets Focus to 0 at all
+        // three: Player::InitStatsForLevel, GiveLevel, setPowerType)
+        if (ClassPowerRule const* rule = ClassPowerOf(player->getClass()); rule && Powers(rule->power) == own)
+        {
+            player->UpdateMaxPower(own);
+            player->SetPower(own, player->GetMaxPower(own));
+            st->regenCarry = 0;
+        }
     }
 
     void UpdateSpecPower(Player* player, uint32 diff)
     {
+        // a class power (the Hunter's Focus): regenerated every tick, in a fight at its rate times the haste factor and the
+        // slot's regen-percent auras (Held Breath), out of one at its out-of-combat rate (every pull starts full)
+        if (ClassPowerRule const* rule = ActiveClassPower(player); rule && player->IsAlive())
+        {
+            PowerState* cs = player->CustomData.GetDefault<PowerState>(kStateKey);
+            Powers const slot = Powers(rule->power);
+            if (player->GetPower(slot) < player->GetMaxPower(slot))
+            {
+                bool const fight = player->IsInCombat();
+                float multiplier = 1.0f;
+                if (fight)
+                    multiplier = Logic::HasteFactor(player->GetFloatValue(UNIT_MOD_CAST_SPEED))
+                        * player->GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_POWER_REGEN_PERCENT, slot);
+                int32 const gain = Logic::Regen(fight ? rule->regen : rule->regenOutOfCombat, multiplier, diff, cs->regenCarry);
+                if (gain > 0)
+                    player->ModifyPower(slot, gain);
+            }
+            else
+                cs->regenCarry = 0;
+        }
         PowerState* st = player->CustomData.Get<PowerState>(kStateKey);
         if (!st || !st->power)
             return;

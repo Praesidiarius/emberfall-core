@@ -883,6 +883,7 @@ class spell_ef_kit_hit_bonuses : public SpellScript
 void AddEmberfallClassKitPowerScripts();
 void AddEmberfallClassKitHealScripts();
 void AddEmberfallClassKitWrathScripts();
+void AddEmberfallClassKitHuntScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -911,4 +912,5 @@ void AddEmberfallClassKitScripts()
     AddEmberfallClassKitPowerScripts(); // the Druid's: src/emberfall_classkit_power.cpp
     AddEmberfallClassKitHealScripts();  // the Warlock's: src/emberfall_classkit_heal.cpp
     AddEmberfallClassKitWrathScripts(); // the Wrathbringer's cards: src/emberfall_classkit_wrath.cpp
+    AddEmberfallClassKitHuntScripts();  // the Hunter's: src/emberfall_classkit_hunt.cpp
 }

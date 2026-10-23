@@ -199,6 +199,29 @@ namespace Emberfall::ClassKit
     // The charge aura ran out: one charge is back; the next one starts recharging when more are spent.
     void ChargeBack(Unit* owner, uint32 chargeAura, uint32 stacksBefore);
 
+    // ---- A class's own power (Emberfall docs/design/classes/hunter-marksman.md: the Hunter's Focus; EfSpecPower.cpp) ----
+    // ef_class_kit_class_power (class, power, max_power, regen_per_second, regen_out_of_combat; optional table): a power
+    // the core never regenerates for a player (Focus: Player::Regenerate skips it, and its create maximum is 0 for a
+    // player). For a player of that class whose power is that slot (no spec power in force) the module gives it its
+    // maximum (`max_power` plus the slot's max-power auras: Wide Lungs), regenerates it every tick (in a fight
+    // `regen_per_second` times the haste factor and the slot's regen-percent auras: Keen Draw, Held Breath; out of one
+    // `regen_out_of_combat`, so every pull starts full) and fills it at login, level up and spec change.
+    struct ClassPowerRule
+    {
+        uint8 classId = 0;
+        uint8 power = 0;            // Powers
+        uint32 max = 0;
+        float regen = 0.0f;         // points a second in a fight
+        float regenOutOfCombat = 0.0f;
+    };
+    // Loads ef_class_kit_class_power (Load calls it with the spec powers).
+    void LoadClassPowers();
+    // The class power of a class, or nullptr.
+    ClassPowerRule const* ClassPowerOf(uint8 classId);
+    // The base maximum of `power` for `player` from its class power (the hook after Player::UpdateMaxPower adds it, as the
+    // core's create power would): the rule's maximum when `power` is its slot, else 0.
+    uint32 ClassPowerBase(Player const* player, uint8 power);
+
     // `.efkit` / `.efkit dump`: the kit of the selected player's class and what it knows of it.
     void Dump(Player* player, std::vector<std::string>& lines);
     // `.efkit auras`: the class kit auras on a unit (the selected one), one line each: "EFAURA <spell> <stacks>

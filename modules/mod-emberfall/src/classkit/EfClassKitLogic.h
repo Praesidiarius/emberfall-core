@@ -187,6 +187,34 @@ namespace Emberfall::ClassKit::Logic
         return whole;
     }
 
+    // A class's own power (the Hunter's Focus, Emberfall docs/design/classes/hunter-marksman.md): the regeneration during
+    // `diffMs` at `perSecond` points a second times `multiplier` (in a fight: the haste factor and the regen-percent
+    // auras; out of one the plain rate), the fraction carried in `carry` (millionths of a point). Returns the whole points
+    // to add now.
+    inline int32_t Regen(float perSecond, float multiplier, uint32_t diffMs, int64_t& carry)
+    {
+        if (perSecond <= 0.0f || multiplier <= 0.0f)
+            return 0;
+        carry += int64_t(double(perSecond) * double(multiplier) * double(diffMs) * 1000.0);
+        int32_t const whole = int32_t(carry / 1000000);
+        carry -= int64_t(whole) * 1000000;
+        return whole;
+    }
+
+    // The haste factor of a regeneration (Keen Draw: 2 / 4 % faster): from the unit's cast speed field
+    // (UNIT_MOD_CAST_SPEED, 1 / (1 + haste)); a bad field is no haste.
+    constexpr float HasteFactor(float castSpeed)
+    {
+        return castSpeed > 0.01f ? 1.0f / castSpeed : 1.0f;
+    }
+
+    // The Marksman's spender of self stacks (spell_ef_kit_spend_self_stacks: Full Draw): `base` damage `pctPerStack`
+    // percent more for each of `stacks` stacks.
+    constexpr int32_t StackedDamage(int32_t base, int32_t pctPerStack, uint32_t stacks)
+    {
+        return base <= 0 ? base : int32_t(int64_t(base) * (100 + int64_t(pctPerStack) * stacks) / 100);
+    }
+
     // The Warlock's Blood Price (spell_ef_kit_health_price): `pct` percent (spell mods in: Thinned Blood) of the caster's
     // `maxHealth`, at least 1; the cast is refused unless the caster keeps at least 1 health after paying it.
     constexpr int32_t HealthPrice(uint32_t maxHealth, int32_t pct)
