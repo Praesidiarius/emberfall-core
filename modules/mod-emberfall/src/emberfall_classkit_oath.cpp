@@ -20,8 +20,9 @@
 // Solenne's Favor, Judgment's Echo. Generic like the scripts of src/emberfall_classkit.cpp: each reads its numbers from
 // the spell's own effects (Emberfall's classkit/model.py SCRIPTS checks the contracts).
 //
-//   spell_ef_kit_cooldown_cut_pct  every dummy effect on the caster with a trigger takes its value in percent off what is
-//                                  LEFT of the caster's cooldown of the trigger (100: all of it), misc B: that cooldown is
+//   spell_ef_kit_cooldown_cut_pct  every dummy effect on the caster with a trigger takes its value in percent of the
+//                                  trigger's BASE cooldown (Spell.dbc's; ankarna's Q4 of 2026-10-23) off the caster's
+//                                  running cooldown of it, never more than is left (100: all of it), misc B: that cooldown is
 //                                  never cut below misc B seconds in all (EfClassKit.h CutCooldownPct); then the caster's
 //                                  dummy auras whose misc is this spell and that have a trigger do the same with their
 //                                  amount (a set bonus's extra link: the Sunward Bastion's 2 and 8 pieces). The chain:
@@ -55,7 +56,7 @@
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
 
-// A link of the chain: a percent of the next ability's remaining cooldown.
+// A link of the chain: a percent of the next ability's base cooldown off what is left of it.
 class spell_ef_kit_cooldown_cut_pct : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_cooldown_cut_pct);

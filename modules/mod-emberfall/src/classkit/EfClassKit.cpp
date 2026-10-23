@@ -656,8 +656,11 @@ namespace Emberfall::ClassKit
         StackCooldownCuts::Cut& cut = cuts->bySpell[spell];
         if (cut.end != cd->second.end)
             cut = {};
-        int32 const take = Logic::CutRemainingPct(int32(player->GetSpellCooldownDelay(spell)), pct,
-                                                  int32(cd->second.maxduration), floorMs, cut.takenMs);
+        // 20 % of the BASE cooldown (Spell.dbc's, ankarna's Q4 of 2026-10-23), not of what is left
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spell);
+        int32 const baseMs = info ? int32(std::max(info->RecoveryTime, info->CategoryRecoveryTime)) : 0;
+        int32 const take = Logic::CutBasePct(int32(player->GetSpellCooldownDelay(spell)), baseMs, pct,
+                                             int32(cd->second.maxduration), floorMs, cut.takenMs);
         if (take <= 0)
             return 0;
         player->ModifySpellCooldown(spell, -take);

@@ -376,16 +376,18 @@ namespace Emberfall::ClassKit::Logic
 
     // ---- the Paladin's Oathkeeper (Emberfall docs/design/classes/paladin-oathkeeper.md: the chain, Bastion's Resolve) ----
 
-    // A link of the chain (spell_ef_kit_cooldown_cut_pct): `pct` percent of what is LEFT of a running cooldown
-    // (`remainingMs`; 100: all of it, Judgment's Echo's reset). With `floorMs` above 0 the cooldown as a whole (`fullMs`
-    // as it started, spell mods in, less `alreadyCutMs` taken off it before) never falls below the floor (Solenne's
-    // Retribution: never below 60 s). Nothing while the cooldown is not running.
-    constexpr int32_t CutRemainingPct(int32_t remainingMs, int32_t pct, int32_t fullMs = 0, int32_t floorMs = 0,
-                                      int32_t alreadyCutMs = 0)
+    // A link of the chain (spell_ef_kit_cooldown_cut_pct): `pct` percent of the spell's BASE cooldown (`baseMs`, as
+    // Spell.dbc has it; ankarna's decision of 2026-10-23, Q4: Shieldbrand -1.2 s on Aegis Ricochet's 6 s, Aegis of
+    // Judgment -36 s on the Retribution's 180 s) off a running cooldown, never more than is left (`remainingMs`; 100:
+    // all of it, Judgment's Echo's reset). With `floorMs` above 0 the cooldown as a whole (`fullMs` as it started, spell
+    // mods in, less `alreadyCutMs` taken off it before) never falls below the floor (Solenne's Retribution: never below
+    // 60 s). Nothing while the cooldown is not running.
+    constexpr int32_t CutBasePct(int32_t remainingMs, int32_t baseMs, int32_t pct, int32_t fullMs = 0,
+                                 int32_t floorMs = 0, int32_t alreadyCutMs = 0)
     {
-        if (remainingMs <= 0 || pct <= 0)
+        if (remainingMs <= 0 || pct <= 0 || baseMs <= 0)
             return 0;
-        int32_t take = int32_t(int64_t(remainingMs) * std::min<int32_t>(pct, 100) / 100);
+        int32_t take = int32_t(std::min<int64_t>(int64_t(baseMs) * std::min<int32_t>(pct, 100) / 100, remainingMs));
         if (floorMs > 0 && fullMs > 0)
             take = std::min<int32_t>(take, std::max<int32_t>(0, fullMs - std::max<int32_t>(0, alreadyCutMs) - floorMs));
         return std::max<int32_t>(0, take);

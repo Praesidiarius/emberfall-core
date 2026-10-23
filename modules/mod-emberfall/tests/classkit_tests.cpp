@@ -232,17 +232,20 @@ int main()
     check(StackedDamage(200, 10, 0) == 200, "no Beads: the base");
     check(StackedDamage(0, 10, 5) == 0, "a miss stays a miss");
 
-    // the Oathkeeper's chain: 20 % of what is left, nothing while ready, the reset, the 60 s floor of the Retribution
-    check(CutRemainingPct(10000, 20) == 2000, "20 % of 10 s left: 2 s");
-    check(CutRemainingPct(1000, 20) == 200, "20 % of 1 s left: 0.2 s");
-    check(CutRemainingPct(0, 20) == 0, "ready: nothing");
-    check(CutRemainingPct(30000, 100) == 30000, "Judgment's Echo: all of it");
-    check(CutRemainingPct(30000, 150) == 30000, "never more than what is left");
-    check(CutRemainingPct(170000, 20, 180000, 60000) == 34000, "the Retribution 10 s in: 20 % of 170 s");
-    check(CutRemainingPct(50000, 20, 180000, 60000, 110000) == 10000, "110 s cut already: 10 s left to cut");
-    check(CutRemainingPct(50000, 20, 180000, 60000, 120000) == 0, "120 s cut already: at the 60 s floor");
-    check(CutRemainingPct(100000, 50, 150000, 60000) == 50000, "the set's 150 s: half of 100 s, under the 90 s allowed");
-    check(CutRemainingPct(100000, 95, 150000, 60000) == 90000, "the floor caps a big cut");
+    // the Oathkeeper's chain: 20 % of the BASE cooldown (Q4, 2026-10-23), never more than is left, nothing while
+    // ready, the reset, the 60 s floor of the Retribution
+    check(CutBasePct(5000, 6000, 20) == 1200, "Shieldbrand: Aegis Ricochet -1.2 s");
+    check(CutBasePct(10000, 15000, 20) == 3000, "Aegis Ricochet: Bastion Breaker -3 s");
+    check(CutBasePct(20000, 30000, 20) == 6000, "Bastion Breaker: Aegis of Judgment -6 s");
+    check(CutBasePct(1000, 6000, 20) == 1000, "1 s left: never below zero");
+    check(CutBasePct(0, 6000, 20) == 0, "ready: nothing");
+    check(CutBasePct(5000, 0, 20) == 0, "no base cooldown: nothing");
+    check(CutBasePct(18000, 30000, 100) == 18000, "Judgment's Echo: all of it");
+    check(CutBasePct(30000, 30000, 150) == 30000, "never more than what is left");
+    check(CutBasePct(170000, 180000, 20, 180000, 60000) == 36000, "Aegis of Judgment: the Retribution -36 s");
+    check(CutBasePct(100000, 180000, 20, 180000, 60000, 110000) == 10000, "110 s cut already: 10 s left to cut");
+    check(CutBasePct(100000, 180000, 20, 180000, 60000, 120000) == 0, "120 s cut already: at the 60 s floor");
+    check(CutBasePct(140000, 180000, 20, 150000, 60000, 72000) == 18000, "a 150 s cooldown: the floor caps the cut");
     // Bastion's Resolve: +8 s a press, at most 20 s
     check(ExtendCapped(0, 8000, 20000) == 8000, "the first press: 8 s");
     check(ExtendCapped(5000, 8000, 20000) == 13000, "5 s left: 13 s");
