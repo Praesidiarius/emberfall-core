@@ -17,7 +17,8 @@
 
 // Standalone tests of the absorb report logic (src/absorbs/EfAbsorbLogic.h; tests/run_tests.sh builds and runs them):
 // the message format, the 100 ms throttle, only changes sent, the highest amount seen as the cap (reset by a new
-// aura), a fixed cap (the shell), the `0;0` for an aura gone, several auras of one spell.
+// aura), a fixed cap (the shell), the `0;0` for an aura gone, several auras of one spell; the other units' totals
+// (UNI: a group member's, the selection's) with their own throttle, only changes, `0` for a unit gone.
 
 #include "EfAbsorbLogic.h"
 
@@ -129,6 +130,28 @@ namespace
         auto m2 = Merge({ Snap(500, 250, 60, 3), Snap(500, 100, 50, 4) });
         check(m2.size() == 1 && m2[0].instance == m[0].instance, "in either order");
     }
+
+    void TestUnits()
+    {
+        constexpr std::uint64_t kPriest = 0x45, kWolf = 0xF130000001000101ull;
+        check(UnitBody({ kPriest, 640 }) == "1;0;UNI;69;640", "the unit body: the guid in decimal");
+        check(UnitText({ kWolf, 0 }) == "EFA\t1;0;UNI;17379390962039521537;0", "the unit text, a creature's guid");
+        UnitState st;
+        check(!st.Tick(100) && st.Tick(100), "the units: every 200 ms");
+        auto l = DiffUnits(st, { { kPriest, 640 }, { kWolf, 0 } });
+        check(l.size() == 1 && l[0].guid == kPriest && l[0].total == 640, "a member's shield: one line; none: nothing");
+        l = DiffUnits(st, { { kPriest, 640 } });
+        check(l.empty(), "nothing changed: nothing sent");
+        l = DiffUnits(st, { { kPriest, 300 }, { kWolf, 90 } });
+        check(l.size() == 2 && l[0].guid == kPriest && l[0].total == 300 && l[1].guid == kWolf && l[1].total == 90,
+              "a hit on the priest, the target's ward: two lines");
+        l = DiffUnits(st, { { kWolf, 90 } });
+        check(l.size() == 1 && l[0].guid == kPriest && l[0].total == 0, "the priest left (or his shield went): 0");
+        l = DiffUnits(st, { { kWolf, -5 } });
+        check(l.size() == 1 && l[0].guid == kWolf && l[0].total == 0 && st.told.empty(), "never below 0: gone");
+        l = DiffUnits(st, {});
+        check(l.empty(), "gone and told: nothing more");
+    }
 }
 
 int main()
@@ -138,6 +161,7 @@ int main()
     TestHighest();
     TestShell();
     TestSeveral();
+    TestUnits();
     std::cout << "absorb tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }

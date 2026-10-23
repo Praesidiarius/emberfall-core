@@ -23,6 +23,9 @@
 //   cap   a class kit shell (EfClassKit.h IsShellSpell: Frost Shell): ShellCap, a full shell (the stack maximum x what
 //         one stack absorbs); any other absorb: the highest amount seen since the aura was (re)applied
 // Skipped: passive auras (Last Ward's cheat death) and unlimited ones (a negative amount: Glacial Bulwark's ward).
+// Other units (Emberfall feedback #48: the absorb segment on the client's health bars): every 200 ms (at most) a player
+// is told the total absorbs left of the units it watches, the group's members on its map and its selection, on a
+// change: `EFA\t1;0;UNI;<guid>;<total>`; `...;0` once a unit has none or is no longer watched (the same skips).
 // The logic without the core is src/absorbs/EfAbsorbLogic.h (tests/absorb_tests.cpp).
 //
 // Config: Emberfall.Absorbs.Enable (1). GM command `.efabsorb`: the selected player's tracked values.
@@ -32,7 +35,9 @@
 #include "CommandScript.h"
 #include "Config.h"
 #include "DataMap.h"
+#include "Group.h"
 #include "Log.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
@@ -61,7 +66,19 @@ namespace
     struct PlayerAbsorbs : public DataMap::Base
     {
         Emberfall::Absorbs::State state;
+        Emberfall::Absorbs::UnitState units;
     };
+
+    // A unit's absorbs left in all (the same auras as Collect's: no passives, no unlimited ones).
+    std::int64_t Total(Unit const* unit)
+    {
+        std::int64_t total = 0;
+        for (AuraType type : { SPELL_AURA_SCHOOL_ABSORB, SPELL_AURA_MANA_SHIELD })
+            for (AuraEffect const* eff : unit->GetAuraEffectsByType(type))
+                if (eff->GetBase() && !eff->GetBase()->IsPassive() && eff->GetAmount() > 0)
+                    total += eff->GetAmount();
+        return total;
+    }
 
     // The absorb auras on the player now, one snapshot per aura (not merged).
     void Collect(Player* player, std::vector<Emberfall::Absorbs::Snapshot>& out)
@@ -133,6 +150,30 @@ namespace
             Send(player, Emberfall::Absorbs::Text(line));
     }
 
+    // The other units the player watches: the group's members on its map (the same map: its thread) and its selection.
+    void ReportUnits(Player* player, uint32 diff)
+    {
+        Group* group = player->GetGroup();
+        ObjectGuid const selection = player->GetTarget();
+        PlayerAbsorbs* data = (group || selection) ? player->CustomData.GetDefault<PlayerAbsorbs>(kDataKey)
+                                                   : player->CustomData.Get<PlayerAbsorbs>(kDataKey);
+        if (!data || (!group && !selection && data->units.told.empty()))
+            return;
+        if (!data->units.Tick(diff))
+            return;
+        std::map<std::uint64_t, std::int64_t> now;
+        if (group)
+            for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+                if (Player* member = ref->GetSource(); member && member != player && member->IsInWorld()
+                    && member->IsInMap(player) && member->IsAlive())
+                    now[member->GetGUID().GetRawValue()] = Total(member);
+        if (selection && selection != player->GetGUID())
+            if (Unit* unit = ObjectAccessor::GetUnit(*player, selection); unit && unit->IsInWorld() && unit->IsAlive())
+                now[selection.GetRawValue()] = Total(unit);
+        for (Emberfall::Absorbs::UnitLine const& line : Emberfall::Absorbs::DiffUnits(data->units, now))
+            Send(player, Emberfall::Absorbs::UnitText(line));
+    }
+
     class emberfall_absorbs_world : public WorldScript
     {
     public:
@@ -162,7 +203,10 @@ namespace
         void OnPlayerUpdate(Player* player, uint32 diff) override
         {
             if (s_enable && player && player->IsInWorld())
+            {
                 Report(player, diff);
+                ReportUnits(player, diff);
+            }
         }
 
         // A fresh start: the client knows nothing yet (the first update reports whatever absorb is present).
