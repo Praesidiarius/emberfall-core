@@ -16,7 +16,7 @@
  */
 
 // Emberfall class kits: a spec's own power (Emberfall docs/design/classes/druid-stormbringer.md §3, the Stormbringer's
-// Static; the Mage's Pyromancer's Heat is meant to use it too), the end bonuses and the charges. EfClassKit.h says what
+// Static; the Mage's Pyromancer's Heat with its tiers and Overheat's hold), the end bonuses and the charges. EfClassKit.h says what
 // each function does; the arithmetic is EfClassKitLogic.h (tests/classkit_tests.cpp).
 
 #include "EfClassKit.h"
@@ -34,6 +34,7 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 
+#include <algorithm>
 #include <map>
 #include <set>
 #include <vector>
@@ -53,13 +54,43 @@ namespace Emberfall::ClassKit
             uint32 outOfCombatMs = 0;
             int64 carry = 0;
             bool inCombat = false;
+            int32 holds = 0;                        // Overheat: nothing drains the power while > 0
         };
 
-        bool SpecPowerTableExists()
+        bool TableExists(char const* name)
         {
             QueryResult r = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
-                                                "AND TABLE_NAME = 'ef_class_kit_spec_power'");
+                                                "AND TABLE_NAME = '{}'", name);
             return r && r->Fetch()[0].Get<uint64>() == 1;
+        }
+
+        bool SpecPowerTableExists() { return TableExists("ef_class_kit_spec_power"); }
+
+        // Every tier aura of every spec power of the player's class off the player (its power is the class's again).
+        void RemoveTierAuras(Player* player)
+        {
+            for (auto const& [spec, p] : s_specPowers)
+                if (p.classId == player->getClass())
+                    for (SpecPower::Tier const& t : p.tiers)
+                        player->RemoveAurasDueToSpell(t.aura);
+        }
+
+        // The tier auras follow the power (Blazing, Inferno, Maximum).
+        void UpdateTiers(Player* player, SpecPower const& power)
+        {
+            if (power.tiers.empty())
+                return;
+            Powers const slot = Powers(power.power);
+            int32 const stored = player->getPowerType() == slot ? int32(player->GetPower(slot)) : 0;
+            for (SpecPower::Tier const& t : power.tiers)
+            {
+                bool const want = t.at > 0 && stored >= int32(t.at) && (!t.requiredSpell || player->HasSpell(t.requiredSpell));
+                bool const has = player->HasAura(t.aura);
+                if (want && !has)
+                    player->AddAura(t.aura, player);
+                else if (!want && has)
+                    player->RemoveAurasDueToSpell(t.aura);
+            }
         }
 
         Powers ClassPower(Player const* player)
@@ -104,6 +135,33 @@ namespace Emberfall::ClassKit
                          p.spec, p.classId, p.power, p.max, p.drainPerSecond, p.drainDelayMs);
             } while (r->NextRow());
         }
+        if (!TableExists("ef_class_kit_spec_power_tier"))
+            return;
+        if (QueryResult r = WorldDatabase.Query("SELECT `spec`, `at_power`, `aura`, `requires_spell` FROM `ef_class_kit_spec_power_tier` "
+                                                "ORDER BY `spec`, `at_power`"))
+        {
+            uint32 count = 0;
+            do
+            {
+                Field* f = r->Fetch();
+                auto it = s_specPowers.find(f[0].Get<uint32>());
+                SpecPower::Tier t;
+                t.at = f[1].Get<uint32>();
+                t.aura = f[2].Get<uint32>();
+                t.requiredSpell = f[3].Get<uint32>();
+                if (it == s_specPowers.end() || !sSpellMgr->GetSpellInfo(t.aura))
+                {
+                    LOG_ERROR("server.loading", ">> Emberfall class kits: spec power tier of spec {}: no such spec power or aura {}",
+                              f[0].Get<uint32>(), t.aura);
+                    continue;
+                }
+                it->second.tiers.push_back(t);
+                // a tier aura lasts until the power falls below it, not until the fight ends
+                s_fightMarkers.erase(t.aura);
+                ++count;
+            } while (r->NextRow());
+            LOG_INFO("server.loading", ">> Emberfall class kits: {} spec power tiers", count);
+        }
     }
 
     SpecPower const* SpecPowerOf(uint32 spec)
@@ -141,6 +199,7 @@ namespace Emberfall::ClassKit
             return;
         }
         st->power = nullptr;
+        RemoveTierAuras(player);
         Powers const own = ClassPower(player);
         if (player->getPowerType() != own)
         {
@@ -154,6 +213,7 @@ namespace Emberfall::ClassKit
         PowerState* st = player->CustomData.Get<PowerState>(kStateKey);
         if (!st || !st->power)
             return;
+        UpdateTiers(player, *st->power);
         bool const fight = player->IsInCombat();
         if (fight)
         {
@@ -170,6 +230,8 @@ namespace Emberfall::ClassKit
                 player->RemoveAurasDueToSpell(marker);
         }
         st->outOfCombatMs += diff;
+        if (st->holds > 0)
+            return;
         Powers const slot = Powers(st->power->power);
         if (player->getPowerType() != slot || !player->GetPower(slot))
             return;
@@ -192,6 +254,37 @@ namespace Emberfall::ClassKit
         int32 const units = points * PowerScale(st->power->power);
         player->EnergizeBySpell(player, spellId, units, Powers(st->power->power));
         return units;
+    }
+
+    void HoldSpecPower(Unit* owner, bool on)
+    {
+        Player* player = owner ? owner->ToPlayer() : nullptr;
+        if (!player)
+            return;
+        PowerState* st = player->CustomData.GetDefault<PowerState>(kStateKey);
+        st->holds = std::max(0, st->holds + (on ? 1 : -1));
+    }
+
+    void SetSpecPowerPoints(Unit* owner, int32 points)
+    {
+        Player* player = owner ? owner->ToPlayer() : nullptr;
+        if (!player)
+            return;
+        PowerState* st = player->CustomData.Get<PowerState>(kStateKey);
+        if (!st || !st->power || player->getPowerType() != Powers(st->power->power))
+            return;
+        player->SetPower(Powers(st->power->power), uint32(std::max(0, points) * PowerScale(st->power->power)));
+    }
+
+    int32 SpecPowerPoints(Unit* owner)
+    {
+        Player* player = owner ? owner->ToPlayer() : nullptr;
+        if (!player)
+            return 0;
+        PowerState* st = player->CustomData.Get<PowerState>(kStateKey);
+        if (!st || !st->power || player->getPowerType() != Powers(st->power->power))
+            return 0;
+        return int32(player->GetPower(Powers(st->power->power))) / PowerScale(st->power->power);
     }
 
     void EndBonuses(Unit* caster, Unit* owner, uint32 auraSpell)

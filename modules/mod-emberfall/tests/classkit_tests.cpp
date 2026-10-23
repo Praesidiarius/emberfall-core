@@ -196,6 +196,22 @@ int main()
     check(CooldownCut(3000, 1200) == 1200, "never more than is left");
     check(CooldownCut(3000, 0) == 0, "not on cooldown: nothing");
 
+    // the Pyromancer's Heat: the tiers at 30 / 70 / 100 (runic power x 10)
+    check(!TierReached(290, 30, 10) && TierReached(300, 30, 10), "Blazing from 30 Heat");
+    check(TierReached(1000, 100, 10) && !TierReached(990, 100, 10), "Maximum at 100 only");
+    check(!TierReached(1000, 0, 10), "no threshold: never");
+    // Sunlance: six ticks, each 10 % more than the last; Blazing's final tick +25 %
+    check(RampTick(100, 10, 1, false, 0) == 100, "first tick: the base");
+    check(RampTick(100, 10, 2, false, 0) == 110, "second: +10 %");
+    check(RampTick(100, 10, 6, false, 0) == 161, "sixth: 1.1^5");
+    check(RampTick(100, 10, 6, true, 25) == 201, "sixth with Blazing: x 1.25");
+    check(RampTick(0, 10, 3, false, 0) == 0, "no base: nothing");
+    // Sunlance pierces: behind the target on the line, not before it, not off to the side
+    check(BehindOnLine(0, 0, 10, 0, 15, 1, 20, 2.5f, 0), "5 yd behind, 1 yd off: struck");
+    check(!BehindOnLine(0, 0, 10, 0, 5, 0, 20, 2.5f, 0), "between the caster and the target: not");
+    check(!BehindOnLine(0, 0, 10, 0, 15, 4, 20, 2.5f, 0), "4 yd to the side: not");
+    check(!BehindOnLine(0, 0, 10, 0, 35, 0, 20, 2.5f, 0), "25 yd behind (20 yd line): not");
+
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }
