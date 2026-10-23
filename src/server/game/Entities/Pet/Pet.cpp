@@ -21,6 +21,7 @@
 #include "CharmInfo.h"
 #include "Common.h"
 #include "DatabaseEnv.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "GameTime.h"
 #include "Group.h"
 #include "InstanceScript.h"
@@ -37,6 +38,11 @@
 #include "Util.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+
+// EMBERFALL: own data (PATCHES.md #17): a companion's happiness is pinned in the middle of "content" (333000-665999),
+// so the happiness damage factor is 1 (StatSystem.cpp: happy 1.25, content 1, unhappy 0.75); Emberfall tunes the
+// companion's damage with its own family passives instead
+static constexpr uint32 EmberfallContentHappiness = 500000;
 
 Pet::Pet(Player* owner, PetType type) : Guardian(nullptr, owner ? owner->GetGUID() : ObjectGuid::Empty),
     m_usedTalentCount(0),
@@ -317,7 +323,7 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool c
             ReplaceAllUnitFlags(UNIT_FLAG_PLAYER_CONTROLLED);
                                                             // this enables popup window (pet abandon, cancel)
             SetMaxPower(POWER_HAPPINESS, GetCreatePowers(POWER_HAPPINESS));
-            SetPower(POWER_HAPPINESS, petInfo->Happiness);
+            SetPower(POWER_HAPPINESS, Emberfall::OwnData() ? EmberfallContentHappiness : petInfo->Happiness); // EMBERFALL: #17
             setPowerType(POWER_FOCUS);
             break;
         default:
@@ -636,7 +642,7 @@ void Pet::setDeathState(DeathState s, bool /*despawn = false*/)                 
 
             //lose happiness when died and not in BG/Arena
             MapEntry const* mapEntry = sMapStore.LookupEntry(GetMapId());
-            if (!mapEntry || (mapEntry->map_type != MAP_ARENA && mapEntry->map_type != MAP_BATTLEGROUND))
+            if ((!mapEntry || (mapEntry->map_type != MAP_ARENA && mapEntry->map_type != MAP_BATTLEGROUND)) && !Emberfall::OwnData()) // EMBERFALL: #17
                 ModifyPower(POWER_HAPPINESS, -HAPPINESS_LEVEL_SIZE);
 
             //SetUnitFlag(UNIT_FLAG_STUNNED);
@@ -882,6 +888,9 @@ void Pet::CastPendingSpell()
 
 void Pet::LoseHappiness()
 {
+    // EMBERFALL: own data (PATCHES.md #17): no happiness and no feeding; a companion stays content
+    if (Emberfall::OwnData())
+        return;
     uint32 curValue = GetPower(POWER_HAPPINESS);
     if (curValue <= 0)
         return;
@@ -1020,7 +1029,7 @@ bool Pet::CreateBaseAtTamed(CreatureTemplate const* cinfo, Map* map, uint32 phas
         return false;
 
     SetMaxPower(POWER_HAPPINESS, GetCreatePowers(POWER_HAPPINESS));
-    SetPower(POWER_HAPPINESS, 166500);
+    SetPower(POWER_HAPPINESS, Emberfall::OwnData() ? EmberfallContentHappiness : 166500); // EMBERFALL: #17
     setPowerType(POWER_FOCUS);
     SetUInt32Value(UNIT_FIELD_PET_NAME_TIMESTAMP, 0);
     SetUInt32Value(UNIT_FIELD_PETEXPERIENCE, 0);
@@ -2400,6 +2409,13 @@ void Pet::SynchronizeLevelWithOwner()
             break;
         // can't be greater owner level
         case HUNTER_PET:
+            // EMBERFALL: own data (PATCHES.md #17): a companion is always its hunter's level (no pet experience)
+            if (Emberfall::OwnData())
+            {
+                if (GetLevel() != owner->GetLevel())
+                    GivePetLevel(owner->GetLevel());
+                break;
+            }
             if (GetLevel() > owner->GetLevel())
                 GivePetLevel(owner->GetLevel());
             else if (GetLevel() + 5 < owner->GetLevel())

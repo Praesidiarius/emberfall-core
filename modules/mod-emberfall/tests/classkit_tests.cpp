@@ -211,6 +211,26 @@ int main()
     check(!BehindOnLine(0, 0, 10, 0, 5, 0, 20, 2.5f, 0), "between the caster and the target: not");
     check(!BehindOnLine(0, 0, 10, 0, 15, 4, 20, 2.5f, 0), "4 yd to the side: not");
     check(!BehindOnLine(0, 0, 10, 0, 35, 0, 20, 2.5f, 0), "25 yd behind (20 yd line): not");
+    // the Hunter's Focus: 5 a second in a fight, times haste and the regen-percent auras (Held Breath +50 %), the
+    // fractions carried; 25 a second out of one
+    int64_t focusCarry = 0;
+    int32_t focus = 0;
+    for (int i = 0; i < 10; ++i)
+        focus += Regen(5.0f, 1.0f, 100, focusCarry);
+    check(focus == 5, "Focus: 5 in a second, in tenths");
+    focusCarry = 0;
+    check(Regen(5.0f, 1.5f, 2000, focusCarry) == 15, "Held Breath: 50 % faster");
+    focusCarry = 0;
+    check(Regen(25.0f, 1.0f, 4000, focusCarry) == 100, "out of a fight: full in 4 s");
+    check(Regen(0.0f, 1.0f, 1000, focusCarry) == 0, "no rate: nothing");
+    check(HasteFactor(1.0f) == 1.0f, "no haste");
+    check(HasteFactor(1.0f / 1.04f) > 1.039f && HasteFactor(1.0f / 1.04f) < 1.041f, "Keen Draw 2: 4 % faster");
+    check(HasteFactor(0.0f) == 1.0f, "a bad field: no haste");
+    // the Marksman's Full Draw: 10 % more for each Bead
+    check(StackedDamage(200, 10, 5) == 300, "5 Beads: half again");
+    check(StackedDamage(200, 14, 5) == 340, "Patient Kill: 14 % a Bead");
+    check(StackedDamage(200, 10, 0) == 200, "no Beads: the base");
+    check(StackedDamage(0, 10, 5) == 0, "a miss stays a miss");
 
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;

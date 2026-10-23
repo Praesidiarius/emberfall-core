@@ -1443,7 +1443,14 @@ public:
     bool DeleteGameTele(std::string_view name);
 
     Trainer::Trainer* GetTrainer(uint32 creatureId);
-    std::vector<Trainer::Trainer const*> const& GetClassTrainers(uint8 classId) const { return _classTrainers.at(classId); }
+    // EMBERFALL: unconditional fix (PATCHES.md #18): a class without trainers (every class of Emberfall's own data) has no
+    // entry; `.at` threw and `.learn all my trainer` brought the worldserver down
+    std::vector<Trainer::Trainer const*> const& GetClassTrainers(uint8 classId) const
+    {
+        static std::vector<Trainer::Trainer const*> const none;
+        auto it = _classTrainers.find(classId);
+        return it != _classTrainers.end() ? it->second : none;
+    }
 
     [[nodiscard]] VendorItemData const* GetNpcVendorItemList(uint32 entry) const
     {

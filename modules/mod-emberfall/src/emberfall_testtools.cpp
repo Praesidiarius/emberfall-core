@@ -149,7 +149,8 @@ namespace
                 if (entry)
                     player->GetCreatureListWithEntryInGrid(found, entry, 120.0f);
             for (Creature* c : found)
-                if (TempSummon* summon = c->ToTempSummon(); summon && summon->GetSummonerGUID() == player->GetGUID())
+                // never a companion gentled from a proving wolf (a hunter's pet is a summon of its player too)
+                if (TempSummon* summon = c->ToTempSummon(); summon && !summon->IsPet() && summon->GetSummonerGUID() == player->GetGUID())
                     summon->UnSummon();
         }
     };
@@ -382,7 +383,8 @@ namespace
             for (Creature* c : found)
             {
                 TempSummon* summon = c->ToTempSummon();
-                if (!summon || summon->GetSummonerGUID() != player->GetGUID())
+                // never a companion gentled from a proving wolf (a hunter's pet is a summon of its player too)
+                if (!summon || summon->IsPet() || summon->GetSummonerGUID() != player->GetGUID())
                     continue;
                 summon->UnSummon();
                 ++gone;

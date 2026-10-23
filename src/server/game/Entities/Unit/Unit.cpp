@@ -17,6 +17,7 @@
 
 #include "Unit.h"
 #include "EmberfallCombatLog.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "AbstractFollower.h"
 #include "AreaDefines.h"
 #include "ArenaSpectator.h"
@@ -13524,6 +13525,8 @@ Pet* Unit::CreateTamedPetFrom(Creature* creatureTarget, uint32 spell_id)
     }
 
     uint8 level = creatureTarget->GetLevel() + 5 < GetLevel() ? (GetLevel() - 5) : creatureTarget->GetLevel();
+    if (Emberfall::OwnData())                               // EMBERFALL: own data (PATCHES.md #17): the hunter's level
+        level = GetLevel();
 
     if (!InitTamedPet(pet, level, spell_id))
     {

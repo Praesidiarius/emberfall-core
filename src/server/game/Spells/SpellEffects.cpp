@@ -3367,6 +3367,8 @@ void Spell::EffectTameCreature(SpellEffIndex /*effIndex*/)
     creatureTarget->DespawnOrUnsummon();
 
     uint8 level = (creatureTarget->GetLevel() < (unitCaster->GetLevel() - 5)) ? (unitCaster->GetLevel() - 5) : creatureTarget->GetLevel();
+    if (Emberfall::OwnData())                               // EMBERFALL: own data (PATCHES.md #17): the hunter's level
+        level = unitCaster->GetLevel();
 
     // prepare visual effect for levelup
     pet->SetUInt32Value(UNIT_FIELD_LEVEL, level - 1);

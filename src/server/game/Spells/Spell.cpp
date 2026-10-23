@@ -17,6 +17,7 @@
 
 #include "Spell.h"
 #include "EmberfallCombatLog.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "ArenaSpectator.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
@@ -5568,6 +5569,10 @@ void Spell::TakeAmmo()
     if (!unitCaster)
         return;
 
+    // EMBERFALL: own data (PATCHES.md #16): no ammunition to use up
+    if (Emberfall::OwnData())
+        return;
+
     if (m_attackType == RANGED_ATTACK && unitCaster->IsPlayer() && !m_spellInfo->HasAttribute(SPELL_ATTR6_DO_NOT_CONSUME_RESOURCES))
     {
         Item* pItem = unitCaster->ToPlayer()->GetWeaponForAttack(RANGED_ATTACK);
@@ -7993,6 +7998,10 @@ SpellCastResult Spell::CheckItems(uint32* param1, uint32* param2)
                                     // Requires No Ammo
                                     if (unitCaster->HasAura(46699))
                                         break;                      // skip other checks
+                                    // EMBERFALL: own data (PATCHES.md #16): Tales of Orrin has no ammunition; bows, guns
+                                    // and crossbows shoot without it
+                                    if (Emberfall::OwnData())
+                                        break;
 
                                     return SPELL_FAILED_NO_AMMO;
                                 }
