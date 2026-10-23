@@ -291,6 +291,24 @@ namespace ef::prof
             return {};
         }
 
+        // One profession's part of a character's ranks (they hold every profession's nodes).
+        Ranks Of(uint32_t skill, Ranks const& all) const
+        {
+            Ranks out;
+            for (auto const& [node, rank] : all)
+                if (SkillOfNode(node) == skill)
+                    out[node] = rank;
+            return out;
+        }
+
+        // A character's stored ranks of one profession still hold at `skillValue` (the login check). Validate alone
+        // answers DECODE for every other profession's node in `all`: the login wiped the first profession (Alchemy,
+        // 171) whenever a second one (Herbalism, Mining) had ranks.
+        Check ValidateStored(uint32_t skill, Ranks const& all, uint32_t skillValue) const
+        {
+            return Validate(skill, Of(skill, all), skillValue);
+        }
+
         // The spells the ranks teach: rank r of a node teaches its r-th spell only.
         std::set<uint32_t> Expected(Ranks const& ranks) const
         {
