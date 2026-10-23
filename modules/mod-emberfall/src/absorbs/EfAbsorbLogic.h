@@ -20,7 +20,10 @@
 // tests/absorb_tests.cpp (tests/run_tests.sh) checks it.
 //
 // Protocol (an addon whisper from the player to themselves, prefix "EFA\t"): one message per absorb aura whose numbers
-// changed, `1;0;ABS;<spellId>;<left>;<cap>`; an aura that went away: `1;0;ABS;<spellId>;0;0`.
+// changed, `1;0;ABS;<spellId>;<left>;<cap>`; an aura that went away: `1;0;ABS;<spellId>;0;0`. Other units the player
+// watches (the group's members on the player's map, the player's selection; Emberfall feedback #48: the absorb segment
+// on the client's health bars): `1;0;UNI;<guid>;<total>` when a unit's total of absorbs left changed, `...;0` when it
+// has none any more or is no longer watched (<guid> in decimal).
 
 #ifndef EMBERFALL_ABSORB_LOGIC_H
 #define EMBERFALL_ABSORB_LOGIC_H
@@ -37,6 +40,8 @@ namespace Emberfall::Absorbs
     constexpr std::string_view kPrefix = "EFA\t";
     constexpr std::uint32_t kVersion = 1;
     constexpr std::uint32_t kPeriodMs = 100;
+    // the other units' totals: a little slower (a raid's 39 members for each of its players)
+    constexpr std::uint32_t kUnitPeriodMs = 200;
 
     // One absorb aura on the player now (the core glue sums an aura's absorb effects; several auras of one spell add up).
     struct Snapshot
@@ -116,6 +121,58 @@ namespace Emberfall::Absorbs
         state.spells = std::move(next);
         return lines;
     }
+
+    // The other units' totals the player was last told (guid -> total) and their throttle's clock.
+    struct UnitState
+    {
+        std::map<std::uint64_t, std::int64_t> told;
+        std::uint32_t elapsedMs = 0;
+
+        bool Tick(std::uint32_t diffMs, std::uint32_t periodMs = kUnitPeriodMs)
+        {
+            elapsedMs += diffMs;
+            if (elapsedMs < periodMs)
+                return false;
+            elapsedMs = 0;
+            return true;
+        }
+    };
+
+    struct UnitLine
+    {
+        std::uint64_t guid = 0;
+        std::int64_t total = 0;
+    };
+
+    // The lines for the watched units' totals now (guid -> total; units with none may be left out), and the state
+    // updated: a unit new or with another total, and `0` for a unit told before that has none now or is not watched.
+    inline std::vector<UnitLine> DiffUnits(UnitState& state, std::map<std::uint64_t, std::int64_t> const& now)
+    {
+        std::vector<UnitLine> lines;
+        std::map<std::uint64_t, std::int64_t> next;
+        for (auto const& [guid, raw] : now)
+        {
+            std::int64_t const total = std::max<std::int64_t>(0, raw);
+            if (!guid || !total)
+                continue;
+            auto prev = state.told.find(guid);
+            if (prev == state.told.end() || prev->second != total)
+                lines.push_back({ guid, total });
+            next[guid] = total;
+        }
+        for (auto const& [guid, total] : state.told)
+            if (!next.count(guid))
+                lines.push_back({ guid, 0 });
+        state.told = std::move(next);
+        return lines;
+    }
+
+    // `1;0;UNI;<guid>;<total>` (the body) and the whole text.
+    inline std::string UnitBody(UnitLine const& l)
+    {
+        return std::to_string(kVersion) + ";0;UNI;" + std::to_string(l.guid) + ";" + std::to_string(l.total);
+    }
+    inline std::string UnitText(UnitLine const& l) { return std::string(kPrefix) + UnitBody(l); }
 
     // Adds up snapshots of the same spell (several auras of one spell: their amounts, their caps; the newest apply
     // time; the lowest identity, so the order of the auras does not matter), in spell order.

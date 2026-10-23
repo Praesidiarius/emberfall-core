@@ -237,6 +237,9 @@ int main()
     check(CutBasePct(5000, 6000, 20) == 1200, "Shieldbrand: Aegis Ricochet -1.2 s");
     check(CutBasePct(10000, 15000, 20) == 3000, "Aegis Ricochet: Bastion Breaker -3 s");
     check(CutBasePct(20000, 30000, 20) == 6000, "Bastion Breaker: Aegis of Judgment -6 s");
+    // (taken at Breaker's cast, hit or miss: spell_ef_kit_helper_links reads the burst's link; feedback #47)
+    check(CutBasePct(20000, 30000, 30) == 9000, "Linked Oaths 2: Aegis of Judgment -9 s");
+    check(CutBasePct(4000, 6000, 20) == 1200, "Oathbound Rush: Aegis Ricochet -1.2 s");
     check(CutBasePct(1000, 6000, 20) == 1000, "1 s left: never below zero");
     check(CutBasePct(0, 6000, 20) == 0, "ready: nothing");
     check(CutBasePct(5000, 0, 20) == 0, "no base cooldown: nothing");
