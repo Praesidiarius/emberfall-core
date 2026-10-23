@@ -28,6 +28,11 @@
 //                                  amount (a set bonus's extra link: the Sunward Bastion's 2 and 8 pieces). The chain:
 //                                  Shieldbrand, the ricochet's bounce, Bastion Breaker's burst, Aegis of Judgment's wave;
 //                                  Judgment's Echo's reset; Oathbound Rush's slow immunity for the Oathkeeper
+//   spell_ef_kit_helper_links      the links of the spell's trigger_spell helpers (their dummies on the caster with a
+//                                  trigger, as spell_ef_kit_cooldown_cut_pct reads them, spell mods in) are taken at the
+//                                  cast, whether the helper lands or not: Bastion Breaker's link to Aegis of Judgment sits
+//                                  on its burst, which a missed, dodged or parried blow never casts (Emberfall feedback
+//                                  #47); the helper carries no cut script of its own, so a hit takes it once
 //   spell_ef_kit_exclude_target    the spell's areas round its target leave the target out (Aegis Ricochet's bounces)
 //   spell_ef_kit_capped_extend     a cast while the caster's own aura of the spell still runs adds the spell's duration to
 //                                  what is left, at most effect 3's value in seconds (spell mods in: Long Resolve); one aura,
@@ -102,6 +107,41 @@ class spell_ef_kit_cooldown_cut_pct : public SpellScript
         if (links)
             OnEffectHitTarget += SpellEffectFn(spell_ef_kit_cooldown_cut_pct::HandleDummy, EFFECT_ALL, SPELL_EFFECT_DUMMY);
         AfterCast += SpellCastFn(spell_ef_kit_cooldown_cut_pct::AuraLinks);
+    }
+};
+
+// Bastion Breaker: its burst's link to Aegis of Judgment at the cast, hit or miss (the burst only comes with a hit).
+class spell_ef_kit_helper_links : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_helper_links);
+
+    void Links()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+        for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+        {
+            SpellEffectInfo const& eff = GetSpellInfo()->Effects[i];
+            SpellInfo const* helper = eff.Effect == SPELL_EFFECT_TRIGGER_SPELL && eff.TriggerSpell
+                ? sSpellMgr->GetSpellInfo(eff.TriggerSpell) : nullptr;
+            if (!helper)
+                continue;
+            for (uint8 j = 0; j < MAX_SPELL_EFFECTS; ++j)
+            {
+                SpellEffectInfo const& link = helper->Effects[j];
+                if (link.Effect != SPELL_EFFECT_DUMMY || !link.TriggerSpell || link.TargetA.GetTarget() != TARGET_UNIT_CASTER)
+                    continue;
+                // the helper's value with the caster's spell mods (Linked Oaths raises the burst's effect 2)
+                Emberfall::ClassKit::CutCooldownPct(caster, link.TriggerSpell, link.CalcValue(caster),
+                                                    link.MiscValueB * IN_MILLISECONDS);
+            }
+        }
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_ef_kit_helper_links::Links);
     }
 };
 
@@ -281,6 +321,7 @@ class spell_ef_kit_stack_refill : public AuraScript
 void AddEmberfallClassKitOathScripts()
 {
     RegisterSpellScript(spell_ef_kit_cooldown_cut_pct);
+    RegisterSpellScript(spell_ef_kit_helper_links);
     RegisterSpellScript(spell_ef_kit_exclude_target);
     RegisterSpellScript(spell_ef_kit_capped_extend);
     RegisterSpellScript(spell_ef_kit_consume_aura);
