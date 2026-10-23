@@ -200,7 +200,7 @@ namespace Emberfall::ProfSpecs
                 bool drop = !player->HasSkill(skill);
                 if (!drop)
                 {
-                    Check const c = m.Validate(skill, st.ranks, player->GetPureSkillValue(skill));
+                    Check const c = m.ValidateStored(skill, st.ranks, player->GetPureSkillValue(skill));
                     if (!c.ok())
                     {
                         LOG_INFO("module", "Emberfall profspecs: {} skill {}: stored ranks fail ({} {}), reset", player->GetName(), skill,

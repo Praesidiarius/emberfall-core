@@ -107,6 +107,16 @@ int main()
     CHECK(m.Validate(186, {{101, 3}}, 75, &stored).code == "LOWER");               // ranks never go down
     CHECK(m.Validate(186, {{101, 3}}, 75, &stored).detail == 301);
 
+    // the login check: a character's stored ranks hold every profession's nodes, each profession is checked on its
+    // own (Validate of the whole set answered DECODE, and the login wiped Alchemy's ranks next to Mining's)
+    Ranks both{{101, 3}, {301, 1}, {701, 3}};
+    CHECK(m.Of(171, both) == Ranks({{701, 3}}) && m.Of(186, both) == Ranks({{101, 3}, {301, 1}}));
+    CHECK(m.Validate(171, both, 75).code == "DECODE");
+    CHECK(m.ValidateStored(171, both, 75).ok());
+    CHECK(m.ValidateStored(186, both, 75).ok());
+    CHECK(m.ValidateStored(171, both, 29).code == "BUDGET");   // its own budget still counts
+    CHECK(m.ValidateStored(186, both, 39).code == "BUDGET");   // 4 points need 40
+
     // effects: only nodes that work today count, per_rank x rank
     Ranks e{{101, 2}, {102, 3}, {301, 3}, {302, 2}, {701, 3}};
     CHECK(m.Sum(e, Effect::Yield, 186, [](Node const& n) { return n.items.count(90611) != 0; }) == 20);
