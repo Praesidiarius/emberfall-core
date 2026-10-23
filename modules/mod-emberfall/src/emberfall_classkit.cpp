@@ -312,7 +312,8 @@ class spell_ef_kit_shatter : public SpellScript
     }
 };
 
-// A school absorb of its value in percent of max health (the value already carries the caster's spell mods).
+// A school absorb of its value in percent of its owner's max health (the value already carries the caster's spell mods;
+// the owner is the caster for every self shield; the Oathkeeper's Sunwall shields each party member by its own health).
 class spell_ef_kit_absorb_pct_health : public AuraScript
 {
     PrepareAuraScript(spell_ef_kit_absorb_pct_health);
@@ -320,8 +321,8 @@ class spell_ef_kit_absorb_pct_health : public AuraScript
     void CalcAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
     {
         canBeRecalculated = false;
-        if (Unit* caster = GetCaster())
-            amount = int32(caster->CountPctFromMaxHealth(amount));
+        if (Unit* owner = GetUnitOwner() ? GetUnitOwner() : GetCaster())
+            amount = int32(owner->CountPctFromMaxHealth(amount));
     }
 
     void Register() override
@@ -884,6 +885,7 @@ void AddEmberfallClassKitPowerScripts();
 void AddEmberfallClassKitHealScripts();
 void AddEmberfallClassKitWrathScripts();
 void AddEmberfallClassKitHeatScripts();
+void AddEmberfallClassKitOathScripts();
 void AddEmberfallClassKitHuntScripts();
 
 void AddEmberfallClassKitScripts()
@@ -914,5 +916,6 @@ void AddEmberfallClassKitScripts()
     AddEmberfallClassKitHealScripts();  // the Warlock's: src/emberfall_classkit_heal.cpp
     AddEmberfallClassKitWrathScripts(); // the Wrathbringer's cards: src/emberfall_classkit_wrath.cpp
     AddEmberfallClassKitHeatScripts();  // the Pyromancer's Heat: src/emberfall_classkit_heat.cpp
+    AddEmberfallClassKitOathScripts();  // the Oathkeeper's chain and shields: src/emberfall_classkit_oath.cpp
     AddEmberfallClassKitHuntScripts();  // the Hunter's: src/emberfall_classkit_hunt.cpp
 }

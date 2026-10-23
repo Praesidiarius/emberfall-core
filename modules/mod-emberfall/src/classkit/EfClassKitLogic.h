@@ -373,5 +373,45 @@ namespace Emberfall::ClassKit::Logic
         float const across = -rx * dy + ry * dx;
         return along > 0.0f && along <= length + reach && (across < 0.0f ? -across : across) <= halfWidth + reach;
     }
+
+    // ---- the Paladin's Oathkeeper (Emberfall docs/design/classes/paladin-oathkeeper.md: the chain, Bastion's Resolve) ----
+
+    // A link of the chain (spell_ef_kit_cooldown_cut_pct): `pct` percent of what is LEFT of a running cooldown
+    // (`remainingMs`; 100: all of it, Judgment's Echo's reset). With `floorMs` above 0 the cooldown as a whole (`fullMs`
+    // as it started, spell mods in, less `alreadyCutMs` taken off it before) never falls below the floor (Solenne's
+    // Retribution: never below 60 s). Nothing while the cooldown is not running.
+    constexpr int32_t CutRemainingPct(int32_t remainingMs, int32_t pct, int32_t fullMs = 0, int32_t floorMs = 0,
+                                      int32_t alreadyCutMs = 0)
+    {
+        if (remainingMs <= 0 || pct <= 0)
+            return 0;
+        int32_t take = int32_t(int64_t(remainingMs) * std::min<int32_t>(pct, 100) / 100);
+        if (floorMs > 0 && fullMs > 0)
+            take = std::min<int32_t>(take, std::max<int32_t>(0, fullMs - std::max<int32_t>(0, alreadyCutMs) - floorMs));
+        return std::max<int32_t>(0, take);
+    }
+
+    // Bastion's Resolve (spell_ef_kit_capped_extend): a cast with `leftMs` of the aura still to run adds its `addMs` to
+    // it, at most `capMs` in all (20 s; Long Resolve 24/28); the first cast is simply `addMs`.
+    constexpr int32_t ExtendCapped(int32_t leftMs, int32_t addMs, int32_t capMs)
+    {
+        int64_t const want = int64_t(std::max<int32_t>(0, leftMs)) + std::max<int32_t>(0, addMs);
+        if (capMs <= 0)
+            return int32_t(want);
+        return int32_t(std::min<int64_t>(want, std::max<int32_t>(capMs, addMs)));
+    }
+
+    // Solenne's Favor (spell_ef_kit_add_charge): the charges after a gain, at most `max` (2).
+    constexpr int32_t ChargesAfter(int32_t have, int32_t max)
+    {
+        return std::max<int32_t>(1, std::min<int32_t>(std::max<int32_t>(0, have) + 1, std::max<int32_t>(1, max)));
+    }
+
+    // Solenne's Aegis's bursts (spell_ef_kit_absorb_burst): an absorbed blow at `nowMs` bursts when at least `gapMs` have
+    // passed since the last burst (`lastMs`, 0: none yet).
+    constexpr bool BurstDue(uint64_t nowMs, uint64_t lastMs, int32_t gapMs)
+    {
+        return lastMs == 0 || gapMs <= 0 || nowMs >= lastMs + uint64_t(gapMs);
+    }
 }
 

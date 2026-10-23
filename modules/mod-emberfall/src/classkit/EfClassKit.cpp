@@ -643,6 +643,29 @@ namespace Emberfall::ClassKit
         }
     }
 
+    int32 CutCooldownPct(Unit* caster, uint32 spell, int32 pct, int32 floorMs)
+    {
+        Player* player = caster ? caster->ToPlayer() : nullptr;
+        if (!player || !spell || pct <= 0 || !player->HasSpellCooldown(spell))
+            return 0;
+        auto cd = player->GetSpellCooldownMap().find(spell);
+        if (cd == player->GetSpellCooldownMap().end())
+            return 0;
+        // a player's cuts of each cooldown, so the floor counts every cut of the one cooldown (CooldownByStacks' record)
+        StackCooldownCuts* cuts = player->CustomData.GetDefault<StackCooldownCuts>("emberfall_pct_cooldowns");
+        StackCooldownCuts::Cut& cut = cuts->bySpell[spell];
+        if (cut.end != cd->second.end)
+            cut = {};
+        int32 const take = Logic::CutRemainingPct(int32(player->GetSpellCooldownDelay(spell)), pct,
+                                                  int32(cd->second.maxduration), floorMs, cut.takenMs);
+        if (take <= 0)
+            return 0;
+        player->ModifySpellCooldown(spell, -take);
+        cut.takenMs += take;
+        cut.end = cd->second.end;
+        return take;
+    }
+
     int32 ShortenCooldown(Unit* caster, uint32 spell, int32 cutMs)
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;

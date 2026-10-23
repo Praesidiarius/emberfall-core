@@ -136,6 +136,11 @@ namespace Emberfall::ClassKit
     // Shortens the caster's running cooldown of `spell` by `cutMs` (never below nothing; SMSG_MODIFY_COOLDOWN tells the
     // client). Returns the ms taken (Oathbound Rush on Oathblade, Endless Crown on Crown of Blades).
     int32 ShortenCooldown(Unit* caster, uint32 spell, int32 cutMs);
+    // A link of the Oathkeeper's chain (spell_ef_kit_cooldown_cut_pct): takes `pct` percent of what is left of the
+    // caster's running cooldown of `spell` (100: all of it), never cutting that cooldown as a whole below `floorMs` (0:
+    // no floor; Solenne's Retribution 60 s: the cuts of one cooldown are kept on the player). SMSG_MODIFY_COOLDOWN tells
+    // the client. Nothing while the spell is ready. Returns the ms taken.
+    int32 CutCooldownPct(Unit* caster, uint32 spell, int32 pct, int32 floorMs = 0);
     // Empowerment: the sum of the caster's non-passive dummy aura effects with misc = `spell` and no trigger, in percent
     // (Solenne's Wrath: +100 % on Solenne's Blessing). RefreshEmpowered recomputes the caster's aura `spell` on the caster
     // and its group's members in the map (when the empowering aura comes or goes).
