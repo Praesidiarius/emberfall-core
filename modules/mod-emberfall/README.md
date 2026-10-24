@@ -286,7 +286,7 @@ at most two living hostile creatures within 12 yd. Score: ground distance + 2 x 
 Logged: `Emberfall unstuck: <name> (guid N) nearby on map M from (x, y, z) to (x, y, z), D yd (ring R, N probed, open A
 yd2, H hostiles)`, or `... nearby ...: no spot (...; N probed: no mesh n, too close n, ...); to town`.
 
-**EFU** (addon whisper in the player's own name, after every unstuck request and on `.stuck status`):
+**EFU** (addon whisper in the player's own name, after every unstuck request, 5 s after login (`emberfall_unstuck_player`, `PlayerScript::OnPlayerLogin`) and on `.stuck status`):
 `EFU\t<nearby> <town>`, the seconds until each can be used again, -1 off. The client's game menu shows them.
 
 `data/sql/db-world/mod_emberfall_2026_10_18_10_unstuck.sql`: the `ef_unstuck_point` schema (Emberfall's world SQL fills

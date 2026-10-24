@@ -38,7 +38,7 @@
 //     released to their graveyard.
 //
 // Messages are in the player's language (the session's locale: deDE German, else English; "Unstuck: ", "Befreien: ").
-// After every request, and on `.stuck status`, the player's client gets an EFU addon whisper in their own name: the
+// After every request, 5 s after login and on `.stuck status`, the player's client gets an EFU addon whisper in their own name: the
 // seconds until each way can be used again ("<nearby> <town>", -1 off), for the menu's cooldowns.
 // Each use is logged (logger "module"): the character, from where, to where; a failed nearby search with its reasons.
 //
@@ -62,6 +62,7 @@
 #include "MapDefines.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "PlayerScript.h"
 #include "ScriptMgr.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
@@ -492,6 +493,19 @@ class spell_ef_unstuck : public SpellScript
     }
 };
 
+// Shortly after login (the UI is up by then), the EFU line: a relogged player's cooldowns, and the client learns the
+// realm has both ways.
+class emberfall_unstuck_player : public PlayerScript
+{
+public:
+    emberfall_unstuck_player() : PlayerScript("emberfall_unstuck_player", { PLAYERHOOK_ON_LOGIN }) { }
+
+    void OnPlayerLogin(Player* player) override
+    {
+        player->m_Events.AddEventAtOffset([player]() { SendState(player); }, 5s);
+    }
+};
+
 // `.stuck`: the same as the stock `.unstuck` for a player (`.unstuck` is the core's, cs_misc); `.stuck nearby`: free
 // nearby; `.stuck status`: only the EFU line (the client's menu asks it when it opens).
 class emberfall_unstuck_commands : public CommandScript
@@ -551,5 +565,6 @@ void AddEmberfallUnstuckScripts()
 {
     new emberfall_unstuck_world();
     new emberfall_unstuck_commands();
+    new emberfall_unstuck_player();
     RegisterSpellScript(spell_ef_unstuck);
 }
