@@ -57,6 +57,7 @@ namespace Emberfall::ClassKit
             bool inCombat = false;
             int32 holds = 0;                        // Overheat: nothing drains the power while > 0
             int64 regenCarry = 0;   // the class power's regeneration (millionths of a point)
+            bool markerFight = false;               // in a fight as the fight markers saw it (every kit player)
         };
 
         bool TableExists(char const* name)
@@ -294,11 +295,25 @@ namespace Emberfall::ClassKit
             else
                 cs->regenCarry = 0;
         }
+        bool const fight = player->IsInCombat();
+        // the fight markers end with the fight for every kit player, whatever its power (the Sunwarden's Dawnstrike combo
+        // on mana; First Flash may double the next fight's first build again)
+        if (!s_fightMarkers.empty())
+        {
+            PowerState* ms = player->CustomData.GetDefault<PowerState>(kStateKey);
+            if (fight)
+                ms->markerFight = true;
+            else if (ms->markerFight)
+            {
+                ms->markerFight = false;
+                for (uint32 marker : s_fightMarkers)
+                    player->RemoveAurasDueToSpell(marker);
+            }
+        }
         PowerState* st = player->CustomData.Get<PowerState>(kStateKey);
         if (!st || !st->power)
             return;
         UpdateTiers(player, *st->power);
-        bool const fight = player->IsInCombat();
         if (fight)
         {
             st->inCombat = true;
@@ -307,12 +322,7 @@ namespace Emberfall::ClassKit
             return;
         }
         if (st->inCombat)
-        {
-            // the fight ended: its markers go (First Flash may double the next fight's first build again)
             st->inCombat = false;
-            for (uint32 marker : s_fightMarkers)
-                player->RemoveAurasDueToSpell(marker);
-        }
         st->outOfCombatMs += diff;
         if (st->holds > 0)
             return;

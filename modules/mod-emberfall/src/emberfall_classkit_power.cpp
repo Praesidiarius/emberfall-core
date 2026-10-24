@@ -43,7 +43,8 @@
 //                                 (Static Skin, Stored Charge)
 //   spell_ef_kit_charges          a dummy effect with misc = the talent, value = the charges, trigger = the charge aura (a
 //                                 stacking aura):
-//                                 with the talent known the spell holds that many charges (EfClassKit.h SpendCharge;
+//                                 with the talent known (or misc = the spell itself: always) the spell holds that many
+//                                 charges (EfClassKit.h SpendCharge;
 //                                 Downburst + Second Gust)
 //   spell_ef_kit_charge_aura      the charge aura: when it runs out a charge is back (EfClassKit.h ChargeBack)
 //   spell_ef_kit_proc_while       a proc_trigger_spell aura that procs only while its owner has the aura of its misc; the
@@ -369,7 +370,8 @@ class spell_ef_kit_charges : public SpellScript
             SpellInfo const* aura = eff.TriggerSpell ? sSpellMgr->GetSpellInfo(eff.TriggerSpell) : nullptr;
             if (eff.Effect == SPELL_EFFECT_DUMMY && aura && aura->StackAmount > 1 && eff.MiscValue)
             {
-                if (player->HasAura(uint32(eff.MiscValue)))
+                // misc: the talent that gives the charges, or the spell itself (always: Solenne's Grace and Embrace)
+                if (uint32(eff.MiscValue) == GetSpellInfo()->Id || player->HasAura(uint32(eff.MiscValue)))
                     Emberfall::ClassKit::SpendCharge(player, GetSpellInfo()->Id, eff.TriggerSpell, uint32(std::max(0, eff.CalcValue(player))));
                 return;
             }
