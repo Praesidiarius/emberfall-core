@@ -39,7 +39,8 @@
 //                                  Resolve; no effect 3: no cap); one aura, never a second (Bastion's Resolve on the caster;
 //                                  the Executioner's Deathblow bleed on an enemy, +8 s an application)
 //   spell_ef_kit_consume_aura      after the cast, one charge (or one stack) of the caster's aura the spell requires
-//                                  (Spell.dbc CasterAuraSpell) is taken: Bastion's Resolve's charges, Echo Ready
+//                                  (Spell.dbc CasterAuraSpell) is taken: Bastion's Resolve's charges, Echo Ready, the
+//                                  Executioner's Deathblow window; not when every enemy target avoided the strike
 //   spell_ef_kit_add_charge        a dummy effect on the caster with a trigger: one more charge of that aura on the caster,
 //                                  at most the effect's value; misc: a spell the caster must know (Aegis of Judgment's
 //                                  shield and Solenne's Favor)
@@ -218,6 +219,17 @@ class spell_ef_kit_consume_aura : public SpellScript
         uint32 const need = GetSpellInfo()->CasterAuraSpell;
         Aura* aura = caster && need ? caster->GetAura(need) : nullptr;
         if (!aura)
+            return;
+        // a strike that every enemy dodged, parried or evaded keeps it (the Executioner's Deathblow window, 2026-10-24)
+        bool enemies = false, landed = false;
+        for (TargetInfo const& info : *GetSpell()->GetUniqueTargetInfo())
+        {
+            if (info.targetGUID == caster->GetGUID())
+                continue;
+            enemies = true;
+            landed = landed || info.missCondition == SPELL_MISS_NONE;
+        }
+        if (enemies && !landed)
             return;
         if (aura->IsUsingCharges() && aura->GetCharges() > 0)
             aura->DropCharge();
