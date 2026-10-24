@@ -264,6 +264,21 @@ int main()
     check(!BurstDue(5500, 5000, 1000), "half a second later: not");
     check(BurstDue(6000, 5000, 1000), "a second later: again");
 
+    // the Executioner's finishers: +20 % an Opening, a sure crit at 3, the Openings consumed, kept or one left
+    check(FinisherDamage(100, 20, 0) == 100, "no Openings: the base");
+    check(FinisherDamage(100, 20, 1) == 120, "1 Opening: x1.2");
+    check(FinisherDamage(100, 20, 3) == 160, "3 Openings: x1.6");
+    check(FinisherDamage(0, 20, 3) == 0, "a miss stays a miss");
+    check(!FinisherSureCrit(2, 3) && FinisherSureCrit(3, 3), "a sure crit at 3, not at 2");
+    check(!FinisherSureCrit(3, 0), "need 0: never");
+    check(FinisherStacksLeft(3, false, 0, 0) == 0, "consumed");
+    check(FinisherStacksLeft(2, true, 0, 0) == 2, "Perfect Execution keeps them");
+    check(FinisherStacksLeft(3, false, 1, 3) == 1, "Headsman's Due: 1 left at 3");
+    check(FinisherStacksLeft(2, false, 1, 3) == 0, "Headsman's Due: nothing below 3");
+    check(FinisherStacksLeft(3, true, 1, 3) == 3, "Perfect Execution wins over Headsman's Due");
+    // the bleed: +8 s an application, no cap
+    check(ExtendCapped(30000, 8000, 0) == 38000, "the bleed: 30 s left, 38 s");
+
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }

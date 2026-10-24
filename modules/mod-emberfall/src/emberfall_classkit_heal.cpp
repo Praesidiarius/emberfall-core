@@ -26,7 +26,7 @@
 //                                 misc = the spell whose damage counts, none: any) is cast as the effect's trigger (a heal
 //                                 of the amount it is cast with) on the most injured ally within 40 yards, the owner
 //                                 included (EfClassKit.h MostInjuredAlly: group, pets and guardians, the .efparty
-//                                 companions; Overflow, Harvest Tide)
+//                                 companions; Overflow, Harvest Tide); misc B 1: the owner itself (Iron Resolve)
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
@@ -114,7 +114,9 @@ class spell_ef_kit_transfuse : public AuraScript
         int32 amount = Emberfall::ClassKit::Logic::Transfused(int32(damage->GetDamage()), aurEff->GetAmount());
         if (amount <= 0)
             return;
-        Unit* ally = Emberfall::ClassKit::MostInjuredAlly(owner, kTransfuseRange);
+        // misc B 1: the owner itself (the Warrior's Iron Resolve: Life Steal)
+        Unit* ally = GetSpellInfo()->Effects[aurEff->GetEffIndex()].MiscValueB == 1
+            ? owner : Emberfall::ClassKit::MostInjuredAlly(owner, kTransfuseRange);
         if (!ally)
             return;
         owner->CastCustomSpell(ally, trigger, &amount, nullptr, nullptr, true, nullptr, aurEff);

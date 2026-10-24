@@ -34,9 +34,10 @@
 //                                  on its burst, which a missed, dodged or parried blow never casts (Emberfall feedback
 //                                  #47); the helper carries no cut script of its own, so a hit takes it once
 //   spell_ef_kit_exclude_target    the spell's areas round its target leave the target out (Aegis Ricochet's bounces)
-//   spell_ef_kit_capped_extend     a cast while the caster's own aura of the spell still runs adds the spell's duration to
-//                                  what is left, at most effect 3's value in seconds (spell mods in: Long Resolve); one aura,
-//                                  never a second (Bastion's Resolve)
+//   spell_ef_kit_capped_extend     a cast while the caster's own aura of the spell still runs on the unit it hits adds the
+//                                  spell's duration to what is left, at most effect 3's value in seconds (spell mods in: Long
+//                                  Resolve; no effect 3: no cap); one aura, never a second (Bastion's Resolve on the caster;
+//                                  the Executioner's Deathblow bleed on an enemy, +8 s an application)
 //   spell_ef_kit_consume_aura      after the cast, one charge (or one stack) of the caster's aura the spell requires
 //                                  (Spell.dbc CasterAuraSpell) is taken: Bastion's Resolve's charges, Echo Ready
 //   spell_ef_kit_add_charge        a dummy effect on the caster with a trigger: one more charge of that aura on the caster,
@@ -169,32 +170,39 @@ class spell_ef_kit_capped_extend : public SpellScript
 
     int32 _leftMs = 0;
 
-    void Before()
+    // what is left of the caster's aura on the unit about to be hit (the caster itself: Bastion's Resolve; an enemy: the
+    // Executioner's bleed); Before and After run for each unit in turn
+    void BeforeHitTarget(SpellMissInfo /*missInfo*/)
     {
         Unit* caster = GetCaster();
-        Aura const* aura = caster ? caster->GetAura(GetSpellInfo()->Id, caster->GetGUID()) : nullptr;
+        Unit* target = GetHitUnit();
+        Aura const* aura = caster && target ? target->GetAura(GetSpellInfo()->Id, caster->GetGUID()) : nullptr;
         _leftMs = aura ? std::max(0, aura->GetDuration()) : 0;
     }
 
     void AfterHitTarget()
     {
         Unit* caster = GetCaster();
-        if (!caster || GetHitUnit() != caster || _leftMs <= 0)
+        Unit* target = GetHitUnit();
+        int32 const left = _leftMs;
+        _leftMs = 0;
+        if (!caster || !target || left <= 0)
             return;
-        Aura* aura = caster->GetAura(GetSpellInfo()->Id, caster->GetGUID());
+        Aura* aura = target->GetAura(GetSpellInfo()->Id, caster->GetGUID());
         if (!aura)
             return;
         int32 const add = aura->CalcMaxDuration(caster);
-        int32 const capMs = GetSpellInfo()->Effects[EFFECT_2].CalcValue(caster) * IN_MILLISECONDS;
-        int32 const total = Emberfall::ClassKit::Logic::ExtendCapped(_leftMs, add, capMs);
+        // the cap: effect 3's seconds (spell mods in: Long Resolve); no effect 3, no cap (the bleed)
+        int32 const capMs = GetSpellInfo()->Effects[EFFECT_2].Effect
+            ? GetSpellInfo()->Effects[EFFECT_2].CalcValue(caster) * IN_MILLISECONDS : 0;
+        int32 const total = Emberfall::ClassKit::Logic::ExtendCapped(left, add, capMs);
         aura->SetMaxDuration(std::max(total, add));
         aura->SetDuration(total);
-        _leftMs = 0;
     }
 
     void Register() override
     {
-        BeforeCast += SpellCastFn(spell_ef_kit_capped_extend::Before);
+        BeforeHit += BeforeSpellHitFn(spell_ef_kit_capped_extend::BeforeHitTarget);
         AfterHit += SpellHitFn(spell_ef_kit_capped_extend::AfterHitTarget);
     }
 };

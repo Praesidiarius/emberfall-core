@@ -23,7 +23,8 @@
 // the place where an ability is tuned. Contracts (Emberfall's classkit/model.py SCRIPTS checks the effects):
 //
 //   spell_ef_kit_add_stacks          every `dummy` effect with a trigger spell adds its value in stacks of that aura to
-//                                    the targets it hits (the mage's Frost Stacks; EfClassKit.h AddStacks)
+//                                    the targets it hits (the mage's Frost Stacks, the Executioner's Openings; EfClassKit.h
+//                                    AddStacks), then the hit bonuses (those on the caster once a cast)
 //   spell_ef_kit_shatter             effect 1 damages the enemies around that carry the stacks; effect 2 (dummy): value =
 //                                    stacks shattered per enemy (0: all), misc = the stacking aura, misc B 1 = damage per
 //                                    stack; effect 3 (dummy): value = shell stacks per unit, misc B = stacks shattered per
@@ -212,13 +213,17 @@ class spell_ef_kit_add_stacks : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_add_stacks);
 
+    bool _selfDone = false;
+
     void HandleDummy(SpellEffIndex effIndex)
     {
         SpellEffectInfo const& eff = GetSpellInfo()->Effects[effIndex];
         if (!eff.TriggerSpell || !GetHitUnit())
             return;
         uint32 const stacks = Emberfall::ClassKit::AddStacks(GetCaster(), GetHitUnit(), eff.TriggerSpell, std::max(1, GetEffectValue()));
-        Emberfall::ClassKit::HitBonuses(GetCaster(), GetHitUnit(), GetSpellInfo()->Id, stacks);
+        // the bonuses on the caster once a cast, with the first enemy (an area spell rolls Perfect Execution once)
+        Emberfall::ClassKit::HitBonuses(GetCaster(), GetHitUnit(), GetSpellInfo()->Id, stacks, !_selfDone);
+        _selfDone = true;
     }
 
     void Register() override
@@ -887,6 +892,7 @@ void AddEmberfallClassKitWrathScripts();
 void AddEmberfallClassKitHeatScripts();
 void AddEmberfallClassKitOathScripts();
 void AddEmberfallClassKitHuntScripts();
+void AddEmberfallClassKitExecScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -918,4 +924,5 @@ void AddEmberfallClassKitScripts()
     AddEmberfallClassKitHeatScripts();  // the Pyromancer's Heat: src/emberfall_classkit_heat.cpp
     AddEmberfallClassKitOathScripts();  // the Oathkeeper's chain and shields: src/emberfall_classkit_oath.cpp
     AddEmberfallClassKitHuntScripts();  // the Hunter's: src/emberfall_classkit_hunt.cpp
+    AddEmberfallClassKitExecScripts();  // the Warrior's Executioner: src/emberfall_classkit_exec.cpp
 }

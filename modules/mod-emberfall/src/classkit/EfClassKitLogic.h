@@ -415,5 +415,34 @@ namespace Emberfall::ClassKit::Logic
     {
         return lastMs == 0 || gapMs <= 0 || nowMs >= lastMs + uint64_t(gapMs);
     }
+
+    // ---- the Warrior's Executioner (Emberfall docs/design/classes/warrior-executioner.md: Openings and the finishers) ----
+
+    // A finisher (spell_ef_kit_finisher): `damage` raised by `pctPerStack` percent for each of the `stacks` Openings the
+    // enemy carried (Final Verdict and Whirling Steel: 20 %, x1.2 / 1.4 / 1.6 at 1 / 2 / 3).
+    constexpr int32_t FinisherDamage(int32_t damage, int32_t pctPerStack, uint32_t stacks)
+    {
+        if (damage <= 0)
+            return std::max<int32_t>(0, damage);
+        int64_t const pct = 100 + int64_t(std::max<int32_t>(0, pctPerStack)) * stacks;
+        return int32_t(std::min<int64_t>(int64_t(damage) * pct / 100, INT32_MAX));
+    }
+
+    // At `need` Openings (3) a finisher is a sure critical strike; `need` 0 never.
+    constexpr bool FinisherSureCrit(uint32_t stacks, int32_t need)
+    {
+        return need > 0 && stacks >= uint32_t(need);
+    }
+
+    // The Openings left on an enemy after a finisher: none, all of them while Perfect Execution keeps them, or Headsman's
+    // Due's `leave` (1) when the enemy carried at least `leaveAt` (3).
+    constexpr uint32_t FinisherStacksLeft(uint32_t stacks, bool keep, int32_t leave, int32_t leaveAt)
+    {
+        if (keep)
+            return stacks;
+        if (leave > 0 && leaveAt > 0 && stacks >= uint32_t(leaveAt))
+            return std::min<uint32_t>(stacks, uint32_t(leave));
+        return 0;
+    }
 }
 
