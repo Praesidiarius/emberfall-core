@@ -20,6 +20,7 @@
 // keeps the blades held, Endless Crown's lengthening and the per-blade refunds.
 
 #include "EfClassKitLogic.h"
+#include "EfFlowLogic.h"
 
 #include <iostream>
 #include <string>
@@ -278,6 +279,30 @@ int main()
     check(FinisherStacksLeft(3, true, 1, 3) == 3, "Perfect Execution wins over Headsman's Due");
     // the bleed: +8 s an application, no cap
     check(ExtendCapped(30000, 8000, 0) == 38000, "the bleed: 30 s left, 38 s");
+
+    // the Corsair's Flow (EfFlowLogic.h): a prepared finisher holds, No Quarter, a pair, a mark
+    {
+        using namespace Emberfall::ClassKit::Flow;
+        check(NextStep(true, true, true) == Step::Nothing, "a prepared finisher: builders change nothing");
+        check(NextStep(false, true, true) == Step::Override, "No Quarter: the builder's own finisher");
+        check(NextStep(false, false, true) == Step::Combine, "a partner's mark: the pair's finisher");
+        check(NextStep(false, false, false) == Step::Mark, "alone: the mark");
+        // Saltwound: 100 % of the strike's base over 12 ticks, doubled by a crit; Razorstorm: 233 % over 5
+        check(Ticks(12000, 1000) == 12 && Ticks(5000, 1000) == 5 && Ticks(0, 1000) == 1, "ticks over the base duration");
+        check(SplitTick(70, 100, 12, false) == 5, "Saltwound at 60: 70 over 12 ticks");
+        check(SplitTick(70, 100, 12, true) == 11, "a crit doubles it");
+        check(SplitTick(31, 233, 5, false) == 14, "Razorstorm at 60: 7/15 of the spin a tick");
+        check(SplitTick(3, 100, 12, false) == 1, "at least 1 a tick");
+        check(SplitTick(0, 100, 12, true) == 0, "no base, nothing");
+        // the pool: the first free instance, else the one closest to its end
+        check(PickInstance({ 5000, -1, 3000 }) == 1, "a free instance first");
+        check(PickInstance({ 5000, 2000, 3000 }) == 1, "all running: the least time left");
+        // Blood in the Water: +25 % on a 10 % chance -> 35 % in all
+        check(ExtraCritChance(10.0f, 25.0f) > 27.7f && ExtraCritChance(10.0f, 25.0f) < 27.8f, "25 of the 90 left");
+        check(ExtraCritChance(100.0f, 25.0f) == 0.0f && ExtraCritChance(50.0f, 0.0f) == 0.0f, "nothing to add");
+        // Boarding Hook: lands 5 yd short
+        check(HookTravel(20.0f, 5.0f) == 15.0f && HookTravel(4.0f, 5.0f) == 0.0f, "the haul");
+    }
 
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
