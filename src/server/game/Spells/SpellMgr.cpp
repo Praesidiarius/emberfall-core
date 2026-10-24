@@ -2107,7 +2107,8 @@ void SpellMgr::LoadSpellProcs()
             // validate data
             if (procEntry.SchoolMask & ~SPELL_SCHOOL_MASK_ALL)
                 LOG_ERROR("sql.sql", "`spell_proc` table entry for SpellId {} has wrong `SchoolMask` set: {}", spellId, procEntry.SchoolMask);
-            if (procEntry.SpellFamilyName && (procEntry.SpellFamilyName < 3 || procEntry.SpellFamilyName > 17 || procEntry.SpellFamilyName == 14 || procEntry.SpellFamilyName == 16))
+            // EMBERFALL: own data (PATCHES.md #22): Emberfall's class kits have families of their own (100 + class, 101-120)
+            if (procEntry.SpellFamilyName && !(Emberfall::OwnData() && procEntry.SpellFamilyName > 100) && (procEntry.SpellFamilyName < 3 || procEntry.SpellFamilyName > 17 || procEntry.SpellFamilyName == 14 || procEntry.SpellFamilyName == 16))
                 LOG_ERROR("sql.sql", "`spell_proc` table entry for SpellId {} has wrong `SpellFamilyName` set: {}", spellId, procEntry.SpellFamilyName);
             if (procEntry.Chance < 0)
             {
