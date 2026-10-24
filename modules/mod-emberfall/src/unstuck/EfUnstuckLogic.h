@@ -16,7 +16,8 @@
  */
 
 // The unstuck logic that needs no core (Emberfall docs/design/unstuck.md): where `.unstuck` sends a player and whether
-// they may use it now. emberfall_unstuck.cpp uses it; tests/unstuck_tests.cpp (tests/run_tests.sh) checks it.
+// they may use it now. emberfall_unstuck.cpp uses it; tests/unstuck_tests.cpp (tests/run_tests.sh) checks it. Nearby
+// unstuck (`.stuck nearby`) is EfUnstuckNearby.h.
 
 #ifndef EMBERFALL_UNSTUCK_LOGIC_H
 #define EMBERFALL_UNSTUCK_LOGIC_H
@@ -133,18 +134,35 @@ namespace Emberfall::Unstuck
         return Refusal::None;
     }
 
-    // "4 min 12 s", "40 s".
-    inline std::string Duration(std::int64_t seconds)
+    // The player's language for the messages (the session's locale: deDE German, anything else English).
+    enum class Lang
+    {
+        En,
+        De,
+    };
+
+    // "4 min 12 s", "40 s"; German "4 Min. 12 s".
+    inline std::string Duration(std::int64_t seconds, Lang l = Lang::En)
     {
         if (seconds < 60)
             return std::to_string(seconds) + " s";
         std::int64_t m = seconds / 60, s = seconds % 60;
-        return std::to_string(m) + " min" + (s ? " " + std::to_string(s) + " s" : std::string());
+        return std::to_string(m) + (l == Lang::De ? " Min." : " min") + (s ? " " + std::to_string(s) + " s" : std::string());
     }
 
-    // The message for a refusal (system chat; the client's Unstuck dialog shows it too: every one starts "Unstuck: ").
-    inline std::string Message(Refusal r, std::int64_t remaining)
+    // The message for a refusal (system chat; the client's Unstuck dialog shows it too: every one starts "Unstuck: ",
+    // in German "Befreien: ").
+    inline std::string Message(Refusal r, std::int64_t remaining, Lang l = Lang::En)
     {
+        if (l == Lang::De)
+            switch (r)
+            {
+                case Refusal::Off: return "Befreien: auf diesem Realm nicht verfügbar.";
+                case Refusal::Combat: return "Befreien: nicht im Kampf.";
+                case Refusal::Cooldown: return "Befreien: wieder möglich in " + Duration(remaining, l) + ".";
+                case Refusal::Flight: return "Befreien: nicht während eines Flugs.";
+                default: return std::string();
+            }
         switch (r)
         {
             case Refusal::Off: return "Unstuck: not available on this realm.";
@@ -152,6 +170,24 @@ namespace Emberfall::Unstuck
             case Refusal::Cooldown: return "Unstuck: you can use it again in " + Duration(remaining) + ".";
             case Refusal::Flight: return "Unstuck: not while you are flying.";
             default: return std::string();
+        }
+    }
+
+    // Where the player is taken: "Unstuck: taking you to Millbrook." (a town keeps its name in every language).
+    inline std::string TakingYouTo(Where w, std::string const& town, Lang l = Lang::En)
+    {
+        if (l == Lang::De)
+            switch (w)
+            {
+                case Where::Entrance: return "Befreien: du wirst zum Eingang gebracht.";
+                case Where::Town: return "Befreien: du wirst nach " + town + " gebracht.";
+                default: return "Befreien: du wirst nach Hause gebracht.";
+            }
+        switch (w)
+        {
+            case Where::Entrance: return "Unstuck: taking you to the entrance.";
+            case Where::Town: return "Unstuck: taking you to " + town + ".";
+            default: return "Unstuck: taking you home.";
         }
     }
 }

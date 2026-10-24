@@ -3,7 +3,8 @@
 # the module's TalentRules.h, the tree model, the EFT protocol and a decode fuzz) and the companion tests
 # (tests/companion_tests.cpp: src/companions/EfCompanionLogic.h) and the dungeon tests (tests/dungeon_tests.cpp:
 # src/dungeons/EfDungeonLogic.h, the dev warden's gating and the barrows' seals) and the unstuck tests
-# (tests/unstuck_tests.cpp: src/unstuck/EfUnstuckLogic.h, the nearest town, the entrance, the rules) and the absorb tests
+# (tests/unstuck_tests.cpp: src/unstuck/EfUnstuckLogic.h, the nearest town, the entrance, the rules; EfUnstuckNearby.h,
+# nearby unstuck's rings, spot judging and picking, rules, messages) and the absorb tests
 # (tests/absorb_tests.cpp: src/absorbs/EfAbsorbLogic.h, the EFA messages, the throttle, the caps) and the harbour tests
 # (tests/harbour_tests.cpp: src/harbours/EfHarbourLogic.h, the pier's stop and the next sailing) and the dev vendor tests
 # (tests/devvendor_tests.cpp: src/devvendor/EfDevVendorLogic.h, the switch's gating) and the world editor tests

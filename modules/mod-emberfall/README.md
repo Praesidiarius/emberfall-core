@@ -262,20 +262,38 @@ in Millbrook, who sells the Frostguard set for free (Emberfall `content/data/dev
 
 ## Unstuck (Emberfall `docs/design/unstuck.md`)
 
-`src/emberfall_unstuck.cpp`; the logic without the core is `src/unstuck/EfUnstuckLogic.h` (`tests/unstuck_tests.cpp`).
-A stuck player is taken to the nearest town without a GM. `Emberfall.Unstuck.Enable` (1), `Emberfall.Unstuck.Cooldown`
-(300 seconds; 0 none; kept in memory).
+`src/emberfall_unstuck.cpp`; the logic without the core is `src/unstuck/EfUnstuckLogic.h` (to town) and
+`src/unstuck/EfUnstuckNearby.h` (nearby), both checked by `tests/unstuck_tests.cpp`. A stuck player frees themselves
+without a GM: nearby first (`.stuck nearby`: the nearest good standing spot within 40 yd), else to the nearest town
+(`.unstuck`, `.stuck`). `Emberfall.Unstuck.Enable` (1), `Emberfall.Unstuck.Cooldown` (300 seconds; 0 none),
+`Emberfall.Unstuck.Nearby` (1), `Emberfall.Unstuck.NearbyCooldown` (300 seconds; 0 none); the cooldowns are per
+character, kept in memory. Messages follow the session's locale (deDE German, `Befreien: ...`; else `Unstuck: ...`).
 
 | Script | Hook | What |
 |---|---|---|
-| `spell_ef_unstuck` | `SpellScript` on SPELL_STUCK 7355 (spell_script_names from Emberfall's compiler) | CheckCast refuses it in combat, on a flight path and within the cooldown (`Unstuck: ...` system message); at the end of the cast (Emberfall's Spell.dbc: 5 s, moving and damage break it) a living player goes to the nearest `ef_unstuck_point` on their map, in an instance to its start point (`ObjectMgr::GetMapEntranceTrigger`), with no town on the map home; the dead keep the stock Stuck effect (their graveyard). Each use is logged: `Emberfall unstuck: <name> (guid N) from map M (x, y, z) to <place> map M (x, y, z)` |
-| `emberfall_unstuck_commands` | `CommandScript` | `.stuck` (security 0): casts 7355, as the core's `.unstuck` does for a player account |
-| `emberfall_unstuck_world` | `WorldScript` | reads the config; loads `ef_unstuck_point` (`OnLoadCustomDatabaseTable`); boot line `>> Emberfall unstuck: on (N town points, cooldown S s)` |
+| `spell_ef_unstuck` | `SpellScript` on SPELL_STUCK 7355 (spell_script_names from Emberfall's compiler) | CheckCast refuses it in combat, on a flight path and within the cooldown (`Unstuck: ...` system message); on the Stuck effect (7355 is instant in Emberfall's Spell.dbc) a living player goes to the nearest `ef_unstuck_point` on their map, in an instance to its start point (`ObjectMgr::GetMapEntranceTrigger`), with no town on the map home; the dead keep the stock Stuck effect (their graveyard). Each use is logged: `Emberfall unstuck: <name> (guid N) from map M (x, y, z) to <place> map M (x, y, z)` |
+| `emberfall_unstuck_commands` | `CommandScript` | `.stuck` (security 0): casts 7355, as the core's `.unstuck` does for a player account. `.stuck nearby`: refused dead (ghosts take the town way: their graveyard), in combat, on a flight path, transport or vehicle, in a battleground or arena, within its cooldown; else the search below and `NearTeleportTo`; nothing good: `no free spot within 40 yd`, then the town way with its own rules. `.stuck status`: only the EFU line |
+| `emberfall_unstuck_world` | `WorldScript` | reads the config; loads `ef_unstuck_point` (`OnLoadCustomDatabaseTable`); boot line `>> Emberfall unstuck: on (N town points, cooldown S s; nearby on, cooldown S s)` |
+
+**The nearby search.** Rings at 5, 8, 12, 16, 20, 25, 30, 35, 40 yd, 12 points each; once a good spot turns up, the rings
+up to 8 yd further are still probed, then the best wins. Each point snaps to the map's navmesh
+(`MMapData::GetNavMeshQuery`, `findNearestPoly` with a ground-only filter: no water, magma, slime; at the player's height,
+else from the top floor there). A spot is good when: 5-45 yd from the player on the ground; solid floor under it
+(`Map::GetHeight` with vmaps within 1.5 yd of the polygon); `Map::isInLineOfSight` (vmaps and game objects) clear from
+0.3 to 2.4 yd above it and blocked on at most one of four 0.8 yd chest-high rays; not under water; at least 150 yd² of
+navmesh connected to it within 20 yd (`findPolysAroundCircle`; less is a closed pocket: inside a rock, a sealed room);
+at most two living hostile creatures within 12 yd. Score: ground distance + 2 x the climb + 12 per hostile, lowest wins.
+Logged: `Emberfall unstuck: <name> (guid N) nearby on map M from (x, y, z) to (x, y, z), D yd (ring R, N probed, open A
+yd2, H hostiles)`, or `... nearby ...: no spot (...; N probed: no mesh n, too close n, ...); to town`.
+
+**EFU** (addon whisper in the player's own name, after every unstuck request and on `.stuck status`):
+`EFU\t<nearby> <town>`, the seconds until each can be used again, -1 off. The client's game menu shows them.
 
 `data/sql/db-world/mod_emberfall_2026_10_18_10_unstuck.sql`: the `ef_unstuck_point` schema (Emberfall's world SQL fills
 it from `content/data/world.yaml` teleports with `town:`), the `command` rows: `.unstuck` opened to security 0 (the stock
 row's 2 overrides the core's player permission; a GM account keeps the GM form `.unstuck $player [inn/graveyard/startzone]`)
-and `.stuck`.
+and `.stuck`. `mod_emberfall_2026_10_24_00_unstuck_nearby.sql`: `.stuck nearby`, `.stuck status` (security 0) and the
+help texts.
 
 ## Personal quest objects (Emberfall `docs/design/group-quest-loot.md`)
 
