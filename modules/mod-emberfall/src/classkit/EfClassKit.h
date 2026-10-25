@@ -222,12 +222,21 @@ namespace Emberfall::ClassKit
     // targets its caster (Stored Charge when Galeward ends), else on the owner (Slow Waking when Becalm ends, Echoing
     // Peal when Stormpeal's stun ends).
     void EndBonuses(Unit* caster, Unit* owner, uint32 auraSpell);
-    // Charges (Second Gust): `spell` was cast and its talent gives it `max` charges; the charge aura `chargeAura` holds the
+    // Charges (Second Gust): `spell` was cast and its talent gives it `max` charges (spell_ef_kit_charges: the dummy's misc
+    // a talent the player knows, or the spell itself: always, the Sunwarden's Solenne's Grace and Embrace); the charge aura `chargeAura` holds the
     // charges recharging as stacks and the time to the next as its duration. While a charge is left the cooldown is
     // cleared; with none left it ends with the next charge's recharge.
     void SpendCharge(Player* player, uint32 spell, uint32 chargeAura, uint32 max);
     // The charge aura ran out: one charge is back; the next one starts recharging when more are spent.
     void ChargeBack(Unit* owner, uint32 chargeAura, uint32 stacksBefore);
+    // Charges given back by other spells (the Sunwarden: Solenne's Salvation, Solar Reckoning, Dawn's Renewal;
+    // src/emberfall_classkit_sun.cpp): `count` of the charges recharging in `chargeAura` are at hand again (0: all, the
+    // running recharge stopped, the next spend starts a fresh one); a running recharge runs on; at full charges nothing
+    // (the charge is lost). The spell's cooldown is cleared. Returns the charges given back.
+    uint32 RestoreCharges(Player* player, uint32 spell, uint32 chargeAura, uint32 count);
+    // The next charge of `spell` comes `ms` sooner (Boundless Mercy): the charge aura's time left, and the spell's cooldown
+    // with it while no charge is at hand; at 0 the charge is back.
+    void ShortenCharge(Player* player, uint32 spell, uint32 chargeAura, int32 ms);
 
     // ---- A class's own power (Emberfall docs/design/classes/hunter-marksman.md: the Hunter's Focus; EfSpecPower.cpp) ----
     // ef_class_kit_class_power (class, power, max_power, regen_per_second, regen_out_of_combat; optional table): a power

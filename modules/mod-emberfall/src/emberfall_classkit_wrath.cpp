@@ -28,7 +28,8 @@
 //                                (EfClassKit.h LaunchStacks: Crown of Blades' swords from Sacred Brand, Edict of Solenne,
 //                                Oathblade one at a time, from Solenne's Wrath all at once)
 //   spell_ef_kit_main_stat       mod_total_stat_percentage effects (one per stat): only the owner's main stat counts
-//                                (EfClassKitLogic.h MainStat), stronger by the caster's empowerment (EfClassKit.h
+//                                (EfClassKitLogic.h MainStat; a passive dummy of the owner with misc = this spell names
+//                                another in misc B: the Sunwarden's intellect), stronger by the caster's empowerment (EfClassKit.h
 //                                EmpowerPct: Solenne's Wrath doubles it); players only (Solenne's Blessing)
 //   spell_ef_kit_empower         an aura whose dummy effects with misc = an aura spell of the caster's (no trigger) make
 //                                that aura stronger by their value in percent while it holds; it recomputes it on the
@@ -106,11 +107,22 @@ class spell_ef_kit_main_stat : public AuraScript
 {
     PrepareAuraScript(spell_ef_kit_main_stat);
 
+    // the class's main stat, unless a passive of the owner names this spell with a dummy whose misc B is the stat (the
+    // Sunwarden's spec passive: intellect, her handoff's Q15)
+    int32 MainStatOf(Player* owner)
+    {
+        for (AuraEffect const* eff : owner->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (eff->GetBase()->IsPassive() && uint32(eff->GetMiscValue()) == GetId()
+                && !eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell)
+                return eff->GetMiscValueB();
+        return Emberfall::ClassKit::Logic::MainStat(owner->getClass());
+    }
+
     void CalcAmount(AuraEffect const* aurEff, int32& amount, bool& canBeRecalculated)
     {
         canBeRecalculated = true;
         Player* owner = GetUnitOwner() ? GetUnitOwner()->ToPlayer() : nullptr;
-        if (!owner || aurEff->GetMiscValue() != Emberfall::ClassKit::Logic::MainStat(owner->getClass()))
+        if (!owner || aurEff->GetMiscValue() != MainStatOf(owner))
         {
             amount = 0;
             return;

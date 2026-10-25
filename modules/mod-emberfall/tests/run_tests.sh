@@ -10,7 +10,7 @@
 # (tests/devvendor_tests.cpp: src/devvendor/EfDevVendorLogic.h, the switch's gating) and the world editor tests
 # (tests/editor_tests.cpp: src/editor/EfEditorLogic.h, the EFE requests, the rules, rates, ops and a decode fuzz) and the
 # class kit tests (tests/classkit_tests.cpp: src/classkit/EfClassKitLogic.h, the self stacks' cap, gains and refunds) and
-# the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates)
+# the Sunwarden's (tests/classkit_sun_tests.cpp: src/classkit/EfClassKitSunLogic.h) and the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates)
 # and the quest loot tests (tests/questloot_tests.cpp: src/questloot/EfQuestLootLogic.h, personal quest objects' lockouts)
 # and the test zone tests (tests/testzone_tests.cpp: src/testzone/EfTestZoneLogic.h, `.eftest zone`'s route and plan)
 # and the meter tests (tests/meter_tests.cpp: src/meter/EfMeterLogic.h, the damage meter's fights, attribution, maths, EFM)
@@ -26,7 +26,7 @@
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${TMPDIR:-/tmp}/mod-emberfall-talent-tests.$$
-trap 'rm -f "$OUT" "$OUT.companions" "$OUT.dungeons" "$OUT.unstuck" "$OUT.absorbs" "$OUT.harbours" "$OUT.devvendor" "$OUT.editor" "$OUT.classkit" "$OUT.gmcommands" "$OUT.questloot" "$OUT.testzone" "$OUT.meter" "$OUT.accountfriends" "$OUT.professionxp"' EXIT
+trap 'rm -f "$OUT" "$OUT.companions" "$OUT.dungeons" "$OUT.unstuck" "$OUT.absorbs" "$OUT.harbours" "$OUT.devvendor" "$OUT.editor" "$OUT.classkit" "$OUT.gmcommands" "$OUT.questloot" "$OUT.testzone" "$OUT.meter" "$OUT.accountfriends" "$OUT.professionxp" "$OUT.classkitsun"' EXIT
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/talents" \
     "$HERE/talent_tests.cpp" -o "$OUT"
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/companions" \
@@ -45,6 +45,8 @@ ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined
     -I"$HERE/../src/editor" "$HERE/editor_tests.cpp" -o "$OUT.editor"
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/classkit" \
     "$HERE/classkit_tests.cpp" -o "$OUT.classkit"
+${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/classkit" \
+    "$HERE/classkit_sun_tests.cpp" -o "$OUT.classkitsun"
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/gmcommands" \
     "$HERE/gmcommand_tests.cpp" -o "$OUT.gmcommands"
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/questloot" \
@@ -67,6 +69,7 @@ if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json" "$HERE/data/
 "$OUT.devvendor"
 "$OUT.editor"
 "$OUT.classkit"
+"$OUT.classkitsun"
 "$OUT.gmcommands"
 "$OUT.questloot"
 "$OUT.testzone"
