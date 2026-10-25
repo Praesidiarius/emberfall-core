@@ -17,6 +17,7 @@
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
+#include "EfCompanions.h"
 
 #include "Config.h"
 #include "Creature.h"
@@ -496,7 +497,9 @@ namespace Emberfall::ClassKit
                 continue;
             // the spell named by misc, or (misc 0) every spell of the effect's class mask (Hallowed Ground: the holy swords)
             bool const named = uint32(eff->GetMiscValue()) == spellId;
-            bool const masked = eff->GetMiscValue() == 0 && hitInfo && eff->IsAffectedOnSpell(hitInfo);
+            // (a dummy without a class mask names no spell: the core's IsAffected takes an empty mask for the whole
+            // family, and a growth stage's dummy, whose trigger is the next stage or the Bloom, would fire on every hit)
+            bool const masked = eff->GetMiscValue() == 0 && hitInfo && eff->HasSpellClassMask() && eff->IsAffectedOnSpell(hitInfo);
             if (named || masked)
                 bonuses.push_back({ trigger, eff->GetAmount() });
         }
@@ -826,6 +829,47 @@ namespace Emberfall::ClassKit
         }
         int32 const index = Logic::MostInjured(health.begin(), health.end(), max.begin());
         return index >= 0 ? allies[index] : nullptr;
+    }
+
+    std::vector<Unit*> PartyUnits(Unit* caster, WorldObject const* center, float range, bool pets)
+    {
+        std::vector<Unit*> out;
+        if (!caster || !caster->IsInWorld())
+            return out;
+        if (!center)
+            center = caster;
+        auto consider = [&](Unit* unit)
+        {
+            if (!unit || !unit->IsInWorld() || !unit->IsAlive() || unit->GetMap() != caster->GetMap()
+                || std::find(out.begin(), out.end(), unit) != out.end())
+                return;
+            if (unit != caster && !caster->IsFriendlyTo(unit))
+                return;
+            if (!center->IsWithinDistInMap(unit, range))
+                return;
+            out.push_back(unit);
+        };
+        // companions are guardians the player controls (EfCompanions summons them as ally guardians); a hunter's or
+        // warlock's pet is a Pet: only with `pets`
+        auto withControlled = [&](Unit* unit)
+        {
+            consider(unit);
+            for (Unit* controlled : unit->m_Controlled)
+                if (controlled && (pets || !controlled->IsPet()))
+                    consider(controlled);
+            // the .efparty companions are summoned guardians the core does not list as controlled: the roster's
+            if (Player* player = unit->ToPlayer())
+                for (Creature* companion : Emberfall::Companions::LiveCompanions(player))
+                    consider(companion);
+        };
+        withControlled(caster);
+        if (Player* player = caster->ToPlayer())
+            if (Group* group = player->GetGroup())
+                for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+                    if (Player* member = ref->GetSource(); member && member != player)
+                        if (!group->isRaidGroup() || group->SameSubGroup(player, member))
+                            withControlled(member);
+        return out;
     }
 
     namespace

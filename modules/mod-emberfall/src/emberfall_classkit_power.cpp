@@ -44,7 +44,8 @@
 //   spell_ef_kit_charges          a dummy effect with misc = the talent, value = the charges, trigger = the charge aura (a
 //                                 stacking aura):
 //                                 with the talent known the spell holds that many charges (EfClassKit.h SpendCharge;
-//                                 Downburst + Second Gust)
+//                                 Downburst + Second Gust); misc = the spell itself: always (the Bloomtender's
+//                                 Lifesprout, 5 charges)
 //   spell_ef_kit_charge_aura      the charge aura: when it runs out a charge is back (EfClassKit.h ChargeBack)
 //   spell_ef_kit_proc_while       a proc_trigger_spell aura that procs only while its owner has the aura of its misc; the
 //                                 trigger is cast with the aura's value (Static Skin while Galeward holds)
@@ -369,7 +370,8 @@ class spell_ef_kit_charges : public SpellScript
             SpellInfo const* aura = eff.TriggerSpell ? sSpellMgr->GetSpellInfo(eff.TriggerSpell) : nullptr;
             if (eff.Effect == SPELL_EFFECT_DUMMY && aura && aura->StackAmount > 1 && eff.MiscValue)
             {
-                if (player->HasAura(uint32(eff.MiscValue)))
+                // misc = the talent that gives the charges, or the spell itself: always (Lifesprout's 5)
+                if (uint32(eff.MiscValue) == GetSpellInfo()->Id || player->HasAura(uint32(eff.MiscValue)))
                     Emberfall::ClassKit::SpendCharge(player, GetSpellInfo()->Id, eff.TriggerSpell, uint32(std::max(0, eff.CalcValue(player))));
                 return;
             }

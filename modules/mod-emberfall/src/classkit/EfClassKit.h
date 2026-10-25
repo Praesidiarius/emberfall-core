@@ -43,6 +43,7 @@ class Aura;
 class Player;
 class SpellInfo;
 class Unit;
+class WorldObject;
 
 namespace Emberfall::ClassKit
 {
@@ -160,6 +161,11 @@ namespace Emberfall::ClassKit
     // guardians: the .efparty companions); only friendly, living units below full health. nullptr: everyone is full
     // (the Warlock's Overflow and Harvest Tide, spell_ef_kit_transfuse).
     Unit* MostInjuredAlly(Unit* caster, float range);
+    // The caster's party as a healer sees it (the Bloomtender: Seeds of Renewal, the echo heals, Verdant Ancient's release):
+    // the caster, its group's players (in a raid only the caster's own subgroup), each one's .efparty companions and,
+    // with `pets`, every other unit they control (pets, guardians); living, friendly, in the caster's map and within
+    // `range` yards of `center` (the caster, an ally, the Ancient). No line-of-sight check: the callers decide.
+    std::vector<Unit*> PartyUnits(Unit* caster, WorldObject const* center, float range, bool pets);
 
     // ---- A spec's own power (Emberfall docs/design/classes/druid-stormbringer.md §3; src/classkit/EfSpecPower.cpp) ----
     // ef_class_kit_spec_power (spec, class, power, max_power, drain_delay_ms, drain_per_second; optional table) and

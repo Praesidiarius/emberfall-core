@@ -698,7 +698,8 @@ class spell_ef_kit_self_stacks : public SpellScript
 
     void AfterHitTarget()
     {
-        Unit* caster = GetCaster();
+        // a shot a summoned helper fires for its caster (Thornspitter's thorn) is the caster's: its bonuses too
+        Unit* caster = GetOriginalCaster() ? GetOriginalCaster() : GetCaster();
         Unit* target = GetHitUnit();
         if (!caster || !target || target == caster)
             return;
@@ -872,7 +873,8 @@ class spell_ef_kit_hit_bonuses : public SpellScript
 
     void AfterHitTarget()
     {
-        Unit* caster = GetCaster();
+        // a shot a summoned helper fires for its caster (Thornspitter's thorn) is the caster's: its bonuses too
+        Unit* caster = GetOriginalCaster() ? GetOriginalCaster() : GetCaster();
         Unit* target = GetHitUnit();
         if (!caster || !target || target == caster)
             return;
@@ -893,6 +895,7 @@ void AddEmberfallClassKitHeatScripts();
 void AddEmberfallClassKitOathScripts();
 void AddEmberfallClassKitHuntScripts();
 void AddEmberfallClassKitExecScripts();
+void AddEmberfallClassKitBloomScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -925,4 +928,5 @@ void AddEmberfallClassKitScripts()
     AddEmberfallClassKitOathScripts();  // the Oathkeeper's chain and shields: src/emberfall_classkit_oath.cpp
     AddEmberfallClassKitHuntScripts();  // the Hunter's: src/emberfall_classkit_hunt.cpp
     AddEmberfallClassKitExecScripts();  // the Warrior's Executioner: src/emberfall_classkit_exec.cpp
+    AddEmberfallClassKitBloomScripts(); // the Druid's Bloomtender: src/emberfall_classkit_bloom.cpp
 }

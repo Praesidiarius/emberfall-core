@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 namespace Emberfall::ClassKit::Logic
@@ -444,5 +445,61 @@ namespace Emberfall::ClassKit::Logic
             return std::min<uint32_t>(stacks, uint32_t(leave));
         return 0;
     }
-}
 
+    // ---- the Druid's Bloomtender (Emberfall docs/design/classes/druid-bloomtender.md: Lifesprout, Verdant Ancient) ----
+
+    // A growth plant's clock (spell_ef_kit_growth_stage): a stage that began with `leftMs` of the cycle still to run (the
+    // first stage: the whole cycle, 18 s; Lasting Renewal +3/6 s) and ran `elapsedMs` hands the next stage what is left
+    // (Seed -> Sprout under the fixed 18 s clock: a Seed pushed at 2 s leaves a Sprout of 16 s). Never below 0.
+    constexpr int32_t GrowthLeft(int32_t leftMs, int32_t elapsedMs)
+    {
+        return std::max<int32_t>(0, std::max<int32_t>(0, leftMs) - std::max<int32_t>(0, elapsedMs));
+    }
+
+    // How long the next stage lasts: what is left of the cycle for the last stage (the one that blooms), at most its own
+    // duration for a stage between (a chain of three or more stages).
+    constexpr int32_t StageMs(int32_t leftMs, int32_t ownMs, bool last)
+    {
+        if (last || ownMs <= 0)
+            return std::max<int32_t>(0, leftMs);
+        return std::max<int32_t>(0, std::min<int32_t>(leftMs, ownMs));
+    }
+
+    // Rising Sap (spell_ef_kit_mana_back): `tenths` tenths of a percent of `maxMana` (20: 2 %; Returning Essence 25/30).
+    constexpr int32_t ManaBack(uint32_t maxMana, int32_t tenths)
+    {
+        if (tenths <= 0)
+            return 0;
+        return int32_t(std::min<int64_t>(int64_t(maxMana) * tenths / 1000, INT32_MAX));
+    }
+
+    // Verdant Ancient's store (spell_ef_kit_stored_heal): `pct` percent (30; Ancient Reservoir 35/40) of a raw heal,
+    // overhealing included, added to what it holds (kept in hundredths so small ticks still count).
+    constexpr uint64_t StoreHundredths(uint32_t heal, int32_t pct)
+    {
+        return pct > 0 ? uint64_t(heal) * uint64_t(pct) : 0;
+    }
+
+    // The release: `pool` shared out over the injured allies in the order given (lowest health percent first): each takes
+    // what it misses until the pool runs dry. `missing[i]` is ally i's missing health; `out[i]` gets its heal. Returns
+    // what was handed out (the rest is lost: nobody needed it).
+    inline uint64_t ReleaseSplit(uint64_t pool, uint32_t const* missing, uint32_t* out, std::size_t n)
+    {
+        uint64_t given = 0;
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            uint32_t const take = uint32_t(std::min<uint64_t>(pool - given, missing[i]));
+            out[i] = take;
+            given += take;
+        }
+        return given;
+    }
+
+    // The cooldown left after the release: `fullMs` (45 s) counted from the summon, `elapsedMs` ago (a release at 12 s
+    // leaves 33 s; the automatic one at 20 s, 25 s). Never below 0.
+    constexpr int32_t CooldownFromStart(int32_t fullMs, int64_t elapsedMs)
+    {
+        int64_t const left = int64_t(std::max<int32_t>(0, fullMs)) - std::max<int64_t>(0, elapsedMs);
+        return int32_t(std::max<int64_t>(0, left));
+    }
+}

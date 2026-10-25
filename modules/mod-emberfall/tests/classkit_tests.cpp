@@ -279,6 +279,30 @@ int main()
     // the bleed: +8 s an application, no cap
     check(ExtendCapped(30000, 8000, 0) == 38000, "the bleed: 30 s left, 38 s");
 
+    // the Druid's Bloomtender: the fixed 18 s clock, heal shares, Rising Sap, Verdant Ancient's store and release
+    check(GrowthLeft(18000, 9000) == 9000, "a Seed's natural end leaves a 9 s Sprout");
+    check(GrowthLeft(18000, 2000) == 16000, "a Seed pushed at 2 s leaves a 16 s Sprout (the clock is not reset)");
+    check(GrowthLeft(21000, 9000) == 12000, "Lasting Renewal's 3 s go to the Sprout");
+    check(GrowthLeft(9000, 12000) == 0, "never below 0");
+    check(StageMs(16000, 9000, true) == 16000, "the last stage runs what is left");
+    check(StageMs(16000, 9000, false) == 9000, "a stage between keeps its own duration");
+    check(PctOf(600, 18) == 108, "Deep Restoration 3: +18 %");
+    check(PctOf(300, 40) == 120, "Radiant Blossom 2: 40 % of a Bloom");
+    check(PctOf(0, 40) == 0 && PctOf(300, 0) == 0, "nothing of nothing");
+    check(ManaBack(4820, 20) == 96, "Rising Sap: 2 % of 4,820");
+    check(ManaBack(4820, 30) == 144, "Returning Essence 2: 3 %");
+    check(StoreHundredths(300, 30) == 9000, "30 % of a 300 Bloom: 90.00");
+    {
+        uint32_t missing[3] = {500, 300, 900};
+        uint32_t out[3] = {};
+        check(ReleaseSplit(700, missing, out, 3) == 700 && out[0] == 500 && out[1] == 200 && out[2] == 0,
+              "the release fills the lowest first, then the next");
+        check(ReleaseSplit(5000, missing, out, 3) == 1700 && out[2] == 900, "what nobody needs is lost");
+    }
+    check(CooldownFromStart(45000, 12000) == 33000, "released at 12 s: 33 s left");
+    check(CooldownFromStart(45000, 20000) == 25000, "the automatic release: 25 s left");
+    check(CooldownFromStart(45000, 60000) == 0, "never below 0");
+
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }
