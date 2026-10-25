@@ -305,6 +305,10 @@ int main()
     check(SpecPowerMaxDelta(1000, 1000) == 0, "Static, Energy: the slot's");
     check(SpecPowerMaxDelta(1500, 1000) == 500, "the Pyromancer's Heat: 150, above the slot's 100");
     check(SpecPowerMaxDelta(0, 1000) == 0, "no maximum of its own");
+    check(BelowHealth(34.9f, 35), "Headsman's Due: below 35 %");
+    check(!BelowHealth(35.0f, 35), "Headsman's Due: not at 35 %");
+    check(BelowHealth(0.0f, 35), "Headsman's Due: a killing blow counts");
+    check(BelowHealth(90.0f, 0), "no gate: always");
     check(KeptPower(0, 30, true) == 30, "a level up empties the slot: Openings come back");
     check(KeptPower(0, 30, false) == 0, "a power that is not kept stays empty");
     check(KeptPower(20, 30, true) == 20, "a power not emptied stays as it is");

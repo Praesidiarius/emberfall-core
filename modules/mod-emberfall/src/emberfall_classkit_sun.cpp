@@ -60,8 +60,9 @@
 //                                it instead. Only a hit moves the combo on (a miss, dodge or parry does not, Q7); a dummy
 //                                at the enemy with a trigger casts that at every enemy struck (Radiant Blow's holy part)
 //   spell_ef_kit_mana_on_hit     a dummy on the caster: value = % of max mana back when the spell strikes an enemy
-//                                (into an absorb too; an immune enemy is no hit), misc B 1: double on a crit (Sunbreaker;
-//                                Restoring Strike by its effect 2 mod)
+//                                (into an absorb too; an immune enemy is no hit), misc B 1: double on a crit, misc 1: % of
+//                                base mana instead of max (Sunbreaker since playtest #67; Restoring Strike by its effect 2
+//                                mod)
 
 #include "EfClassKit.h"
 #include "EfClassKitSunLogic.h"
@@ -581,7 +582,8 @@ class spell_ef_kit_mana_on_hit : public SpellScript
         for (SpellEffectInfo const& eff : GetSpellInfo()->Effects)
             if (eff.Effect == SPELL_EFFECT_DUMMY && eff.TargetA.GetTarget() == TARGET_UNIT_CASTER && !eff.TriggerSpell)
             {
-                int32 const mana = SL::ManaOnHit(caster->GetMaxPower(POWER_MANA), eff.CalcValue(caster),
+                uint32 const pool = SL::ManaPool(caster->GetMaxPower(POWER_MANA), caster->GetCreateMana(), eff.MiscValue == 1);
+                int32 const mana = SL::ManaOnHit(pool, eff.CalcValue(caster),
                     HitCrit(GetSpell(), target), eff.MiscValueB == 1);
                 if (mana > 0)
                     caster->EnergizeBySpell(caster, GetSpellInfo()->Id, uint32(mana), POWER_MANA);

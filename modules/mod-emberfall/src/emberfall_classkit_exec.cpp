@@ -26,8 +26,10 @@
 //                           Deathblow). A dummy effect on the caster with misc = an aura of the caster's makes the cast
 //                           free (Perfect Execution: read before the cast; the cost is still asked for, then given back,
 //                           and the aura goes). The caster's passive dummy auras with misc = this spell and no trigger give
-//                           their value in points back once the finisher struck an enemy (Headsman's Due: 1 Opening)
-//                           (Final Verdict, Whirling Steel)
+//                           their value in points back once the finisher struck an enemy, only for a finisher that paid
+//                           (not a free one) and, with misc B, only on an enemy below misc B % health (Headsman's Due: 1
+//                           Opening below 35 %; playtest #69: a Final Verdict that refunds on every cast and a Deathblow
+//                           +2 kept the warrior on finishers alone) (Final Verdict, Whirling Steel)
 //   spell_ef_kit_sweep      a dummy on the caster with misc = an aura of the caster's that makes the strike sweep, trigger
 //                           = the spell cast at the other enemies, value = how many (spell mods in: Sweeping Reach), misc B =
 //                           yards round the target: after the hit on the target, while the caster holds the aura (it is
@@ -42,6 +44,7 @@
 #include "CellImpl.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "ObjectAccessor.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
 #include "SpellAuraEffects.h"
@@ -104,17 +107,20 @@ class spell_ef_kit_finisher : public SpellScript
                 caster->ModifyPower(slot, cost);
             caster->RemoveAurasDueToSpell(_free);
         }
-        // Headsman's Due: points back once the finisher struck an enemy
-        bool landed = false;
+        // Headsman's Due: points back once a finisher that paid struck an enemy (below misc B % health)
+        if (_free)
+            return;
+        float lowest = 101.0f;   // the lowest health % of the enemies struck
         for (TargetInfo const& info : *GetSpell()->GetUniqueTargetInfo())
             if (info.targetGUID != caster->GetGUID() && info.missCondition == SPELL_MISS_NONE)
-                landed = true;
-        if (!landed)
+                if (Unit* struck = ObjectAccessor::GetUnit(*caster, info.targetGUID))
+                    lowest = std::min(lowest, struck->GetHealthPct());
+        if (lowest > 100.0f)
             return;
         int32 back = 0;
         for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
             if (uint32(eff->GetMiscValue()) == GetSpellInfo()->Id && !eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell
-                && eff->GetBase()->IsPassive())
+                && eff->GetBase()->IsPassive() && Emberfall::ClassKit::Logic::BelowHealth(lowest, eff->GetMiscValueB()))
                 back = std::max(back, eff->GetAmount());
         if (back > 0)
             caster->ModifyPower(slot, back * scale);   // SetPower's maximum keeps it at 5

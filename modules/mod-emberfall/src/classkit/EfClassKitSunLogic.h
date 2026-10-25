@@ -76,10 +76,18 @@ namespace Emberfall::ClassKit::SunLogic
         return { now, false };
     }
 
-    // Mana back on a hit (Sunbreaker): `pct` of max mana, twice that on a crit when `doubleOnCrit`.
-    constexpr int32_t ManaOnHit(uint32_t maxMana, int32_t pct, bool crit, bool doubleOnCrit)
+    // Mana back on a hit (Sunbreaker): `pct` of the pool (max mana, or base mana: ManaPool), twice that on a crit when
+    // `doubleOnCrit`.
+    constexpr int32_t ManaOnHit(uint32_t pool, int32_t pct, bool crit, bool doubleOnCrit)
     {
-        return Pct(int64_t(maxMana), crit && doubleOnCrit ? pct * 2 : pct);
+        return Pct(int64_t(pool), crit && doubleOnCrit ? pct * 2 : pct);
+    }
+
+    // The pool a mana return is a percentage of: base mana (misc 1: the costs' own base, so gear's larger pool lasts
+    // longer instead of paying more back; the Sunwarden's playtest #67) or max mana.
+    constexpr uint32_t ManaPool(uint32_t maxMana, uint32_t baseMana, bool ofBase)
+    {
+        return ofBase && baseMana ? baseMana : maxMana;
     }
 
     // The low-health bonus of a heal (Guiding Light): `pct` more when the target's health is below `belowPct`.

@@ -477,6 +477,13 @@ namespace Emberfall::ClassKit::Logic
         return specMax > 0 ? specMax - slotMax : 0;
     }
 
+    // A refund's health gate (Headsman's Due, playtest #69): below `belowPct` % health; 0: no gate. A struck enemy's
+    // health is read after the blow (a killing blow counts: 0 %).
+    constexpr bool BelowHealth(float healthPct, int32_t belowPct)
+    {
+        return belowPct <= 0 || healthPct < float(belowPct);
+    }
+
     // A kept spec power (Openings: `start: keep`) the core emptied (a level up: Player::InitStatsForLevel zeroes the
     // runic power slot) comes back as it was before; anything else stays as it is.
     constexpr int32_t KeptPower(int32_t now, int32_t before, bool keep)

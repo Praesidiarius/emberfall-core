@@ -80,6 +80,11 @@ int main()
     check(ManaOnHit(2000, 15, true, true) == 600, "a crit doubles");
     check(ManaOnHit(2000, 18, true, true) == 720, "Restoring Strike's crit: 36 %");
     check(ManaOnHit(2000, 15, true, false) == 300, "no doubling without misc B");
+    // playtest #67: of base mana (misc 1), whatever gear adds to the pool; max mana without it
+    check(ManaPool(2400, 770, true) == 770, "misc 1: base mana");
+    check(ManaPool(2400, 770, false) == 2400, "no misc: max mana");
+    check(ManaPool(2400, 0, true) == 2400, "no base mana known: max mana");
+    check(ManaOnHit(ManaPool(2400, 770, true), 25, true, true) == 385, "25 % of 770, doubled on a crit");
 
     // Guiding Light: +20 % below 35 %
     check(LowHealthBonus(425, 34.0f, 35, 20) == 510, "below 35 %: +20 %");
