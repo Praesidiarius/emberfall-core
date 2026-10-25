@@ -160,7 +160,15 @@ class spell_ef_kit_flow : public SpellScript
                 break;
             }
         }
-        switch (Flow::NextStep(gate && caster->HasAura(gate), overrideReady != 0, partnerReady != 0))
+        // a gate without any prepared finisher is stale (a balance run once held one: every Flow Finisher refused and
+        // every builder changed nothing): it goes, and the builder counts
+        bool gateUp = gate && caster->HasAura(gate);
+        if (gateUp && !AnyReady(caster, mark))
+        {
+            caster->RemoveAurasDueToSpell(gate);
+            gateUp = false;
+        }
+        switch (Flow::NextStep(gateUp, overrideReady != 0, partnerReady != 0))
         {
             case Flow::Step::Nothing:
                 return;
@@ -178,6 +186,23 @@ class spell_ef_kit_flow : public SpellScript
                 caster->CastSpell(caster, mark->Id, true);
                 return;
         }
+    }
+
+    // Whether the caster holds a ready aura of the flow: one the mark's partners name, or one their marks name (the
+    // three finishers).
+    static bool AnyReady(Unit* caster, SpellInfo const* mark)
+    {
+        for (uint8 i = EFFECT_1; i < MAX_SPELL_EFFECTS; ++i)
+        {
+            SpellEffectInfo const& eff = mark->Effects[i];
+            if (eff.TriggerSpell && caster->HasAura(eff.TriggerSpell))
+                return true;
+            if (SpellInfo const* partner = eff.MiscValue ? sSpellMgr->GetSpellInfo(uint32(eff.MiscValue)) : nullptr)
+                for (uint8 j = EFFECT_1; j < MAX_SPELL_EFFECTS; ++j)
+                    if (partner->Effects[j].TriggerSpell && caster->HasAura(partner->Effects[j].TriggerSpell))
+                        return true;
+        }
+        return false;
     }
 
     static void Prepare(Unit* caster, uint32 ready, uint32 gate)
@@ -237,8 +262,15 @@ class spell_ef_kit_faces : public SpellScript
     SpellCastResult Check()
     {
         Unit* caster = GetCaster();
-        if (!caster || !FindFace(caster))
+        if (!caster)
             return SPELL_FAILED_CASTER_AURASTATE;
+        if (!FindFace(caster))
+        {
+            // a stale gate (no face holds): it goes, so the button greys and the builders count again
+            if (uint32 const gate = GetSpellInfo()->CasterAuraSpell)
+                caster->RemoveAurasDueToSpell(gate);
+            return SPELL_FAILED_CASTER_AURASTATE;
+        }
         SpellInfo const* face = sSpellMgr->GetSpellInfo(_face);
         if (!face)
             return SPELL_FAILED_ERROR;
