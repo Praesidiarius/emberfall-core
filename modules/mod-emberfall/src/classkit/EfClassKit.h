@@ -183,6 +183,13 @@ namespace Emberfall::ClassKit
         uint32 max = 0;            // stored units (runic power x 10)
         uint32 drainDelayMs = 0;
         uint32 drainPerSecond = 0; // stored units
+        // ef_class_kit_spec_power_regen (optional; the Corsair's Energy, Emberfall docs/design/classes/warrior-corsair.md §3):
+        // regenerated `regenPerSecond` stored units a second in and out of a fight times the slot's regen-percent auras
+        // (Momentum), never haste; full at login and the spec choice with `startFull`; the fight markers go
+        // `markersDelayMs` after the fight instead of at its end (Flow: 10 s).
+        uint32 regenPerSecond = 0;
+        bool startFull = false;
+        uint32 markersDelayMs = 0;
         // Tiers (ef_class_kit_spec_power_tier, optional; the Pyromancer's Heat): while the power is at least `at` stored
         // units and the player knows `requiredSpell` (0: always), the player carries the tier's aura (Blazing at 30, Inferno
         // at 70, Maximum at 100 Heat). The auras follow the power on every player tick, so a spell sees the tier it was

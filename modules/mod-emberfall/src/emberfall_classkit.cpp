@@ -897,6 +897,7 @@ void AddEmberfallClassKitHuntScripts();
 void AddEmberfallClassKitExecScripts();
 void AddEmberfallClassKitBloomScripts();
 void AddEmberfallClassKitSunScripts();
+void AddEmberfallClassKitFlowScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -931,4 +932,5 @@ void AddEmberfallClassKitScripts()
     AddEmberfallClassKitExecScripts();  // the Warrior's Executioner: src/emberfall_classkit_exec.cpp
     AddEmberfallClassKitBloomScripts(); // the Druid's Bloomtender: src/emberfall_classkit_bloom.cpp
     AddEmberfallClassKitSunScripts();   // the Paladin's Sunwarden: src/emberfall_classkit_sun.cpp
+    AddEmberfallClassKitFlowScripts();  // the Warrior's Corsair: src/emberfall_classkit_flow.cpp
 }

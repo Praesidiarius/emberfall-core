@@ -58,6 +58,8 @@ namespace Emberfall::ClassKit
             int32 holds = 0;                        // Overheat: nothing drains the power while > 0
             int64 regenCarry = 0;   // the class power's regeneration (millionths of a point)
             bool markerFight = false;               // in a fight as the fight markers saw it (every kit player)
+            uint32 markerOutMs = 0;                 // out of that fight so long (the spec power's markers delay)
+            int64 specRegenCarry = 0;   // a spec power's regeneration (millionths of a stored unit)
         };
 
         bool TableExists(char const* name)
@@ -145,6 +147,29 @@ namespace Emberfall::ClassKit
                          p.spec, p.classId, p.power, p.max, p.drainPerSecond, p.drainDelayMs);
             } while (r->NextRow());
         }
+        // the regeneration, start and fight markers' delay (the Corsair's Energy)
+        if (TableExists("ef_class_kit_spec_power_regen"))
+            if (QueryResult r = WorldDatabase.Query("SELECT `spec`, `regen_per_second`, `start_full`, `markers_delay_ms` "
+                                                    "FROM `ef_class_kit_spec_power_regen`"))
+            {
+                do
+                {
+                    Field* f = r->Fetch();
+                    auto it = s_specPowers.find(f[0].Get<uint32>());
+                    if (it == s_specPowers.end())
+                    {
+                        LOG_ERROR("server.loading", ">> Emberfall class kits: spec power regen of spec {}: no such spec power",
+                                  f[0].Get<uint32>());
+                        continue;
+                    }
+                    it->second.regenPerSecond = f[1].Get<uint32>();
+                    it->second.startFull = f[2].Get<uint8>() != 0;
+                    it->second.markersDelayMs = f[3].Get<uint32>();
+                    LOG_INFO("server.loading", ">> Emberfall class kits: spec {} regenerates {} a second{}, fight markers after {} ms",
+                             it->first, it->second.regenPerSecond, it->second.startFull ? ", starts full" : "",
+                             it->second.markersDelayMs);
+                } while (r->NextRow());
+            }
         if (!TableExists("ef_class_kit_spec_power_tier"))
             return;
         if (QueryResult r = WorldDatabase.Query("SELECT `spec`, `at_power`, `aura`, `requires_spell` FROM `ef_class_kit_spec_power_tier` "
@@ -250,7 +275,11 @@ namespace Emberfall::ClassKit
             // and stat update computes it, so neither undoes the other
             player->UpdateMaxPower(slot);
             if (changed)
-                player->SetPower(slot, 0);
+            {
+                // empty (Static, Heat, Adrenaline) or full (the Corsair's Energy) at login and the spec choice
+                player->SetPower(slot, power->startFull ? player->GetMaxPower(slot) : 0);
+                st->specRegenCarry = 0;
+            }
             st->power = power;
             return;
         }
@@ -302,18 +331,41 @@ namespace Emberfall::ClassKit
         {
             PowerState* ms = player->CustomData.GetDefault<PowerState>(kStateKey);
             if (fight)
+            {
                 ms->markerFight = true;
+                ms->markerOutMs = 0;
+            }
             else if (ms->markerFight)
             {
-                ms->markerFight = false;
-                for (uint32 marker : s_fightMarkers)
-                    player->RemoveAurasDueToSpell(marker);
+                // at once, or after the spec power's markers delay (the Corsair's Flow: 10 s)
+                ms->markerOutMs += diff;
+                if (ms->markerOutMs >= (ms->power ? ms->power->markersDelayMs : 0))
+                {
+                    ms->markerFight = false;
+                    for (uint32 marker : s_fightMarkers)
+                        player->RemoveAurasDueToSpell(marker);
+                }
             }
         }
         PowerState* st = player->CustomData.Get<PowerState>(kStateKey);
         if (!st || !st->power)
             return;
         UpdateTiers(player, *st->power);
+        // a spec power that regenerates (the Corsair's Energy): in and out of a fight, its rate times the slot's
+        // regen-percent auras (Momentum +50 %), no haste
+        if (st->power->regenPerSecond && player->IsAlive())
+        {
+            Powers const slot = Powers(st->power->power);
+            if (player->getPowerType() == slot && player->GetPower(slot) < player->GetMaxPower(slot))
+            {
+                float const multiplier = player->GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_POWER_REGEN_PERCENT, slot);
+                int32 const gain = Logic::Regen(float(st->power->regenPerSecond), multiplier, diff, st->specRegenCarry);
+                if (gain > 0)
+                    player->ModifyPower(slot, gain);
+            }
+            else
+                st->specRegenCarry = 0;
+        }
         if (fight)
         {
             st->inCombat = true;
