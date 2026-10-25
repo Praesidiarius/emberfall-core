@@ -468,7 +468,7 @@ class spell_ef_kit_spread_dots : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_spread_dots);
 
-    std::vector<uint32> Curses() const
+    std::vector<uint32> Curses()
     {
         std::vector<uint32> out;
         for (uint8 i : { EFFECT_1, EFFECT_2 })
