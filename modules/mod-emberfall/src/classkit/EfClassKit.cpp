@@ -891,7 +891,7 @@ namespace Emberfall::ClassKit
     void OnLogin(Player* player)
     {
         PurgeAndLog(player, "login");
-        ApplySpecPower(player);
+        ApplySpecPower(player, true);
     }
 
     void OnLevelChanged(Player* player)

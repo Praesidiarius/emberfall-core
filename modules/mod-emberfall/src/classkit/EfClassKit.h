@@ -190,6 +190,10 @@ namespace Emberfall::ClassKit
         uint32 regenPerSecond = 0;
         bool startFull = false;
         uint32 markersDelayMs = 0;
+        // `start_full` 2 (the Executioner's Openings, `start: keep`): kept as it was, at login (the core saves and loads
+        // the slot) and through a level up (the core empties the runic power slot there; the module puts it back); the
+        // spec choice still starts it empty.
+        bool keep = false;
         // Tiers (ef_class_kit_spec_power_tier, optional; the Pyromancer's Heat): while the power is at least `at` stored
         // units and the player knows `requiredSpell` (0: always), the player carries the tier's aura (Blazing at 30, Inferno
         // at 70, Maximum at 100 Heat). The auras follow the power on every player tick, so a spell sees the tier it was
@@ -208,8 +212,12 @@ namespace Emberfall::ClassKit
     void AddFightMarker(uint32 spell);
     // The power of a spec, or nullptr (the spec keeps the class's power).
     SpecPower const* SpecPowerOf(uint32 spec);
-    // Sets the player's power to its active spec's own (or back to the class's): at login, level change and spec change.
-    void ApplySpecPower(Player* player);
+    // Sets the player's power to its active spec's own (or back to the class's): at login (`login`), level change and spec
+    // change.
+    void ApplySpecPower(Player* player, bool login = false);
+    // A spec power's own maximum below its slot's (the Executioner's Openings: 5, 50 stored of runic power's 1000): what
+    // the hook after Player::UpdateMaxPower adds for `power` (negative; 0 for every other power and slot).
+    int32 SpecPowerMaxDelta(Player const* player, uint8 power);
     // Every player tick: the drain out of combat and the end of the fight markers.
     void UpdateSpecPower(Player* player, uint32 diff);
     // Stored units per point shown (rage and runic power: 10).

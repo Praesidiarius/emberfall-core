@@ -91,7 +91,11 @@ namespace
         void OnPlayerAfterUpdateMaxPower(Player* player, Powers& power, float& value) override
         {
             if (Emberfall::ClassKit::KitOf(player))
+            {
                 value += float(Emberfall::ClassKit::ClassPowerBase(player, uint8(power)));
+                // a spec power with a maximum of its own below the slot's (the Executioner's 5 Openings)
+                value = std::max(0.0f, value + float(Emberfall::ClassKit::SpecPowerMaxDelta(player, uint8(power))));
+            }
         }
     };
 

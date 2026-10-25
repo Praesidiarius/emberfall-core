@@ -60,6 +60,7 @@ namespace Emberfall::ClassKit
             bool markerFight = false;               // in a fight as the fight markers saw it (every kit player)
             uint32 markerOutMs = 0;                 // out of that fight so long (the spec power's markers delay)
             int64 specRegenCarry = 0;   // a spec power's regeneration (millionths of a stored unit)
+            int32 keptUnits = 0;    // a kept spec power (Openings) as it stood on the last tick (a level up empties it)
         };
 
         bool TableExists(char const* name)
@@ -163,10 +164,13 @@ namespace Emberfall::ClassKit
                         continue;
                     }
                     it->second.regenPerSecond = f[1].Get<uint32>();
-                    it->second.startFull = f[2].Get<uint8>() != 0;
+                    // 0 empty, 1 full, 2 kept (the Executioner's Openings)
+                    it->second.startFull = f[2].Get<uint8>() == 1;
+                    it->second.keep = f[2].Get<uint8>() == 2;
                     it->second.markersDelayMs = f[3].Get<uint32>();
                     LOG_INFO("server.loading", ">> Emberfall class kits: spec {} regenerates {} a second{}, fight markers after {} ms",
-                             it->first, it->second.regenPerSecond, it->second.startFull ? ", starts full" : "",
+                             it->first, it->second.regenPerSecond,
+                             it->second.startFull ? ", starts full" : it->second.keep ? ", kept" : "",
                              it->second.markersDelayMs);
                 } while (r->NextRow());
             }
@@ -231,6 +235,16 @@ namespace Emberfall::ClassKit
         }
     }
 
+    int32 SpecPowerMaxDelta(Player const* player, uint8 power)
+    {
+        if (!player || player->getPowerType() != Powers(power))
+            return 0;
+        SpecPower const* p = SpecPowerOf(Emberfall::Talents::ActiveSpec(const_cast<Player*>(player)));
+        if (!p || p->classId != player->getClass() || p->power != power)
+            return 0;
+        return Logic::SpecPowerMaxDelta(int32(p->max), int32(player->GetCreatePowers(Powers(power))));
+    }
+
     ClassPowerRule const* ClassPowerOf(uint8 classId)
     {
         auto it = s_classPowers.find(classId);
@@ -256,7 +270,7 @@ namespace Emberfall::ClassKit
         return power == POWER_RAGE || power == POWER_RUNIC_POWER ? 10 : 1;
     }
 
-    void ApplySpecPower(Player* player)
+    void ApplySpecPower(Player* player, bool login)
     {
         if (!player || !KitOf(player))
             return;
@@ -276,10 +290,21 @@ namespace Emberfall::ClassKit
             player->UpdateMaxPower(slot);
             if (changed)
             {
-                // empty (Static, Heat, Adrenaline) or full (the Corsair's Energy) at login and the spec choice
-                player->SetPower(slot, power->startFull ? player->GetMaxPower(slot) : 0);
+                // empty (Static, Heat) or full (the Corsair's Energy) at login and the spec choice; a kept power (the
+                // Executioner's Openings) stays at login as the core loaded it (the slot is saved with the character)
+                if (!(login && power->keep))
+                    player->SetPower(slot, power->startFull ? player->GetMaxPower(slot) : 0);
                 st->specRegenCarry = 0;
             }
+            else if (power->keep)
+            {
+                // a level up: the core emptied the runic power slot (Player::InitStatsForLevel); Openings come back
+                int32 const now = int32(player->GetPower(slot));
+                int32 const kept = Logic::KeptPower(now, st->keptUnits, true);
+                if (kept != now)
+                    player->SetPower(slot, uint32(kept));
+            }
+            st->keptUnits = int32(player->GetPower(slot));
             st->power = power;
             return;
         }
@@ -351,6 +376,8 @@ namespace Emberfall::ClassKit
         if (!st || !st->power)
             return;
         UpdateTiers(player, *st->power);
+        if (st->power->keep && player->getPowerType() == Powers(st->power->power))
+            st->keptUnits = int32(player->GetPower(Powers(st->power->power)));
         // a spec power that regenerates (the Corsair's Energy): in and out of a fight, its rate times the slot's
         // regen-percent auras (Momentum +50 %), no haste
         if (st->power->regenPerSecond && player->IsAlive())

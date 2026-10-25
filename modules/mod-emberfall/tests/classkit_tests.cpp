@@ -265,20 +265,48 @@ int main()
     check(!BurstDue(5500, 5000, 1000), "half a second later: not");
     check(BurstDue(6000, 5000, 1000), "a second later: again");
 
-    // the Executioner's finishers: +20 % an Opening, a sure crit at 3, the Openings consumed, kept or one left
-    check(FinisherDamage(100, 20, 0) == 100, "no Openings: the base");
-    check(FinisherDamage(100, 20, 1) == 120, "1 Opening: x1.2");
-    check(FinisherDamage(100, 20, 3) == 160, "3 Openings: x1.6");
-    check(FinisherDamage(0, 20, 3) == 0, "a miss stays a miss");
-    check(!FinisherSureCrit(2, 3) && FinisherSureCrit(3, 3), "a sure crit at 3, not at 2");
-    check(!FinisherSureCrit(3, 0), "need 0: never");
-    check(FinisherStacksLeft(3, false, 0, 0) == 0, "consumed");
-    check(FinisherStacksLeft(2, true, 0, 0) == 2, "Perfect Execution keeps them");
-    check(FinisherStacksLeft(3, false, 1, 3) == 1, "Headsman's Due: 1 left at 3");
-    check(FinisherStacksLeft(2, false, 1, 3) == 0, "Headsman's Due: nothing below 3");
-    check(FinisherStacksLeft(3, true, 1, 3) == 3, "Perfect Execution wins over Headsman's Due");
-    // the bleed: +8 s an application, no cap
+    // the Executioner v2.0: personal Openings (max 5), finishers spend exactly 3 (0 with Perfect Execution)
+    check(OpeningsAfterGain(0, 1, 5) == 1, "Sundering Blow: +1");
+    check(OpeningsAfterGain(4, 3, 5) == 5, "Earthbreaker at 4: capped at 5, the excess lost");
+    check(OpeningsAfterGain(5, 2, 5) == 5, "Deathblow at 5: nothing above the cap");
+    check(OpeningsAfterGain(1, 2, 5) == 3, "Deathblow: +2");
+    check(OpeningsAfterGain(1, 3, 5) == 4, "Deathblow in Killing Instinct: +3");
+    check(!FinisherCastable(2, 3) && FinisherCastable(3, 3) && FinisherCastable(5, 3), "a finisher needs 3");
+    check(FinisherOpeningsLeft(3, 3, false, 0, 5) == 0, "3 -> 0");
+    check(FinisherOpeningsLeft(4, 3, false, 0, 5) == 1, "4 -> 1");
+    check(FinisherOpeningsLeft(5, 3, false, 0, 5) == 2, "5 -> 2");
+    check(FinisherOpeningsLeft(3, 3, true, 0, 5) == 3, "Perfect Execution: 3 -> 3");
+    check(FinisherOpeningsLeft(5, 3, true, 0, 5) == 5, "Perfect Execution: 5 -> 5");
+    check(FinisherOpeningsLeft(2, 3, true, 0, 5) == 2, "Perfect Execution still needs 3: nothing happens at 2");
+    check(FinisherOpeningsLeft(3, 3, false, 1, 5) == 1, "Headsman's Due: 3 -> 1");
+    check(FinisherOpeningsLeft(5, 3, true, 1, 5) == 5, "Perfect Execution and Headsman's Due: never above 5");
+    // the generators: once a cast, not per enemy (Cleaving Edge +1, Earthbreaker +3, Deathblow +2 also when it sweeps)
+    check(PowerGain(1, 0, 5, true, false) == 1, "Cleaving Edge on 5 enemies: +1");
+    check(PowerGain(1, 0, 0, true, false) == 0, "Cleaving Edge on nobody: nothing");
+    check(PowerGain(3, 0, 4, true, false) == 3, "Earthbreaker on 4 enemies: +3");
+    check(PowerGain(2, 0, 1, true, false) == 2, "Deathblow: +2");
+    check(PowerGain(3, 0, 1, true, false) == 3, "Deathblow in Killing Instinct: +3");
+    // Sweeping Deathblow: up to 4 more enemies at half damage
+    check(SweepCount(7, 4) == 4, "7 near: 4 swept");
+    check(SweepCount(2, 4) == 2, "2 near: 2 swept");
+    check(SweepCount(3, 0) == 0, "none allowed: none");
+    check(SweepDamage(200, 50) == 100, "a sweep hit: half");
+    check(SweepDamage(300, 50) == 150, "Red Harvest: 1.5 x the base, then half: three quarters");
+    check(SweepDamage(0, 50) == 0, "a miss stays a miss");
+    // Killing Instinct: a crit's total x 1.5
+    check(CritWithBonus(200, 50) == 300, "a 200 crit deals 300");
+    check(CritWithBonus(200, 0) == 200, "outside Killing Instinct: as rolled");
+    // the bleed: +8 s an application, no cap, on each enemy on its own
+    check(ExtendCapped(0, 8000, 0) == 8000, "the bleed: 8 s");
+    check(ExtendCapped(3000, 8000, 0) == 11000, "the bleed: 3 s left, 11 s");
     check(ExtendCapped(30000, 8000, 0) == 38000, "the bleed: 30 s left, 38 s");
+    // the spec power's own maximum and its keeping
+    check(SpecPowerMaxDelta(50, 1000) == -950, "Openings: 50 of the slot's 1000");
+    check(SpecPowerMaxDelta(1000, 1000) == 0, "Static, Heat, Energy: the slot's");
+    check(SpecPowerMaxDelta(0, 1000) == 0, "no maximum of its own");
+    check(KeptPower(0, 30, true) == 30, "a level up empties the slot: Openings come back");
+    check(KeptPower(0, 30, false) == 0, "a power that is not kept stays empty");
+    check(KeptPower(20, 30, true) == 20, "a power not emptied stays as it is");
 
     // the Druid's Bloomtender: the fixed 18 s clock, heal shares, Rising Sap, Verdant Ancient's store and release
     check(GrowthLeft(18000, 9000) == 9000, "a Seed's natural end leaves a 9 s Sprout");

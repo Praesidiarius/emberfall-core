@@ -417,33 +417,71 @@ namespace Emberfall::ClassKit::Logic
         return lastMs == 0 || gapMs <= 0 || nowMs >= lastMs + uint64_t(gapMs);
     }
 
-    // ---- the Warrior's Executioner (Emberfall docs/design/classes/warrior-executioner.md: Openings and the finishers) ----
+    // ---- the Warrior's Executioner v2.0 (Emberfall docs/design/classes/warrior-executioner.md: personal Openings) ----
 
-    // A finisher (spell_ef_kit_finisher): `damage` raised by `pctPerStack` percent for each of the `stacks` Openings the
-    // enemy carried (Final Verdict and Whirling Steel: 20 %, x1.2 / 1.4 / 1.6 at 1 / 2 / 3).
-    constexpr int32_t FinisherDamage(int32_t damage, int32_t pctPerStack, uint32_t stacks)
+    // Openings are the Executioner's spec power (0-5, stored x 10 in the runic power slot): a gain never takes them above
+    // `cap`, the excess is lost (Sundering Blow, Cleaving Edge, Steel Throw +1; Deathblow +2, +3 in Killing Instinct;
+    // Earthbreaker +3).
+    constexpr int32_t OpeningsAfterGain(int32_t have, int32_t gain, int32_t cap)
     {
-        if (damage <= 0)
-            return std::max<int32_t>(0, damage);
-        int64_t const pct = 100 + int64_t(std::max<int32_t>(0, pctPerStack)) * stacks;
+        return std::clamp<int32_t>(std::max<int32_t>(0, have) + std::max<int32_t>(0, gain), 0, std::max<int32_t>(0, cap));
+    }
+
+    // A finisher (Final Verdict, Whirling Steel) needs at least `cost` Openings (3), with Perfect Execution too.
+    constexpr bool FinisherCastable(int32_t have, int32_t cost)
+    {
+        return cost > 0 && have >= cost;
+    }
+
+    // The Openings after a finisher (spell_ef_kit_finisher): exactly `cost` spent (3 -> 0, 4 -> 1, 5 -> 2), none while
+    // Perfect Execution makes it free, then `giveBack` (Headsman's Due: 1) after it struck, never above `cap`.
+    constexpr int32_t FinisherOpeningsLeft(int32_t have, int32_t cost, bool free, int32_t giveBack, int32_t cap)
+    {
+        if (!FinisherCastable(have, cost))
+            return std::clamp<int32_t>(have, 0, std::max<int32_t>(0, cap));
+        return OpeningsAfterGain(free ? have : have - cost, giveBack, cap);
+    }
+
+    // Sweeping Deathblow (spell_ef_kit_sweep): of `found` other enemies near the target, at most `most` (4; Sweeping
+    // Reach 5/6) take the sweep.
+    constexpr int32_t SweepCount(int32_t found, int32_t most)
+    {
+        return std::clamp<int32_t>(found, 0, std::max<int32_t>(0, most));
+    }
+
+    // A sweep hit (spell_ef_kit_sweep_hit): `pct` percent (50; Red Harvest's spell mod on the helper's damage makes it
+    // 75 of Deathblow's base) of the hit the helper rolled with Deathblow's own numbers.
+    constexpr int32_t SweepDamage(int32_t damage, int32_t pct)
+    {
+        if (damage <= 0 || pct <= 0)
+            return 0;
         return int32_t(std::min<int64_t>(int64_t(damage) * pct / 100, INT32_MAX));
     }
 
-    // At `need` Openings (3) a finisher is a sure critical strike; `need` 0 never.
-    constexpr bool FinisherSureCrit(uint32_t stacks, int32_t need)
+    // Killing Instinct's +50 % critical strike damage (SPELL_AURA_MOD_CRIT_DAMAGE_BONUS, Unit::SpellCriticalDamageBonus):
+    // the crit's whole damage times (100 + pct) / 100, a 200 crit 300.
+    constexpr int32_t CritWithBonus(int32_t critDamage, int32_t pct)
     {
-        return need > 0 && stacks >= uint32_t(need);
+        if (critDamage <= 0)
+            return 0;
+        return int32_t(std::min<int64_t>(int64_t(critDamage) * (100 + std::max<int32_t>(0, pct)) / 100, INT32_MAX));
     }
 
-    // The Openings left on an enemy after a finisher: none, all of them while Perfect Execution keeps them, or Headsman's
-    // Due's `leave` (1) when the enemy carried at least `leaveAt` (3).
-    constexpr uint32_t FinisherStacksLeft(uint32_t stacks, bool keep, int32_t leave, int32_t leaveAt)
+    // ---- a spec power's own maximum and its keeping (EfSpecPower.cpp) ----
+
+    // A spec power below its slot's maximum (Openings: 50 stored of runic power's 1000): what the hook after
+    // Player::UpdateMaxPower adds (negative), so the slot's max-power auras still add on top. 0 when the spec power has
+    // no maximum of its own or the slot's.
+    constexpr int32_t SpecPowerMaxDelta(int32_t specMax, int32_t slotMax)
     {
-        if (keep)
-            return stacks;
-        if (leave > 0 && leaveAt > 0 && stacks >= uint32_t(leaveAt))
-            return std::min<uint32_t>(stacks, uint32_t(leave));
-        return 0;
+        return specMax > 0 && specMax < slotMax ? specMax - slotMax : 0;
+    }
+
+    // A kept spec power (Openings: `start: keep`) the core emptied (a level up: Player::InitStatsForLevel zeroes the
+    // runic power slot) comes back as it was before; anything else stays as it is.
+    constexpr int32_t KeptPower(int32_t now, int32_t before, bool keep)
+    {
+        return keep && now == 0 && before > 0 ? before : now;
     }
 
     // ---- the Druid's Bloomtender (Emberfall docs/design/classes/druid-bloomtender.md: Lifesprout, Verdant Ancient) ----
