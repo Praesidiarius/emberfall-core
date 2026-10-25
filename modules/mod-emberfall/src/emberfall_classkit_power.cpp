@@ -22,7 +22,8 @@
 //
 //   spell_ef_kit_build_power      the first dummy effect on the caster builds its value in points of the caster's spec
 //                                 power once the cast is done (misc B > 0: per enemy struck, at most misc B enemies;
-//                                 nothing when the enemy effects struck nobody); with the talent of its misc known and its
+//                                 nothing when the enemy effects struck nobody; a dodge, parry or miss strikes
+//                                 nobody: 2026-10-25, the Executioner's Openings); with the talent of its misc known and its
 //                                 trigger (the fight's marker) not on the caster, double, and the marker is cast (First
 //                                 Flash). The caster's hit bonuses for this spell run on every enemy struck (Crackling Air,
 //                                 Rising Air; self triggers once). A missile (speed > 0: the Pyromancer's Cinderbolt)
@@ -124,16 +125,8 @@ class spell_ef_kit_build_power : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_build_power);
 
-    uint32 _hits = 0;
+    uint32 _hits = 0;          // enemies struck: AfterHit runs only for a hit (OnHit runs for a dodge or parry too)
     bool _first = true;
-
-    void HandleHit()
-    {
-        Unit* caster = GetCaster();
-        Unit* target = GetHitUnit();
-        if (caster && target && target != caster)
-            ++_hits;
-    }
 
     // A missile (Spell.dbc speed: the Pyromancer's Cinderbolt) strikes after the cast is done: its build waits for the hit.
     bool Delayed() { return GetSpellInfo()->Speed > 0.0f && NeedsHit(GetSpellInfo()); }
@@ -144,6 +137,7 @@ class spell_ef_kit_build_power : public SpellScript
         Unit* target = GetHitUnit();
         if (!caster || !target || target == caster)
             return;
+        ++_hits;
         Emberfall::ClassKit::HitBonuses(caster, target, GetSpellInfo()->Id, 0, _first);
         _first = false;
         int8 const index = BuildEffect(GetSpellInfo());
@@ -177,7 +171,6 @@ class spell_ef_kit_build_power : public SpellScript
 
     void Register() override
     {
-        OnHit += SpellHitFn(spell_ef_kit_build_power::HandleHit);
         AfterHit += SpellHitFn(spell_ef_kit_build_power::AfterHitTarget);
         AfterCast += SpellCastFn(spell_ef_kit_build_power::Finish);
     }
