@@ -395,13 +395,15 @@ namespace Emberfall::ClassKit::Logic
     }
 
     // Bastion's Resolve (spell_ef_kit_capped_extend): a cast with `leftMs` of the aura still to run adds its `addMs` to
-    // it, at most `capMs` in all (20 s; Long Resolve 24/28); the first cast is simply `addMs`.
+    // it, at most `capMs` in all (20 s; Long Resolve 24/28); the first cast is simply `addMs`. Never shorter than what was
+    // left: the Damnator's curses past their 23 s cap after a Sanguine Torrent keep their time on a recast.
     constexpr int32_t ExtendCapped(int32_t leftMs, int32_t addMs, int32_t capMs)
     {
-        int64_t const want = int64_t(std::max<int32_t>(0, leftMs)) + std::max<int32_t>(0, addMs);
+        int64_t const left = std::max<int32_t>(0, leftMs);
+        int64_t const want = left + std::max<int32_t>(0, addMs);
         if (capMs <= 0)
             return int32_t(want);
-        return int32_t(std::min<int64_t>(want, std::max<int32_t>(capMs, addMs)));
+        return int32_t(std::max<int64_t>(left, std::min<int64_t>(want, std::max<int32_t>(capMs, addMs))));
     }
 
     // Solenne's Favor (spell_ef_kit_add_charge): the charges after a gain, at most `max` (2).

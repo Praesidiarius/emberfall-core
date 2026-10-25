@@ -21,6 +21,7 @@
 
 #include "EfClassKitLogic.h"
 #include "EfFlowLogic.h"
+#include "EfSealLogic.h"
 
 #include <iostream>
 #include <string>
@@ -358,6 +359,44 @@ int main()
         check(ExtraCritChance(100.0f, 25.0f) == 0.0f && ExtraCritChance(50.0f, 0.0f) == 0.0f, "nothing to add");
         // Boarding Hook: lands 5 yd short
         check(HookTravel(20.0f, 5.0f) == 15.0f && HookTravel(4.0f, 5.0f) == 0.0f, "the haul");
+    }
+    // the Damnator's curses (EfSealLogic.h, EfClassKitLogic.h ExtendCapped)
+    {
+        using namespace Emberfall::ClassKit::Seal;
+        // the refresh: +18 s, at most 23 s, never shortening a Torrent's extension
+        check(ExtendCapped(0, 18000, 23000) == 18000, "a fresh curse: 18 s");
+        check(ExtendCapped(4000, 18000, 23000) == 22000, "4 s left: 22 s");
+        check(ExtendCapped(10000, 18000, 23000) == 23000, "10 s left: capped at 23 s");
+        check(ExtendCapped(30000, 18000, 23000) == 30000, "30 s left after a Torrent: kept, never shortened");
+        // the tick bonus: Bloodbinding beside Brine +50 %, Salt in the Wound 2 +20; Vow below 35 % +75; Flood +50
+        check(TickBonus(true, 50, 0, 0, 0) == 50 && TickBonus(false, 50, 0, 0, 0) == 0, "the condition");
+        check(TickBonus(true, 70, 0, 50, 0) == 120, "Salt in the Wound 2 in Crimson Flood");
+        check(TickBonus(false, 75, 20, 50, 10) == 80, "Cursed Shoals, Flood and Red Wake add up");
+        check(TickBonus(false, 0, -500, 0, 0) == -100, "never below -100");
+        check(WithBonus(10, 50) == 15 && WithBonus(11, 75) == 19 && WithBonus(10, -100) == 0, "the multiplied tick");
+        // the ticks left: the time rounded up
+        check(TicksLeft(18000, 1000) == 18 && TicksLeft(17400, 1000) == 18 && TicksLeft(0, 1000) == 0, "ticks left");
+        check(TicksLeft(500, 0) == 0, "no amplitude, no ticks");
+        // Crimson Collapse: 10,000 left -> 12,500; in Flood the ticks are 1.5 x: 18,750
+        check(CollapseHit(10000, 125) == 12500, "125 % of 10,000");
+        check(CollapseHit(Remaining(10000, 1000, WithBonus(1000, 50)), 125) == 18750, "in Crimson Flood: 18,750");
+        check(CollapseHit(10000, 145) == 14500, "Hungry Deep 2");
+        check(CollapseHit(int64_t(1) << 40, 125) == 0x7FFFFFFF, "capped at an int32");
+        // Sanguine Torrent: 10 Seals, +10 s each; Rising Water 2: +15 s; past the cap
+        check(TorrentExtension(10, 1000) == 10000 && TorrentExtension(10, 1500) == 15000, "the extension");
+        check(Extended(20000, 10000) == 30000 && Extended(-1, 3000) == 3000, "past the 23 s cap");
+        // Blood Tide: both missing first, then one, then none; the closest on a tie
+        {
+            std::vector<Candidate> c{ { 0, 0, 1.0f }, { 1, 1, 9.0f }, { 2, 2, 25.0f }, { 3, 1, 4.0f } };
+            std::vector<std::size_t> want{ 2, 3 };
+            check(PickSpread(c, 2) == want, "most lacking first, then the closest");
+            std::vector<std::size_t> three{ 2, 3, 1 };
+            check(PickSpread(c, 3) == three, "Spreading Stain: three");
+            check(PickSpread({}, 2).empty(), "nobody near");
+        }
+        check(SpreadSeals(3, 1, 2) == 2 && SpreadSeals(1, 1, 2) == 1 && SpreadSeals(0, 1, 2) == 0, "at most 2 Seals");
+        check(CopyLengthens(9000, 4000) && !CopyLengthens(9000, 12000) && CopyLengthens(9000, -1), "never shortening");
+        check(ShareOf(200, 3) == 6 && ShareOf(-5, 6) == 0, "Drink Deep's share");
     }
 
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
