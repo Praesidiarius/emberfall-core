@@ -214,6 +214,10 @@ namespace Emberfall::ClassKit
     void UpdateSpecPower(Player* player, uint32 diff);
     // Stored units per point shown (rage and runic power: 10).
     int32 PowerScale(uint8 power);
+    // What the hook after Player::UpdateMaxPower adds to `power`'s maximum for the player's active spec power: the spec's
+    // `max` minus the slot's create power (the Pyromancer's Heat at 150: runic power 1500 stored, the core's 1000 + 500),
+    // under the slot's max-power auras the core summed; 0 when `power` is not the active spec power's slot.
+    int32 SpecPowerMaxBonus(Player* player, uint8 power);
     // A hold on the player's spec power (Overheat, spell_ef_kit_power_hold): while at least one holds, nothing drains it
     // out of combat (its spenders are free by their own spell mods, so nothing consumes it either).
     void HoldSpecPower(Unit* owner, bool on);

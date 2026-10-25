@@ -256,6 +256,16 @@ namespace Emberfall::ClassKit
         return power == POWER_RAGE || power == POWER_RUNIC_POWER ? 10 : 1;
     }
 
+    int32 SpecPowerMaxBonus(Player* player, uint8 power)
+    {
+        if (!player || !KitOf(player))
+            return 0;
+        SpecPower const* spec = SpecPowerOf(Emberfall::Talents::ActiveSpec(player));
+        if (!spec || spec->classId != player->getClass() || spec->power != power)
+            return 0;
+        return int32(spec->max) - int32(player->GetCreatePowers(Powers(power)));
+    }
+
     void ApplySpecPower(Player* player)
     {
         if (!player || !KitOf(player))
