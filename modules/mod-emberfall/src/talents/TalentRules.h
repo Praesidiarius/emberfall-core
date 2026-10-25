@@ -13,7 +13,7 @@
 // together.
 //
 // Wire form (talents.md §4.3): a tree's rank string has one character per node in `ord` order, `0`-`9` the rank of
-// a normal node, `0` or `a`/`b`/`c` the option of a choice node; a loadout is `<classRanks>.<specRanks>`.
+// a normal node, `0` or `a`-`d` the option of a choice node; a loadout is `<classRanks>.<specRanks>`.
 //
 // Points (T6): a node's ranks are **paid** unless the node is free for the spec (freeSpecMask has the spec's bit,
 // `free_for_specs`) or granted (autoCount > 0: rank k once the tree's paid points reach autoAt[k-1]). Budgets,
@@ -82,7 +82,7 @@ namespace ef::talents
 
     constexpr size_t kMaxParents = 4;
     constexpr uint8_t kMaxWireRank = 9;
-    constexpr uint8_t kMaxOptions = 3;
+    constexpr uint8_t kMaxOptions = 4; // a-d on the wire (the Wrathbringer's capstone row: one of four)
 
     struct RuleNode
     {
@@ -90,7 +90,7 @@ namespace ef::talents
         uint32_t row = 0;
         NodeKind kind = NodeKind::Passive;
         uint8_t maxRank = 1;      // 1 for a choice node
-        uint8_t numOptions = 0;   // choice nodes: 2-3
+        uint8_t numOptions = 0;   // choice nodes: 2-4
         uint32_t requiredLevel = 0;
         uint32_t freeSpecMask = 0;
         uint32_t gate = 0;        // points spent in the tree first (its own or its row gate, the higher)
@@ -113,7 +113,7 @@ namespace ef::talents
     };
 
     // One node's entry in a rank string: the rank (a choice node: 1 when an option is picked) and the
-    // option (1-3, choice nodes only; 0 = none).
+    // option (1-4, choice nodes only; 0 = none).
     struct NodeValue
     {
         uint8_t rank = 0;
@@ -138,7 +138,7 @@ namespace ef::talents
             const char c = text[i];
             if (c >= '0' && c <= '9')
                 out[i].rank = static_cast<uint8_t>(c - '0');
-            else if (c >= 'a' && c <= 'c' && tree.nodes[i].kind == NodeKind::Choice)
+            else if (c >= 'a' && c < static_cast<char>('a' + kMaxOptions) && tree.nodes[i].kind == NodeKind::Choice)
                 out[i] = NodeValue{1, static_cast<uint8_t>(c - 'a' + 1)};
             else
                 return std::nullopt;

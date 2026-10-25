@@ -23,7 +23,7 @@
 //   chunking    a field <part>/<total> (1-based, total <= 8) precedes a chunked payload; parts of one seq
 //               in order; a set is dropped after 5 s
 //   loadouts    on the wire a rank string per tree in `ord` order (TalentRules.h); in the characters DB
-//               `nodeID:rank` / `nodeID:option` pairs (option a-c), invested nodes only (§2.8)
+//               `nodeID:rank` / `nodeID:option` pairs (option a-d), invested nodes only (§2.8)
 //
 // Everything here is bounds-checked and never throws: a malformed input gives std::nullopt / an error value.
 
@@ -261,7 +261,7 @@ namespace ef::eft
         return chars >= 1 && chars <= kMaxNameLength;
     }
 
-    // A stored loadout: node ID -> (rank, option); option 1-3 for a choice node (rank then 1).
+    // A stored loadout: node ID -> (rank, option); option 1-4 for a choice node (rank then 1).
     struct Pair
     {
         uint8_t rank = 0;
@@ -305,7 +305,7 @@ namespace ef::eft
             const char v = kv[1][0];
             if (v >= '1' && v <= '9')
                 out[*node] = Pair{static_cast<uint8_t>(v - '0'), 0};
-            else if (v >= 'a' && v <= 'c')
+            else if (v >= 'a' && v <= 'd') // TalentRules.h kMaxOptions 4
                 out[*node] = Pair{1, static_cast<uint8_t>(v - 'a' + 1)};
             else
                 return std::nullopt;

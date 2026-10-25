@@ -464,14 +464,14 @@
    "detail": 0
   },
   {
-   "name": "a letter outside a-c",
+   "name": "a letter outside a-d",
    "classTree": 810,
    "specTree": 811,
    "specBit": 1,
    "level": 30,
    "classBudget": 19,
    "specBudget": 10,
-   "loadout": "0000.231d0",
+   "loadout": "0000.231e0",
    "code": "DECODE",
    "detail": 0
   },

@@ -483,7 +483,7 @@ namespace
         auto pairs = eft::decodePairs("50012:2,50020:b");
         check(pairs && pairs->at(50012).rank == 2 && pairs->at(50020).option == 2 && eft::encodePairs(*pairs) == "50012:2,50020:b", "pairs");
         check(eft::decodePairs("") && eft::decodePairs("")->empty(), "no pairs");
-        for (char const* bad : {"1", "1:", ":1", "1:0", "1:d", "1:2,1:3", "0:1", "1:22", "x:1", "1:1,"})
+        for (char const* bad : {"1", "1:", ":1", "1:0", "1:e", "1:2,1:3", "0:1", "1:22", "x:1", "1:1,"})
             check(!eft::decodePairs(bad), std::string("bad pairs '") + bad + "'");
 
         // Rate limit: 20 per 10 s.
