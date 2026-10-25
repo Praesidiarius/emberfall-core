@@ -88,13 +88,15 @@ namespace
         void OnPlayerUpdate(Player* player, uint32 diff) override { Emberfall::ClassKit::UpdateSpecPower(player, diff); }
 
         // A class power's maximum (the Hunter's Focus, EfClassKit.h ClassPowerRule): the core's create power is 0 for a
-        // player, so the rule's maximum comes in here, under the slot's max-power auras (Wide Lungs) the core summed.
+        // player, so the rule's maximum comes in here, under the slot's max-power auras (Wide Lungs) the core summed. A
+        // spec power above its slot's create power (the Pyromancer's Heat, 150) adds the difference the same way.
         void OnPlayerAfterUpdateMaxPower(Player* player, Powers& power, float& value) override
         {
             if (Emberfall::ClassKit::KitOf(player))
             {
                 value += float(Emberfall::ClassKit::ClassPowerBase(player, uint8(power)));
-                // a spec power with a maximum of its own below the slot's (the Executioner's 5 Openings)
+                // a spec power with a maximum of its own below or above the slot's (the Executioner's 5 Openings, the
+                // Pyromancer's 150 Heat)
                 value = std::max(0.0f, value + float(Emberfall::ClassKit::SpecPowerMaxDelta(player, uint8(power))));
             }
         }

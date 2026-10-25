@@ -469,12 +469,12 @@ namespace Emberfall::ClassKit::Logic
 
     // ---- a spec power's own maximum and its keeping (EfSpecPower.cpp) ----
 
-    // A spec power below its slot's maximum (Openings: 50 stored of runic power's 1000): what the hook after
-    // Player::UpdateMaxPower adds (negative), so the slot's max-power auras still add on top. 0 when the spec power has
-    // no maximum of its own or the slot's.
+    // A spec power with a maximum other than its slot's (Openings: 50 stored of runic power's 1000; the Pyromancer's Heat:
+    // 1500): what the hook after Player::UpdateMaxPower adds (negative or positive), so the slot's max-power auras still
+    // add on top. 0 when the spec power has no maximum of its own or the slot's.
     constexpr int32_t SpecPowerMaxDelta(int32_t specMax, int32_t slotMax)
     {
-        return specMax > 0 && specMax < slotMax ? specMax - slotMax : 0;
+        return specMax > 0 ? specMax - slotMax : 0;
     }
 
     // A kept spec power (Openings: `start: keep`) the core emptied (a level up: Player::InitStatsForLevel zeroes the

@@ -215,8 +215,9 @@ namespace Emberfall::ClassKit
     // Sets the player's power to its active spec's own (or back to the class's): at login (`login`), level change and spec
     // change.
     void ApplySpecPower(Player* player, bool login = false);
-    // A spec power's own maximum below its slot's (the Executioner's Openings: 5, 50 stored of runic power's 1000): what
-    // the hook after Player::UpdateMaxPower adds for `power` (negative; 0 for every other power and slot).
+    // A spec power's own maximum against its slot's (the Executioner's Openings: 5, 50 stored of runic power's 1000; the
+    // Pyromancer's Heat: 150, 1500 stored): what the hook after Player::UpdateMaxPower adds for `power` (negative or
+    // positive; 0 for every other power and slot).
     int32 SpecPowerMaxDelta(Player const* player, uint8 power);
     // Every player tick: the drain out of combat and the end of the fight markers.
     void UpdateSpecPower(Player* player, uint32 diff);

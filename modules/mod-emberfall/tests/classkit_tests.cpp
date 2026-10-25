@@ -302,7 +302,8 @@ int main()
     check(ExtendCapped(30000, 8000, 0) == 38000, "the bleed: 30 s left, 38 s");
     // the spec power's own maximum and its keeping
     check(SpecPowerMaxDelta(50, 1000) == -950, "Openings: 50 of the slot's 1000");
-    check(SpecPowerMaxDelta(1000, 1000) == 0, "Static, Heat, Energy: the slot's");
+    check(SpecPowerMaxDelta(1000, 1000) == 0, "Static, Energy: the slot's");
+    check(SpecPowerMaxDelta(1500, 1000) == 500, "the Pyromancer's Heat: 150, above the slot's 100");
     check(SpecPowerMaxDelta(0, 1000) == 0, "no maximum of its own");
     check(KeptPower(0, 30, true) == 30, "a level up empties the slot: Openings come back");
     check(KeptPower(0, 30, false) == 0, "a power that is not kept stays empty");
