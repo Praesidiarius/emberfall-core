@@ -281,10 +281,21 @@ namespace
         for (EfNode& n : m->trees[821].nodes)
             if (n.id == 8101)
                 n.replaces = 777;
-        auto const reps = m->Replacements(fg, {}, [](uint32_t) { return false; });
+        auto const reps = m->Replacements(fg, {}, 60, [](uint32_t) { return false; });
         check(reps.size() == 1 && reps[0].replaced == 777 && reps[0].by == 81011, "a granted replacing node is invested at once");
         check(m->ReplacedBy(1).at(81011) == 777, "ReplacedBy maps the node's spell back");
         check(!m->Expected(fg, {}, 60).count(777), "the replaced spell is not expected");
+        // a granted node with a required level (the Wrathbringer's row abilities): nothing below it, granted from it
+        for (size_t i = 0; i < m->trees[821].nodes.size(); ++i)
+            if (m->trees[821].nodes[i].id == 8101)
+                m->trees[821].rules.nodes[i].requiredLevel = 20;
+        check(!m->Expected(fg, {}, 19).count(81011) && m->Expected(fg, {}, 20).count(81011), "a granted node waits for its level");
+        check(m->Replacements(fg, {}, 19, [](uint32_t) { return false; })[0].by == 0
+                  && m->Replacements(fg, {}, 20, [](uint32_t) { return false; })[0].by == 81011,
+              "a granted replacing node replaces from its level");
+        for (size_t i = 0; i < m->trees[821].nodes.size(); ++i)
+            if (m->trees[821].nodes[i].id == 8101)
+                m->trees[821].rules.nodes[i].requiredLevel = 0;
         // the pre-spec state: the class tree only, spec bit 0
         EfSpec const* pre = m->PreSpec(1);
         check(pre && pre->id == 0 && m->SpecOrPre(0, 1) == pre && m->SpecOrPre(0, 2) == nullptr, "PreSpec / SpecOrPre");
@@ -411,17 +422,17 @@ namespace
         eft::Pairs const with = {{9002, {2, 0}}, {9004, {1, 0}}};
         SpellSet const before = r->Expected(lamp, without, 20), after = r->Expected(lamp, with, 20);
         check(before.count(91901) && !after.count(91901) && after.count(90041), "an invested replacing node takes the baseline spell's place");
-        auto const reps = r->Replacements(lamp, with, notPassive);
+        auto const reps = r->Replacements(lamp, with, 20, notPassive);
         check(reps.size() == 1 && reps[0].replaced == 91901 && reps[0].by == 90041 && reps[0].nodeSpells == std::vector<uint32_t>{90041},
               "Replacements: replaced, by, the node's spells");
-        auto const idle = r->Replacements(lamp, without, notPassive);
+        auto const idle = r->Replacements(lamp, without, 20, notPassive);
         check(idle.size() == 1 && idle[0].by == 0, "Replacements: a node that is not invested replaces nothing");
-        check(r->Replaced(lamp, with, notPassive) == std::set<uint32_t>{91901} && r->Replaced(lamp, without, notPassive).empty(), "Replaced");
+        check(r->Replaced(lamp, with, 20, notPassive) == std::set<uint32_t>{91901} && r->Replaced(lamp, without, 20, notPassive).empty(), "Replaced");
         // a passive first spell of the rank: the ability after it goes on the bars
         for (EfNode& n : ct.nodes)
             if (n.id == 9004)
                 n.ranks[0] = {77, 78};
-        auto const passiveFirst = r->Replacements(lamp, with, [](uint32_t s) { return s == 77; });
+        auto const passiveFirst = r->Replacements(lamp, with, 20, [](uint32_t s) { return s == 77; });
         check(passiveFirst.size() == 1 && passiveFirst[0].by == 78, "Replacements: the first non-passive spell goes on the bars");
     }
 

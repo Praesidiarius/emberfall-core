@@ -17,7 +17,9 @@
 //
 // Points (T6): a node's ranks are **paid** unless the node is free for the spec (freeSpecMask has the spec's bit,
 // `free_for_specs`) or granted (autoCount > 0: rank k once the tree's paid points reach autoAt[k-1]). Budgets,
-// gates ("points spent in this tree first") and granted ranks all count paid points.
+// gates ("points spent in this tree first") and granted ranks all count paid points. A granted node with a required
+// level is granted from that level on (the points the character has *earned*, not spent: the Wrathbringer's row
+// abilities, one every 5 spec points of the schedule); below it its rank is 0, so the nodes it opens stay shut.
 //
 // Checks, the first failure wins: Decode (length, characters, a letter on a normal node); then per node of the class
 // tree and then of the spec tree, in `ord` order, for each invested paid node: Rank (above its max), Level (its
@@ -91,7 +93,7 @@ namespace ef::talents
         NodeKind kind = NodeKind::Passive;
         uint8_t maxRank = 1;      // 1 for a choice node
         uint8_t numOptions = 0;   // choice nodes: 2-4
-        uint32_t requiredLevel = 0;
+        uint32_t requiredLevel = 0; // a paid node: bought from this level; a granted node: granted from this level
         uint32_t freeSpecMask = 0;
         uint32_t gate = 0;        // points spent in the tree first (its own or its row gate, the higher)
         std::array<int32_t, kMaxParents> parents{-1, -1, -1, -1}; // `ord` indices into the same tree, -1 = none
@@ -191,9 +193,11 @@ namespace ef::talents
         return sum;
     }
 
-    // A granted node's rank at `paid` points spent in its tree.
-    inline uint32_t grantedRank(const RuleNode& node, uint32_t paid)
+    // A granted node's rank at `paid` points spent in its tree for a character of `level` (0 below its required level).
+    inline uint32_t grantedRank(const RuleNode& node, uint32_t paid, uint32_t level)
     {
+        if (node.requiredLevel > level)
+            return 0;
         uint32_t rank = 0;
         for (uint32_t k = 0; k < node.autoCount && k < kMaxWireRank; ++k)
             if (node.autoAt[k] <= paid)
@@ -201,14 +205,14 @@ namespace ef::talents
         return rank;
     }
 
-    // The rank a node counts with: a free node its max rank, a granted node by the tree's paid points (`paid`), a
-    // choice node 1 when anything is picked.
-    inline uint32_t effectiveRank(const RuleNode& node, NodeValue value, uint32_t specBit, uint32_t paid)
+    // The rank a node counts with: a free node its max rank, a granted node by the tree's paid points (`paid`) and
+    // the character's level, a choice node 1 when anything is picked.
+    inline uint32_t effectiveRank(const RuleNode& node, NodeValue value, uint32_t specBit, uint32_t paid, uint32_t level)
     {
         if ((node.freeSpecMask & specBit) != 0)
             return node.maxRank;
         if (node.autoCount != 0)
-            return grantedRank(node, paid);
+            return grantedRank(node, paid, level);
         return boughtRank(node, value);
     }
 
@@ -241,7 +245,7 @@ namespace ef::talents
                 continue;
             hasParent = true;
             const size_t pi = static_cast<size_t>(p);
-            if (opens(tree.nodes[pi], node.parentRanks[k], effectiveRank(tree.nodes[pi], values[pi], specBit, paid)))
+            if (opens(tree.nodes[pi], node.parentRanks[k], effectiveRank(tree.nodes[pi], values[pi], specBit, paid, level)))
                 parentOpen = true;
         }
         if (hasParent && !parentOpen)

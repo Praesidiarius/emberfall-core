@@ -773,6 +773,472 @@
    "id": 0,
    "nodes": [],
    "gates": []
+  },
+  {
+   "id": 829,
+   "nodes": [
+    {
+     "id": 8101,
+     "row": 1,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [
+      0
+     ],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8102,
+     "row": 1,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 12,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [
+      0
+     ],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8103,
+     "row": 1,
+     "kind": 1,
+     "maxRank": 4,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [
+      0,
+      10,
+      20,
+      30
+     ],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8104,
+     "row": 2,
+     "kind": 1,
+     "maxRank": 4,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      1
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8105,
+     "row": 3,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 2,
+     "auto": [],
+     "parents": [
+      3
+     ],
+     "parentRanks": [
+      2
+     ]
+    },
+    {
+     "id": 8106,
+     "row": 3,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 2,
+     "auto": [],
+     "parents": [
+      3
+     ],
+     "parentRanks": [
+      2
+     ]
+    },
+    {
+     "id": 8107,
+     "row": 3,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 2,
+     "auto": [
+      4
+     ],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8108,
+     "row": 4,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 4,
+     "auto": [],
+     "parents": [
+      4
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8109,
+     "row": 4,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 4,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8110,
+     "row": 4,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 4,
+     "auto": [],
+     "parents": [
+      5
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8111,
+     "row": 5,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 6,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8112,
+     "row": 5,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 6,
+     "auto": [],
+     "parents": [
+      5
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8113,
+     "row": 5,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 6,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8114,
+     "row": 6,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 8,
+     "auto": [],
+     "parents": [
+      10
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8115,
+     "row": 6,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 8,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8116,
+     "row": 6,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 8,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8118,
+     "row": 7,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 10,
+     "auto": [],
+     "parents": [
+      17
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8117,
+     "row": 7,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 10,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8119,
+     "row": 7,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 10,
+     "auto": [],
+     "parents": [
+      17
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8120,
+     "row": 8,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 13,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8121,
+     "row": 8,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 13,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8122,
+     "row": 8,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 13,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8123,
+     "row": 9,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 18,
+     "auto": [],
+     "parents": [
+      19
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8124,
+     "row": 9,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 18,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8125,
+     "row": 9,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 18,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8126,
+     "row": 9,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 18,
+     "auto": [],
+     "parents": [
+      10
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8127,
+     "row": 10,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 28,
+     "auto": [],
+     "parents": [
+      13
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8128,
+     "row": 10,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 28,
+     "auto": [],
+     "parents": [
+      17
+     ],
+     "parentRanks": [
+      0
+     ]
+    }
+   ],
+   "gates": [
+    {
+     "row": 3,
+     "points": 2
+    },
+    {
+     "row": 4,
+     "points": 4
+    },
+    {
+     "row": 5,
+     "points": 6
+    },
+    {
+     "row": 6,
+     "points": 8
+    },
+    {
+     "row": 7,
+     "points": 10
+    },
+    {
+     "row": 8,
+     "points": 13
+    },
+    {
+     "row": 9,
+     "points": 18
+    },
+    {
+     "row": 10,
+     "points": 28
+    }
+   ]
   }
  ],
  "cases": [
@@ -990,6 +1456,42 @@
    "specBudget": 36,
    "loadout": "221212121121221100.0000000000000000000000000000",
    "code": "BUDGET_C",
+   "detail": 0
+  },
+  {
+   "name": "granted by level: below it s1b is not there and opens nothing",
+   "classTree": 820,
+   "specTree": 829,
+   "specBit": 1,
+   "level": 11,
+   "classBudget": 9,
+   "specBudget": 1,
+   "loadout": "000000000000000000.0001000000000000000000000000",
+   "code": "PATH",
+   "detail": 8104
+  },
+  {
+   "name": "granted by level: at its level s1b opens s2a",
+   "classTree": 820,
+   "specTree": 829,
+   "specBit": 1,
+   "level": 12,
+   "classBudget": 10,
+   "specBudget": 1,
+   "loadout": "000000000000000000.0001000000000000000000000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "granted by level: nothing bought below it is fine",
+   "classTree": 820,
+   "specTree": 829,
+   "specBit": 1,
+   "level": 10,
+   "classBudget": 9,
+   "specBudget": 0,
+   "loadout": "000000000000000000.0000000000000000000000000000",
+   "code": "OK",
    "detail": 0
   }
  ]

@@ -152,16 +152,18 @@ namespace ef::talents
             return sum;
         }
 
-        // A node's current spell set in a loadout: free nodes at their max rank, granted nodes by the tree's paid
-        // points, a choice node's option; null when it teaches nothing now.
-        const std::vector<uint32_t>* CurrentSet(const EfTree& tree, size_t i, const eft::Pairs& pairs, uint32_t bit, uint32_t paid) const
+        // A node's current spell set in a loadout of a character of `level`: free nodes at their max rank, granted nodes
+        // by the tree's paid points (none below their required level), a choice node's option; null when it teaches
+        // nothing now.
+        const std::vector<uint32_t>* CurrentSet(const EfTree& tree, size_t i, const eft::Pairs& pairs, uint32_t bit, uint32_t paid,
+                                                uint32_t level) const
         {
             const EfNode& n = tree.nodes[i];
             const auto it = pairs.find(n.id);
             const eft::Pair p = it == pairs.end() ? eft::Pair{} : it->second;
             if (n.kind == NodeKind::Choice)
                 return isPaid(tree.rules.nodes[i], bit) && p.option >= 1 && p.option <= n.options.size() ? &n.options[p.option - 1] : nullptr;
-            const uint32_t rank = std::min<uint32_t>(effectiveRank(tree.rules.nodes[i], NodeValue{p.rank, p.option}, bit, paid),
+            const uint32_t rank = std::min<uint32_t>(effectiveRank(tree.rules.nodes[i], NodeValue{p.rank, p.option}, bit, paid, level),
                                                      static_cast<uint32_t>(n.ranks.size()));
             return rank >= 1 ? &n.ranks[rank - 1] : nullptr;
         }
@@ -316,12 +318,12 @@ namespace ef::talents
                     continue;
                 const uint32_t paid = PaidIn(*tree, pairs, bit);
                 for (size_t i = 0; i < tree->nodes.size(); ++i)
-                    if (const std::vector<uint32_t>* spells = CurrentSet(*tree, i, pairs, bit, paid))
+                    if (const std::vector<uint32_t>* spells = CurrentSet(*tree, i, pairs, bit, paid, level))
                         for (const uint32_t s : *spells)
                             out.emplace(s, GrantSource::Node);
             }
             // an invested replacing node takes its replaced spell's place (M6): a baseline spell it replaces is not taught
-            for (const Replacement& r : Replacements(spec, pairs, [](uint32_t) { return false; }))
+            for (const Replacement& r : Replacements(spec, pairs, level, [](uint32_t) { return false; }))
                 if (r.by)
                     out.erase(r.replaced);
             return out;
@@ -338,10 +340,10 @@ namespace ef::talents
             std::vector<uint32_t> nodeSpells;
         };
 
-        // Every replacing node of the spec's two trees (free nodes count as invested at their max rank), class tree
-        // first, then in `ord` order.
+        // Every replacing node of the spec's two trees for a character of `level` (free nodes count as invested at their
+        // max rank, granted nodes from their required level), class tree first, then in `ord` order.
         template <typename IsPassive>
-        std::vector<Replacement> Replacements(const EfSpec& spec, const eft::Pairs& pairs, IsPassive isPassive) const
+        std::vector<Replacement> Replacements(const EfSpec& spec, const eft::Pairs& pairs, uint32_t level, IsPassive isPassive) const
         {
             std::vector<Replacement> out;
             const EfClass* cls = Class(spec.classId);
@@ -361,7 +363,7 @@ namespace ef::talents
                     r.replaced = n.replaces;
                     for (const auto& set : n.kind == NodeKind::Choice ? n.options : n.ranks)
                         r.nodeSpells.insert(r.nodeSpells.end(), set.begin(), set.end());
-                    const std::vector<uint32_t>* now = CurrentSet(*tree, i, pairs, bit, paid);
+                    const std::vector<uint32_t>* now = CurrentSet(*tree, i, pairs, bit, paid, level);
                     if (now)
                     {
                         for (const uint32_t s : *now)
@@ -399,10 +401,10 @@ namespace ef::talents
 
         // The spells the invested replacing nodes take away: never known while their node is invested.
         template <typename IsPassive>
-        std::set<uint32_t> Replaced(const EfSpec& spec, const eft::Pairs& pairs, IsPassive isPassive) const
+        std::set<uint32_t> Replaced(const EfSpec& spec, const eft::Pairs& pairs, uint32_t level, IsPassive isPassive) const
         {
             std::set<uint32_t> out;
-            for (const Replacement& r : Replacements(spec, pairs, isPassive))
+            for (const Replacement& r : Replacements(spec, pairs, level, isPassive))
                 if (r.by)
                     out.insert(r.replaced);
             return out;
