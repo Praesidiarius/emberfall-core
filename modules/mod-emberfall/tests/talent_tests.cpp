@@ -150,6 +150,20 @@ namespace
     using namespace ef::talents;
     namespace eft = ef::eft;
 
+    // A vectors tree's pick groups ("groups": the slot thresholds per group; none when absent).
+    std::vector<std::vector<uint32_t>> groupsOf(Json const& t)
+    {
+        std::vector<std::vector<uint32_t>> out;
+        if (t.obj().count("groups"))
+            for (Json const& g : t["groups"].arr())
+            {
+                out.emplace_back();
+                for (Json const& at : g.arr())
+                    out.back().push_back(static_cast<uint32_t>(at.num()));
+            }
+        return out;
+    }
+
     RuleTree ruleTree(Json const& t)
     {
         RuleTree tree;
@@ -175,10 +189,13 @@ namespace
             for (Json const& p : n["parentRanks"].arr())
                 if (k < kMaxParents)
                     r.parentRanks[k++] = static_cast<uint8_t>(p.num());
+            if (n.obj().count("group")) // a pick node (pick groups, only where a tree has them)
+                r.group = static_cast<uint8_t>(n["group"].num());
             tree.nodes.push_back(r);
         }
         for (Json const& g : t["gates"].arr())
             tree.gates.push_back(RuleGate{static_cast<uint32_t>(g["row"].num()), static_cast<uint32_t>(g["points"].num())});
+        tree.groups = groupsOf(t);
         return tree;
     }
 
@@ -236,6 +253,8 @@ namespace
                     e.parents.push_back(ids[static_cast<size_t>(p.num())]);
                 for (Json const& p : n["parentRanks"].arr())
                     e.parentRanks.push_back(static_cast<uint32_t>(p.num()));
+                if (n.obj().count("group"))
+                    e.group = static_cast<uint32_t>(n["group"].num());
                 if (e.kind == NodeKind::Choice)
                     for (long long o = 1; o <= n["numOptions"].num(); ++o)
                         e.options.push_back({e.id * 10 + static_cast<uint32_t>(o)});
@@ -248,9 +267,43 @@ namespace
             }
             for (Json const& g : (*json)["gates"].arr())
                 t.gates.push_back(RuleGate{static_cast<uint32_t>(g["row"].num()), static_cast<uint32_t>(g["points"].num())});
+            t.groups = groupsOf(*json);
             m->trees[t.id] = t;
         }
         return m;
+    }
+
+    // Pick groups (Emberfall's talents.md §1.3 rule 7, the Wrathbringer's row abilities since 2026-10-26) on the vectors'
+    // pick tree 830: group 1 (8303, 8305; slots at 2 and 4 points spent), group 2 (8307, 8309; at 7 and 9). The model
+    // stores picks like paid nodes, teaches a pick's spell once picked, hashes the groups, and Remap picks the ability of
+    // a row whose modifiers a loadout from before (a granted ability) holds.
+    void pickTests(std::map<long long, Json> const& treeJson)
+    {
+        auto m = model(treeJson.at(820), treeJson.at(830), 1);
+        m->points[0][60] = {99, 99};
+        std::vector<std::string> problems;
+        m->Finish(problems);
+        check(problems.empty(), "pick model: " + (problems.empty() ? std::string() : problems[0]));
+        EfSpec const& spec = *m->Spec(91);
+        check(m->trees[830].rules.groups == std::vector<std::vector<uint32_t>>{{2, 4}, {7, 9}}, "pick model: the groups' slots");
+        std::string const json = m->CanonicalJson();
+        check(json.find("\"groups\":[[2,4],[7,9]]") != std::string::npos && json.find("\"group\":2") != std::string::npos,
+              "pick model: the groups are hashed");
+        std::string const cls(m->trees[820].nodes.size(), '0');
+        auto picked = m->PairsOf(spec, cls + ".02100000000");
+        check(picked && picked->count(8303) && picked->at(8303).rank == 1 && picked->count(8302), "pick model: a pick is stored");
+        check(picked && m->Expected(spec, *picked, 60).count(83031) && !m->Expected(spec, {}, 60).count(83031),
+              "pick model: a pick teaches its spell once picked");
+        // a loadout from before the pick groups: the rows' modifiers without their abilities (they were granted)
+        bool changed = true;
+        eft::Pairs const old = {{8302, {3, 0}}, {8304, {2, 0}}, {8306, {1, 0}}};
+        eft::Pairs const remapped = m->Remap(spec, old, changed);
+        check(!changed && remapped.count(8303) && remapped.count(8305) && remapped.size() == 5, "pick model: Remap picks the rows' abilities");
+        check(m->Validate(spec, m->LoadoutString(spec, remapped), 60).ok(), "pick model: the remapped loadout fits its slots");
+        eft::Pairs const tooMany = {{8302, {1, 0}}, {8304, {1, 0}}, {8306, {1, 0}}};
+        RuleResult const r = m->Validate(spec, m->LoadoutString(spec, m->Remap(spec, tooMany, changed)), 60);
+        check(r.code == RuleError::Slot, "pick model: a remapped loadout whose picks do not fit is refused (reset)");
+        std::cout << "picks: groups, storage, Remap\n";
     }
 
     // T6 on the Frostguard test tree (Emberfall's tools/py/tests/data/talents/frostguard.yaml): granted nodes (s1a, s1b
@@ -391,6 +444,8 @@ namespace
         if (!treeJson.count(810) || !treeJson.count(811))
         {
             frostguardTests(treeJson);
+            if (treeJson.count(830))
+                pickTests(treeJson);
             return; // the rest is about the example tree
         }
         // Remap after a data change: a node removed, a max rank lowered, an option removed.

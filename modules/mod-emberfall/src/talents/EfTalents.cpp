@@ -1453,6 +1453,51 @@ namespace Emberfall::Talents
                         it->second.fill = true;
                 } while (r->NextRow());
             }
+        // pick groups (2026-10-26, Emberfall's talents.md §1.3 rule 7: the Wrathbringer's row abilities): each tree's slot
+        // thresholds and the picks' groups; optional, so a world from before the tables keeps working without them
+        uint32 pickTables = 0;
+        if (QueryResult r = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND "
+            "TABLE_NAME IN ('ef_talent_pick', 'ef_talent_slot')"))
+            pickTables = static_cast<uint32>(r->Fetch()[0].Get<uint64>());
+        if (pickTables == 2)
+        {
+            if (QueryResult r = WorldDatabase.Query("SELECT `tree`, `grp`, `slot`, `points` FROM `ef_talent_slot` ORDER BY `tree`, `grp`, `slot`"))
+            {
+                do
+                {
+                    Field* f = r->Fetch();
+                    uint32 const tree = f[0].Get<uint16>(), group = f[1].Get<uint8>(), slot = f[2].Get<uint8>();
+                    auto it = data->trees.find(tree);
+                    if (it == data->trees.end() || group < 1 || group > it->second.groups.size() + 1)
+                    {
+                        problems.push_back("ef_talent_slot: tree " + std::to_string(tree) + " group " + std::to_string(group) + " unknown or out of order");
+                        continue;
+                    }
+                    if (group > it->second.groups.size())
+                        it->second.groups.emplace_back();
+                    if (slot != it->second.groups[group - 1].size() + 1)
+                        problems.push_back("ef_talent_slot: tree " + std::to_string(tree) + " group " + std::to_string(group) + " slot " +
+                                           std::to_string(slot) + " out of order");
+                    else
+                        it->second.groups[group - 1].push_back(f[3].Get<uint16>());
+                } while (r->NextRow());
+            }
+            if (QueryResult r = WorldDatabase.Query("SELECT `node`, `grp` FROM `ef_talent_pick`"))
+            {
+                do
+                {
+                    Field* f = r->Fetch();
+                    uint32 const node = f[0].Get<uint32>();
+                    auto it = nodes.find(node);
+                    if (it == nodes.end())
+                        problems.push_back("ef_talent_pick: unknown node " + std::to_string(node));
+                    else
+                        it->second.group = f[1].Get<uint8>();
+                } while (r->NextRow());
+            }
+        }
+        else if (pickTables)
+            problems.push_back("ef_talent_pick and ef_talent_slot come together; only one exists");
         for (auto& [id, n] : nodes)
         {
             auto it = data->trees.find(n.tree);
