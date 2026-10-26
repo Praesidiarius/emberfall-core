@@ -24,7 +24,8 @@
 //   3. the EFT protocol (EftProtocol.h): parse, chunking both ways, names, stored pairs, rate limit; and a
 //      decode fuzz: random and mutated bodies never crash and always give a defined result;
 //   4. saved loadouts and per-spec bars (EfLoadouts.h): new loadout IDs and the limit, a spec's first bars;
-//   5. the fill nodes (EfTalentModel::Fill, ef_talent_fill: the class layout's strip) bought in order.
+//   5. the class layout's strip: the player buys it in order (no server fill since 2026-10-26), and the abilities a
+//      purchase gives (EfTalentModel::NewAbilities, for the bar).
 //
 //   talent_tests VECTORS.json...    exit status 0 when everything passed
 
@@ -694,42 +695,43 @@ namespace
         check(FirstBars({{200, 1, 0}}, known, {}).empty(), "bars: a button past 143 is dropped");
     }
 
-    // The fill nodes (ef_talent_fill, 2026-10-26: the class layout's strip): EfTalentModel::Fill buys them in `ord`
-    // order as far as the loadout stays valid, and stops at the first that does not fit.
-    void fillTests()
+    // The class layout's strip (2026-10-26, Nathanael: the player buys it, one point a slot, in order): each slot needs
+    // the one before (its parent), nothing is bought by itself; EfTalentModel::NewAbilities names the abilities a purchase
+    // gives (they go on the bar).
+    void stripTests()
     {
         using namespace ef::talents;
         EfTalentModel m;
-        m.points[0] = {{1, {0, 0}}, {2, {1, 0}}, {3, {2, 0}}, {4, {3, 0}}, {5, {4, 0}}, {6, {5, 0}}, {10, {5, 1}}};
-        auto node = [](uint32_t id, uint32_t tree, uint32_t ord, uint32_t row, std::vector<uint32_t> parents, uint32_t gate, bool fill,
-                       uint32_t maxRank = 1) {
+        m.points[0] = {{1, {0, 0}}, {2, {1, 0}}, {3, {2, 0}}, {4, {3, 0}}, {5, {4, 0}}, {10, {4, 1}}};
+        auto node = [](uint32_t id, uint32_t ord, uint32_t row, NodeKind kind, std::vector<uint32_t> parents, uint32_t level) {
             EfNode n;
             n.id = id;
-            n.tree = tree;
+            n.tree = 1;
             n.ord = ord;
             n.row = row;
-            n.maxRank = maxRank;
+            n.kind = kind;
+            n.requiredLevel = level;
             n.parentRanks.assign(parents.size(), 0);
             n.parents = std::move(parents);
-            n.gate = gate;
-            n.fill = fill;
-            for (uint32_t r = 1; r <= maxRank; ++r)
-                n.ranks.push_back({id * 10 + r});
+            if (kind == NodeKind::Choice)
+                n.options = {{id * 10 + 1}, {id * 10 + 2}};
+            else
+                n.ranks.push_back({id * 10 + 1});
             return n;
         };
         EfTree ct;
         ct.id = 1;
         ct.classId = 1;
-        // the strip 11 -> 12 -> 13 (12 from level 4), then a row node behind a gate of 3 and a free-standing fill node 14
-        ct.nodes = {node(11, 1, 0, 1, {}, 0, true), node(12, 1, 1, 1, {11}, 0, true), node(13, 1, 2, 1, {12}, 0, true),
-                    node(14, 1, 3, 1, {}, 0, true), node(21, 1, 4, 2, {}, 4, false, 2)};
-        ct.nodes[1].requiredLevel = 4;
+        // the strip 11 (level 2, passive) -> 12 (3, active) -> 13 (4, passive), then a choice row node 21
+        ct.nodes = {node(11, 0, 1, NodeKind::Passive, {}, 2), node(12, 1, 1, NodeKind::Active, {11}, 3),
+                    node(13, 2, 1, NodeKind::Passive, {12}, 4), node(21, 3, 2, NodeKind::Choice, {}, 0)};
         m.trees[1] = ct;
         EfTree st;
         st.id = 2;
         st.classId = 1;
         st.specId = 91;
-        st.nodes = {node(31, 2, 0, 1, {}, 0, false)};
+        st.nodes = {node(31, 0, 1, NodeKind::Passive, {}, 0)};
+        st.nodes[0].tree = 2;
         m.trees[2] = st;
         EfSpec spec;
         spec.id = 91;
@@ -738,25 +740,25 @@ namespace
         m.specs[91] = spec;
         std::vector<std::string> problems;
         m.Finish(problems);
-        check(problems.empty(), "fill: model problems: " + (problems.empty() ? std::string() : problems[0]));
-        check(m.HasFill(1) && !m.HasFill(2), "fill: HasFill");
+        check(problems.empty(), "strip: model problems: " + (problems.empty() ? std::string() : problems[0]));
         EfSpec const& pre = *m.PreSpec(1);
-        bool changed = true;
-        check(m.Fill(pre, {}, 1, changed).empty() && !changed, "fill: no point at level 1, nothing bought");
-        eft::Pairs const at3 = m.Fill(pre, {}, 3, changed);
-        check(changed && at3 == eft::Pairs{{11, {1, 0}}}, "fill: a gap (12 from level 4) stops the fill: 14 is not bought past it");
-        eft::Pairs const at5 = m.Fill(pre, at3, 5, changed);
-        check(changed && at5 == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}, {14, {1, 0}}}, "fill: one point a slot, in order");
-        eft::Pairs const at6 = m.Fill(*m.Spec(91), at5, 6, changed);
-        check(!changed && at6 == at5, "fill: the strip full, the next point stays free (the row node is the player's)");
-        eft::Pairs withRow = at5;
-        withRow[21] = {1, 0};
-        check(m.Fill(*m.Spec(91), withRow, 6, changed) == withRow && !changed, "fill: a full loadout stays as it is");
-        eft::Pairs const invalid = {{21, {1, 0}}};
-        check(m.Fill(pre, invalid, 6, changed) == invalid && !changed, "fill: an invalid loadout comes back as it is");
-        eft::Pairs const reset = m.Fill(*m.Spec(91), {{31, {1, 0}}}, 10, changed);
-        check(changed && reset.size() == 5 && reset.at(31).rank == 1 && reset.at(14).rank == 1,
-              "fill: a reset class tree gets its strip back, the spec tree untouched");
+        auto valid = [&](eft::Pairs const& p, uint32_t level) { return m.Validate(pre, m.LoadoutString(pre, p), level).ok(); };
+        check(valid({}, 4), "strip: unspent points are valid (nothing is bought by itself)");
+        check(valid({{11, {1, 0}}}, 2), "strip: the first slot at level 2");
+        check(!valid({{12, {1, 0}}}, 3), "strip: the second slot needs the first (PATH)");
+        check(!valid({{11, {1, 0}}, {12, {1, 0}}}, 2), "strip: the second slot not before its level");
+        check(valid({{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}}, 4), "strip: one point a slot, in order");
+        check(!valid({{11, {1, 0}}, {13, {1, 0}}}, 4), "strip: no slot skipped");
+
+        auto passive = [](uint32_t spell) { return spell == 111; };
+        check(m.NewAbilities({{11, {1, 0}}}, {{11, {1, 0}}, {12, {1, 0}}}, passive) == std::vector<uint32_t>{121},
+              "new abilities: a bought active node's spell");
+        check(m.NewAbilities({}, {{11, {1, 0}}, {13, {1, 0}}}, passive).empty(), "new abilities: passive nodes give none");
+        check(m.NewAbilities({{12, {1, 0}}}, {{12, {1, 0}}}, passive).empty(), "new abilities: an owned node gives none");
+        check(m.NewAbilities({}, {{21, {1, 2}}}, passive) == std::vector<uint32_t>{212}, "new abilities: a picked option");
+        check(m.NewAbilities({{21, {1, 1}}}, {{21, {1, 2}}}, passive) == std::vector<uint32_t>{212},
+              "new abilities: a switched option");
+        check(m.NewAbilities({{12, {1, 0}}}, {}, passive).empty(), "new abilities: a refund gives none");
     }
 }
 
@@ -768,7 +770,7 @@ int main(int argc, char** argv)
             runVectors(argv[i]);
         protocolTests();
         loadoutTests();
-        fillTests();
+        stripTests();
         fuzz();
     }
     catch (std::exception const& e)

@@ -436,14 +436,10 @@ namespace Emberfall::Talents
 
         // ---- state load and migration (§3.7) -------------------------------------------------------
 
-        void SendLoadout(Player* player, EfTalentModel const& data, Loadout const& l);
-        Loadout& ActiveLoadout(PlayerState& st, uint32 spec, eft::Pairs const* seed);
-
         // Re-validates every stored loadout against the current data and the player's level: after a data
         // change (hash differs) through node IDs (dropped nodes, clamped ranks), and at every level; a loadout
-        // that fails is reset (RESET DATA / LEVEL). Then the class tree's fill nodes (the Paladin's strip) take the
-        // points they can in every loadout (EfTalentModel::Fill; the active spec gets its active loadout for it when it
-        // has none yet), and the spells are reconciled. `notify`: RESET and the filled loadouts go to a synced client.
+        // that fails is reset (RESET DATA / LEVEL). Then reconciles the spells. Nothing is bought here: the class
+        // layout's strip is the player's to buy (2026-10-26, Nathanael: no automatic fill).
         void Revalidate(Player* player, PlayerState& st, EfTalentModel const& data, bool notify)
         {
             uint32 const guid = player->GetGUID().GetCounter();
@@ -496,43 +492,6 @@ namespace Emberfall::Talents
                 }
                 ++it;
             }
-            // the fill nodes (2026-10-26): each level's class point to the next slot of the strip, in every loadout
-            std::vector<std::pair<uint32, uint32>> filled; // (spec, loadout) whose pairs the fill changed
-            std::vector<uint32> newAbilities;             // the active loadout's newly filled abilities (for the bar)
-            if (data.HasFill(player->getClass()))
-            {
-                if (data.SpecOrPre(st.activeSpec, player->getClass()) && !st.Active(st.activeSpec))
-                {
-                    Loadout& l = ActiveLoadout(st, st.activeSpec, nullptr);
-                    l.hash = data.dataHash;
-                }
-                for (Loadout& l : st.loadouts)
-                {
-                    EfSpec const* spec = data.SpecOrPre(l.spec, player->getClass());
-                    bool changed = false;
-                    eft::Pairs const before = l.pairs;
-                    if (spec)
-                        l.pairs = data.Fill(*spec, l.pairs, level, changed);
-                    if (!changed)
-                        continue;
-                    l.hash = data.dataHash;
-                    SaveLoadoutRow(trans, guid, l);
-                    filled.emplace_back(l.spec, l.id);
-                    if (l.spec != st.activeSpec || !l.active)
-                        continue;
-                    for (auto const& [node, pair] : l.pairs)
-                    {
-                        EfNode const* n = data.Node(node);
-                        auto const old = before.find(node);
-                        if (!n || n->kind != NodeKind::Active || (old != before.end() && old->second.rank >= pair.rank) ||
-                            pair.rank < 1 || pair.rank > n->ranks.size())
-                            continue;
-                        for (uint32 const spell : n->ranks[pair.rank - 1])
-                            if (!IsPassiveSpell(spell))
-                                newAbilities.push_back(spell);
-                    }
-                }
-            }
             if (st.dataHash != data.dataHash || specChanged)
             {
                 st.dataHash = data.dataHash;
@@ -540,33 +499,11 @@ namespace Emberfall::Talents
             }
             Reconcile(player, st, data, trans);
             Commit(trans);
-            // a filled ability (the strip's Searing Edge at 3, Noonday at 6) goes to the first empty button of the first
-            // bar unless a button holds it already (EfLoadouts.h FirstBars), as the spec's baseline spells do
-            if (!newAbilities.empty())
-            {
-                std::vector<BarButton> const current = CurrentBars(player);
-                std::vector<uint32> known;
-                for (uint32 const spell : newAbilities)
-                    if (player->HasSpell(spell))
-                        known.push_back(spell);
-                bool placed = false;
-                for (BarButton const& b : FirstBars(current, [](uint32) { return true; }, known))
-                    if (std::none_of(current.begin(), current.end(), [&](BarButton const& c) { return c.button == b.button; }))
-                    {
-                        player->addActionButton(static_cast<uint8>(b.button), b.action, static_cast<uint8>(b.type));
-                        placed = true;
-                    }
-                if (placed)
-                    player->SendActionButtons(1);
-            }
             if (notify && st.hello)
             {
                 for (auto const& [spec, reason] : st.resets)
                     SendBody(player, eft::body(0, "RESET", {std::to_string(spec), reason}));
                 st.resets.clear();
-                for (auto const& [spec, id] : filled)
-                    if (Loadout const* l = st.Find(spec, id))
-                        SendLoadout(player, data, *l);
             }
         }
 
@@ -836,18 +773,38 @@ namespace Emberfall::Talents
             Emberfall::ClassKit::ApplySpecPower(player);
         }
 
-        // Applies validated pairs to the active loadout of the active spec: the fill nodes bought (a reset tree gets its
-        // strip back at once), save, reconcile.
-        void ApplyPairs(Player* player, PlayerState& st, EfTalentModel const& data, eft::Pairs pairs)
+        // Puts abilities the player just bought (EfTalentModel::NewAbilities) on the first empty buttons of the first bar,
+        // each unless a button holds it already (EfLoadouts.h FirstBars), as the spec's baseline spells go at the first
+        // spec choice (2026-10-26: the class layout's strip, Searing Edge at 3 and Noonday at 6, and every other bought
+        // ability; a replacing node keeps the button of the spell it replaces, RewriteReplacedBars).
+        void PlaceNewAbilities(Player* player, std::vector<uint32> const& spells)
+        {
+            std::vector<uint32> known;
+            for (uint32 const spell : spells)
+                if (player->HasSpell(spell))
+                    known.push_back(spell);
+            if (known.empty())
+                return;
+            std::vector<BarButton> const current = CurrentBars(player);
+            bool placed = false;
+            for (BarButton const& b : FirstBars(current, [](uint32) { return true; }, known))
+                if (std::none_of(current.begin(), current.end(), [&](BarButton const& c) { return c.button == b.button; }))
+                {
+                    player->addActionButton(static_cast<uint8>(b.button), b.action, static_cast<uint8>(b.type));
+                    placed = true;
+                }
+            if (placed)
+                player->SendActionButtons(1);
+        }
+
+        // Applies validated pairs to the active loadout of the active spec: save, reconcile. `place`: a purchase (APPLY,
+        // SAVE of the active loadout), whose new abilities go on the bar (PlaceNewAbilities).
+        void ApplyPairs(Player* player, PlayerState& st, EfTalentModel const& data, eft::Pairs pairs, bool place = false)
         {
             uint32 const guid = player->GetGUID().GetCounter();
-            if (EfSpec const* spec = data.SpecOrPre(st.activeSpec, player->getClass()))
-            {
-                bool filled = false;
-                pairs = data.Fill(*spec, std::move(pairs), player->GetLevel(), filled);
-            }
             CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
             Loadout& l = ActiveLoadout(st, st.activeSpec);
+            std::vector<uint32> const fresh = place ? data.NewAbilities(l.pairs, pairs, IsPassiveSpell) : std::vector<uint32>{};
             l.pairs = std::move(pairs);
             l.hash = data.dataHash;
             l.updated = static_cast<uint32>(std::time(nullptr));
@@ -859,6 +816,7 @@ namespace Emberfall::Talents
             SaveLoadoutRow(trans, guid, l);
             Reconcile(player, st, data, trans);
             Commit(trans);
+            PlaceNewAbilities(player, fresh);
         }
 
         void HandleHello(Player* player, PlayerState* st, EfTalentModel const* data, eft::Request const& req)
@@ -1033,13 +991,12 @@ namespace Emberfall::Talents
             target->name = *name;
             if (live)
             {
-                ApplyPairs(player, st, data, std::move(*pairs)); // saves the row, name included
+                ApplyPairs(player, st, data, std::move(*pairs), true); // saves the row, name included
                 SendState(player, &st, &data);
             }
             else
             {
-                bool filled = false;
-                target->pairs = data.Fill(*spec, std::move(*pairs), level, filled);
+                target->pairs = std::move(*pairs);
                 target->hash = data.dataHash;
                 target->updated = static_cast<uint32>(std::time(nullptr));
                 CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
@@ -1201,7 +1158,7 @@ namespace Emberfall::Talents
             std::optional<eft::Pairs> pairs = data.PairsOf(*spec, loadout);
             if (!pairs)
                 return SendErr(player, req.seq, "DECODE");
-            ApplyPairs(player, st, data, std::move(*pairs));
+            ApplyPairs(player, st, data, std::move(*pairs), !reset);
             SendState(player, &st, &data);
             if (Loadout const* l = st.Active(specId))
                 SendLoadout(player, data, *l);
@@ -1434,25 +1391,6 @@ namespace Emberfall::Talents
                     it->second.freeSpecs.push_back(f[1].Get<uint16>());
             } while (r->NextRow());
         }
-        // nodes the server buys by itself (2026-10-26: the class layout's strip, EfTalentModel::Fill); optional, so a world
-        // from before the table keeps working without it
-        bool fillTable = false;
-        if (QueryResult r = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND "
-            "TABLE_NAME = 'ef_talent_fill'"))
-            fillTable = r->Fetch()[0].Get<uint64>() != 0;
-        if (fillTable)
-            if (QueryResult r = WorldDatabase.Query("SELECT `node` FROM `ef_talent_fill`"))
-            {
-                do
-                {
-                    uint32 const node = r->Fetch()[0].Get<uint32>();
-                    auto it = nodes.find(node);
-                    if (it == nodes.end())
-                        problems.push_back("ef_talent_fill: unknown node " + std::to_string(node));
-                    else
-                        it->second.fill = true;
-                } while (r->NextRow());
-            }
         // pick groups (2026-10-26, Emberfall's talents.md §1.3 rule 7: the Wrathbringer's row abilities): each tree's slot
         // thresholds and the picks' groups; optional, so a world from before the tables keeps working without them
         uint32 pickTables = 0;

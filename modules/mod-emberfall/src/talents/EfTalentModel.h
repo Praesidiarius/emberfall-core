@@ -55,7 +55,6 @@ namespace ef::talents
         std::vector<std::vector<uint32_t>> options; // [option - 1] -> spells (choice nodes)
         uint32_t freeSpecMask = 0;                  // bit (spec sort - 1)
         std::vector<uint32_t> freeSpecs;            // spec IDs (ef_talent_free)
-        bool fill = false;                          // bought by the server, in `ord` order (ef_talent_fill; Fill below)
         uint32_t group = 0;                         // a pick node's pick group, 1-based in its tree (ef_talent_pick), 0 = none
     };
 
@@ -254,50 +253,34 @@ namespace ef::talents
             return validateLoadout(ct->rules, st ? st->rules : emptyTree, loadout, level, classBudget, specBudget, SpecBit(spec));
         }
 
-        // Whether the class's class tree has nodes the server buys by itself (ef_talent_fill).
-        bool HasFill(uint32_t classId) const
+        // The abilities a change of a loadout's pairs gives (Emberfall 2026-10-26, Nathanael: a bought ability goes to the
+        // first empty bar button): each active node's spells at a rank above its rank before, each choice node's option
+        // other than before; spells `passive` says are passive left out. In node ID order.
+        template <typename Passive>
+        std::vector<uint32_t> NewAbilities(const eft::Pairs& before, const eft::Pairs& after, Passive passive) const
         {
-            const EfClass* cls = Class(classId);
-            const EfTree* ct = cls ? Tree(cls->classTree) : nullptr;
-            if (ct)
-                for (const EfNode& n : ct->nodes)
-                    if (n.fill)
-                        return true;
-            return false;
-        }
-
-        // A loadout with the class tree's fill nodes bought (ef_talent_fill, 2026-10-26: the Paladin class tree's strip,
-        // Emberfall's talents.md §5.3): each in `ord` order, rank by rank, as long as the loadout stays valid at `level`
-        // (path, gate, level, the class budget), so each level's class point goes to the next slot of the strip. Stops at
-        // the first rank that does not fit: the order is fixed, nothing after a gap is bought. A loadout that is not valid
-        // to begin with comes back as it is. `changed` says whether anything was bought.
-        eft::Pairs Fill(const EfSpec& spec, eft::Pairs pairs, uint32_t level, bool& changed) const
-        {
-            changed = false;
-            const EfClass* cls = Class(spec.classId);
-            const EfTree* ct = cls ? Tree(cls->classTree) : nullptr;
-            if (!ct || !Validate(spec, LoadoutString(spec, pairs), level).ok())
-                return pairs;
-            for (size_t i = 0; i < ct->nodes.size(); ++i)
+            std::vector<uint32_t> out;
+            for (auto const& [id, pair] : after)
             {
-                const EfNode& n = ct->nodes[i];
-                if (!n.fill || n.kind == NodeKind::Choice || !isPaid(ct->rules.nodes[i], SpecBit(spec)))
+                const EfNode* n = Node(id);
+                if (!n)
                     continue;
-                for (;;)
+                auto const old = before.find(id);
+                const std::vector<uint32_t>* spells = nullptr;
+                if (n->kind == NodeKind::Choice)
                 {
-                    const auto it = pairs.find(n.id);
-                    const uint32_t rank = it == pairs.end() ? 0u : it->second.rank;
-                    if (rank >= n.maxRank)
-                        break;
-                    eft::Pairs next = pairs;
-                    next[n.id] = eft::Pair{static_cast<uint8_t>(rank + 1), 0};
-                    if (!Validate(spec, LoadoutString(spec, next), level).ok())
-                        return pairs;
-                    pairs = std::move(next);
-                    changed = true;
+                    if (pair.option >= 1 && pair.option <= n->options.size() && (old == before.end() || old->second.option != pair.option))
+                        spells = &n->options[pair.option - 1];
                 }
+                else if (n->kind == NodeKind::Active && pair.rank >= 1 && pair.rank <= n->ranks.size() &&
+                         (old == before.end() || old->second.rank < pair.rank))
+                    spells = &n->ranks[pair.rank - 1];
+                if (spells)
+                    for (uint32_t spell : *spells)
+                        if (!passive(spell) && std::find(out.begin(), out.end(), spell) == out.end())
+                            out.push_back(spell);
             }
-            return pairs;
+            return out;
         }
 
         // Stored pairs after a data change (§3.7): nodes that left the spec's trees dropped, ranks clamped to
