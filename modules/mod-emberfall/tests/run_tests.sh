@@ -24,59 +24,62 @@
 # Default vectors: tests/data/talent_rules_example.json, a copy of Emberfall's
 # tools/py/tests/data/talent_rules/example.json (Emberfall's test_talents.py checks that the copy and
 # src/talents/TalentRules.h equal the client's). CXX (default c++) needs C++20.
+#
+# The test programs compile side by side (EF_BUILD_JOBS at once: Emberfall's core budget, which its Makefile exports;
+# default a quarter of the cores), then run one after the other; a program that fails to compile prints its errors.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
-OUT=${TMPDIR:-/tmp}/mod-emberfall-talent-tests.$$
-trap 'rm -f "$OUT" "$OUT.companions" "$OUT.dungeons" "$OUT.unstuck" "$OUT.absorbs" "$OUT.harbours" "$OUT.devvendor" "$OUT.editor" "$OUT.classkit" "$OUT.gmcommands" "$OUT.questloot" "$OUT.testzone" "$OUT.meter" "$OUT.accountfriends" "$OUT.professionxp" "$OUT.classkitsun" "$OUT.periodiccrit"' EXIT
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/talents" \
-    "$HERE/talent_tests.cpp" -o "$OUT"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/companions" \
-    "$HERE/companion_tests.cpp" -o "$OUT.companions"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/dungeons" \
-    "$HERE/dungeon_tests.cpp" -o "$OUT.dungeons"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/unstuck" \
-    "$HERE/unstuck_tests.cpp" -o "$OUT.unstuck"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/absorbs" \
-    "$HERE/absorb_tests.cpp" -o "$OUT.absorbs"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/harbours" \
-    "$HERE/harbour_tests.cpp" -o "$OUT.harbours"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/devvendor" \
-    "$HERE/devvendor_tests.cpp" -o "$OUT.devvendor"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/talents" \
-    -I"$HERE/../src/editor" "$HERE/editor_tests.cpp" -o "$OUT.editor"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/classkit" \
-    "$HERE/classkit_tests.cpp" -o "$OUT.classkit"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/classkit" \
-    "$HERE/classkit_sun_tests.cpp" -o "$OUT.classkitsun"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/gmcommands" \
-    "$HERE/gmcommand_tests.cpp" -o "$OUT.gmcommands"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/questloot" \
-    "$HERE/questloot_tests.cpp" -o "$OUT.questloot"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/testzone" \
-    "$HERE/testzone_tests.cpp" -o "$OUT.testzone"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/meter" \
-    "$HERE/meter_tests.cpp" -o "$OUT.meter"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/accountfriends" \
-    "$HERE/accountfriends_tests.cpp" -o "$OUT.accountfriends"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/professions" \
-    "$HERE/professionxp_tests.cpp" -o "$OUT.professionxp"
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
-    -I"$HERE/../../../src/server/game/Spells/Auras" "$HERE/periodiccrit_tests.cpp" -o "$OUT.periodiccrit"
+CXXFLAGS_EF="-std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined"
+
+# one compile (the script calls itself through xargs): --compile NAME INCLUDE_DIRS(':'-separated, below tests/) SOURCE
+if [ "${1:-}" = --compile ]; then
+    name=$2 incs=$3 src=$4
+    set --
+    old_ifs=$IFS
+    IFS=:
+    for d in $incs; do set -- "$@" "-I$HERE/$d"; done
+    IFS=$old_ifs
+    # shellcheck disable=SC2086  # the flags are words
+    if ! ${CXX:-c++} $CXXFLAGS_EF "$@" "$HERE/$src" -o "$EF_TEST_OUT/$name" >"$EF_TEST_OUT/$name.log" 2>&1; then
+        echo "run_tests.sh: $src does not compile:" >&2
+        cat "$EF_TEST_OUT/$name.log" >&2
+        exit 1
+    fi
+    exit 0
+fi
+
+EF_TEST_OUT=$(mktemp -d "${TMPDIR:-/tmp}/mod-emberfall-tests.XXXXXX")
+export EF_TEST_OUT
+trap 'rm -rf "$EF_TEST_OUT"' EXIT
+JOBS=${EF_BUILD_JOBS:-$(( $(nproc 2>/dev/null || echo 4) / 4 ))}
+[ "$JOBS" -ge 1 ] 2>/dev/null || JOBS=1
+
+# name, include directories, source; run in this order
+TESTS="talent ../src/talents talent_tests.cpp
+companions ../src/companions companion_tests.cpp
+dungeons ../src/dungeons dungeon_tests.cpp
+unstuck ../src/unstuck unstuck_tests.cpp
+absorbs ../src/absorbs absorb_tests.cpp
+harbours ../src/harbours harbour_tests.cpp
+devvendor ../src/devvendor devvendor_tests.cpp
+editor ../src/talents:../src/editor editor_tests.cpp
+classkit ../src/classkit classkit_tests.cpp
+classkitsun ../src/classkit classkit_sun_tests.cpp
+gmcommands ../src/gmcommands gmcommand_tests.cpp
+questloot ../src/questloot questloot_tests.cpp
+testzone ../src/testzone testzone_tests.cpp
+meter ../src/meter meter_tests.cpp
+accountfriends ../src/accountfriends accountfriends_tests.cpp
+professionxp ../src/professions professionxp_tests.cpp
+periodiccrit ../../../src/server/game/Spells/Auras periodiccrit_tests.cpp"
+
+if ! printf '%s\n' "$TESTS" | xargs -P "$JOBS" -n 3 sh "$HERE/run_tests.sh" --compile; then
+    echo "run_tests.sh: a test program did not compile" >&2
+    exit 1
+fi
+
 if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json" "$HERE/data/talent_rules_frostguard.json"; fi
-"$OUT" "$@"
-"$OUT.companions"
-"$OUT.dungeons"
-"$OUT.unstuck"
-"$OUT.absorbs"
-"$OUT.harbours"
-"$OUT.devvendor"
-"$OUT.editor"
-"$OUT.classkit"
-"$OUT.classkitsun"
-"$OUT.gmcommands"
-"$OUT.questloot"
-"$OUT.testzone"
-"$OUT.meter"
-"$OUT.accountfriends"
-"$OUT.professionxp"
-"$OUT.periodiccrit"
+"$EF_TEST_OUT/talent" "$@"
+for name in $(printf '%s\n' "$TESTS" | cut -d' ' -f1 | tail -n +2); do
+    "$EF_TEST_OUT/$name"
+done
