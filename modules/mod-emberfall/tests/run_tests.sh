@@ -15,7 +15,8 @@
 # and the test zone tests (tests/testzone_tests.cpp: src/testzone/EfTestZoneLogic.h, `.eftest zone`'s route and plan)
 # and the meter tests (tests/meter_tests.cpp: src/meter/EfMeterLogic.h, the damage meter's fights, attribution, maths, EFM)
 # and the account friend tests (tests/accountfriends_tests.cpp: src/accountfriends/EfAccountFriendsLogic.h, EFF, ADD, limits)
-# and the profession XP tests (tests/professionxp_tests.cpp: src/professions/EfProfessionXp.h, colours and XP).
+# and the profession XP tests (tests/professionxp_tests.cpp: src/professions/EfProfessionXp.h, colours and XP)
+# and the periodic crit tests (tests/periodiccrit_tests.cpp: the core's src/server/game/Spells/Auras/EmberfallPeriodicCrit.h).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -26,7 +27,7 @@
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${TMPDIR:-/tmp}/mod-emberfall-talent-tests.$$
-trap 'rm -f "$OUT" "$OUT.companions" "$OUT.dungeons" "$OUT.unstuck" "$OUT.absorbs" "$OUT.harbours" "$OUT.devvendor" "$OUT.editor" "$OUT.classkit" "$OUT.gmcommands" "$OUT.questloot" "$OUT.testzone" "$OUT.meter" "$OUT.accountfriends" "$OUT.professionxp" "$OUT.classkitsun"' EXIT
+trap 'rm -f "$OUT" "$OUT.companions" "$OUT.dungeons" "$OUT.unstuck" "$OUT.absorbs" "$OUT.harbours" "$OUT.devvendor" "$OUT.editor" "$OUT.classkit" "$OUT.gmcommands" "$OUT.questloot" "$OUT.testzone" "$OUT.meter" "$OUT.accountfriends" "$OUT.professionxp" "$OUT.classkitsun" "$OUT.periodiccrit"' EXIT
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/talents" \
     "$HERE/talent_tests.cpp" -o "$OUT"
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/companions" \
@@ -59,6 +60,8 @@ ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined
     "$HERE/accountfriends_tests.cpp" -o "$OUT.accountfriends"
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -I"$HERE/../src/professions" \
     "$HERE/professionxp_tests.cpp" -o "$OUT.professionxp"
+${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+    -I"$HERE/../../../src/server/game/Spells/Auras" "$HERE/periodiccrit_tests.cpp" -o "$OUT.periodiccrit"
 if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json" "$HERE/data/talent_rules_frostguard.json"; fi
 "$OUT" "$@"
 "$OUT.companions"
@@ -76,3 +79,4 @@ if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json" "$HERE/data/
 "$OUT.meter"
 "$OUT.accountfriends"
 "$OUT.professionxp"
+"$OUT.periodiccrit"
