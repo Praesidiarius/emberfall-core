@@ -469,6 +469,72 @@ namespace Emberfall::ClassKit::Logic
         return int32_t(std::min<int64_t>(int64_t(critDamage) * (100 + std::max<int32_t>(0, pct)) / 100, INT32_MAX));
     }
 
+    // ---- the Executioner's Talent Tree v1.0 (Emberfall docs/design/classes/warrior-executioner.md §15: the rules) ----
+
+    // A health gate at or below `atOrBelowPct` % (Executioner's Opportunity, Merciless Strike, Death's Momentum: 30); the
+    // enemy's health before the blow. 0 or less: no enemy qualifies.
+    constexpr bool AtOrBelowHealth(float healthPct, int32_t atOrBelowPct)
+    {
+        return atOrBelowPct > 0 && healthPct <= float(atOrBelowPct);
+    }
+
+    // What a builder builds with its rules (spell_ef_kit_build_power): `gain` its own (0: it struck nobody, then nothing),
+    // plus `bonus` (Executioner's Opportunity +1 at 30 %, Sweeping Opportunity +1 at 3 enemies), and at least `floor`
+    // (Murderous Instinct: Deathblow 3 while Killing Instinct holds; not on top of its own 1 or Deadly Opportunity's 2).
+    constexpr int32_t BuildWithRules(int32_t gain, int32_t bonus, int32_t floor)
+    {
+        if (gain <= 0)
+            return 0;
+        return std::max<int32_t>(gain + std::max<int32_t>(0, bonus), floor);
+    }
+
+    // A count rule's bonus (Sweeping Opportunity: Reaping Arc +1 Opening at 3 enemies or more; Focused Carnage and Storm of
+    // Blades: Whirling Steel at 3 or more): whether `hits` enemies struck reach `atLeast`.
+    constexpr bool CountReached(uint32_t hits, int32_t atLeast)
+    {
+        return atLeast > 0 && hits >= uint32_t(atLeast);
+    }
+
+    // Growing Precision's stacks after a Final Verdict that struck: a critical one takes them all, one without a crit adds
+    // one, never above `max` (the aura's stack maximum: 10, +100 percentage points).
+    constexpr int32_t CritRampStacks(int32_t have, bool crit, int32_t max)
+    {
+        if (crit)
+            return 0;
+        return std::clamp<int32_t>(std::max<int32_t>(0, have) + 1, 1, std::max<int32_t>(1, max));
+    }
+
+    // Relentless Whirl: percent more on every enemy for `targets` enemies struck, `pctPerExtra` for each beyond the first,
+    // counting at most `maxTargets` (5 % up to 5: 0 / 5 / 10 / 15 / 20 %, then 20 % however many).
+    constexpr int32_t CountBonusPct(uint32_t targets, int32_t pctPerExtra, int32_t maxTargets)
+    {
+        if (targets < 2 || pctPerExtra <= 0 || maxTargets < 2)
+            return 0;
+        return pctPerExtra * (std::min<int32_t>(int32_t(targets), maxTargets) - 1);
+    }
+
+    // Focused Reaping: `pct` percent more when the cast struck exactly one enemy.
+    constexpr int32_t SingleTargetPct(uint32_t targets, int32_t pct)
+    {
+        return targets == 1 ? std::max<int32_t>(0, pct) : 0;
+    }
+
+    // A hit's damage with the rules' percents (summed: Merciless Strike +40, Relentless Whirl up to +20, Focused Reaping +50).
+    constexpr int32_t DamageWithPct(int32_t damage, int32_t pct)
+    {
+        if (damage <= 0)
+            return 0;
+        return int32_t(std::min<int64_t>(int64_t(damage) * (100 + std::max<int32_t>(0, pct)) / 100, INT32_MAX));
+    }
+
+    // Reaper's Vitality: `pct` percent of `maxHealth`.
+    constexpr int32_t PctOfMaxHealth(uint32_t maxHealth, int32_t pct)
+    {
+        if (pct <= 0)
+            return 0;
+        return int32_t(std::min<int64_t>(int64_t(maxHealth) * pct / 100, INT32_MAX));
+    }
+
     // ---- a spec power's own maximum and its keeping (EfSpecPower.cpp) ----
 
     // A spec power with a maximum other than its slot's (Openings: 50 stored of runic power's 1000; the Pyromancer's Heat:

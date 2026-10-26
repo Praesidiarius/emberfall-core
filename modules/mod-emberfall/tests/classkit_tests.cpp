@@ -294,6 +294,56 @@ int main()
     check(SweepDamage(200, 50) == 100, "a sweep hit: half");
     check(SweepDamage(300, 50) == 150, "Red Harvest: 1.5 x the base, then half: three quarters");
     check(SweepDamage(0, 50) == 0, "a miss stays a miss");
+    // the Executioner's Talent Tree v1.0 (warrior-executioner.md §15): Deathblow 1, Deadly Opportunity 2, Murderous
+    // Instinct 3 in Killing Instinct (not on top)
+    check(BuildWithRules(PowerGain(1, 0, 1, true, false), 0, 0) == 1, "v1.0 Deathblow: +1");
+    check(BuildWithRules(PowerGain(2, 0, 1, true, false), 0, 0) == 2, "Deadly Opportunity: +2");
+    check(BuildWithRules(PowerGain(1, 0, 1, true, false), 0, 3) == 3, "Murderous Instinct without Deadly Opportunity: 3");
+    check(BuildWithRules(PowerGain(2, 0, 1, true, false), 0, 3) == 3, "Murderous Instinct with Deadly Opportunity: 3, not 5");
+    check(BuildWithRules(PowerGain(1, 0, 0, true, false), 0, 3) == 0, "a Deathblow parried: nothing, floor or not");
+    // Sundering Blow: Executioner's Opportunity +1 at or below 30 %
+    check(AtOrBelowHealth(30.0f, 30) && AtOrBelowHealth(12.5f, 30) && !AtOrBelowHealth(30.5f, 30), "the 30 % gate");
+    check(!AtOrBelowHealth(10.0f, 0), "no gate set: nobody qualifies");
+    check(BuildWithRules(1, AtOrBelowHealth(25.0f, 30) ? 1 : 0, 0) == 2, "Sundering Blow at 25 %: 2 Openings");
+    check(BuildWithRules(1, AtOrBelowHealth(60.0f, 30) ? 1 : 0, 0) == 1, "Sundering Blow at 60 %: 1");
+    // Reaping Arc's Openings: 1 when it hits, Sweeping Opportunity +1 at 3 enemies or more, nothing on nobody
+    for (uint32_t hits : { 0u, 1u, 2u, 3u, 6u })
+    {
+        int32_t const base = PowerGain(1, 0, hits, true, false);
+        check(BuildWithRules(base, 0, 0) == (hits ? 1 : 0), "Reaping Arc: 1 Opening once it hits, not per enemy");
+        check(BuildWithRules(base, CountReached(hits, 3) ? 1 : 0, 0) == (hits >= 3 ? 2 : hits ? 1 : 0),
+              "Sweeping Opportunity: 2 at 3 or more, 1 below, 0 on nobody");
+    }
+    check(!CountReached(5, 0), "no count set: never reached");
+    // Growing Precision: a Final Verdict without a crit +1 stack (10 percentage points), a crit takes them all, at most 10
+    check(CritRampStacks(0, false, 10) == 1, "first non-crit: 1 stack");
+    check(CritRampStacks(3, false, 10) == 4, "repeated non-crits accumulate");
+    check(CritRampStacks(10, false, 10) == 10, "never above the stack maximum");
+    check(CritRampStacks(4, true, 10) == 0, "a crit consumes and resets every stack");
+    check(CritRampStacks(0, true, 10) == 0, "a crit at none: none");
+    // Lingering Death: the window 1 proc (cap = effect 1), 2 with the talent's +1; one Deathblow spends one
+    check(StackCap(1, 2) == 1 && StacksAfter(1, 1, StackCap(1, 2)) == 1, "without Lingering Death: one proc, a new one refreshes");
+    check(StackCap(2, 2) == 2 && StacksAfter(1, 1, StackCap(2, 2)) == 2, "Lingering Death: a second proc is stored");
+    check(StacksAfter(2, 1, StackCap(2, 2)) == 2, "Lingering Death at 2: a third proc does not exceed the cap");
+    check(StackCap(3, 2) == 2, "never above the aura's stack maximum");
+    // Unending Slaughter: +1 s a critical finisher in Killing Instinct, at most 5 s an activation (10 s -> 15 s)
+    check(LengthenBy(1000, 5000, 10000, 10000) == 1000, "the first crit: +1 s");
+    check(LengthenBy(1000, 5000, 14000, 10000) == 1000, "the fifth: +1 s (15 s)");
+    check(LengthenBy(1000, 5000, 15000, 10000) == 0, "the sixth: nothing (the cap)");
+    check(LengthenBy(1000, 5000, 14500, 10000) == 500, "only what is left of the 5 s");
+    // Relentless Whirl: +5 % per enemy beyond the first, counting at most 5
+    check(CountBonusPct(1, 5, 5) == 0 && CountBonusPct(2, 5, 5) == 5 && CountBonusPct(3, 5, 5) == 10, "1 / 2 / 3 enemies");
+    check(CountBonusPct(4, 5, 5) == 15 && CountBonusPct(5, 5, 5) == 20 && CountBonusPct(9, 5, 5) == 20,
+          "4 / 5 / 9: capped at 20 %");
+    check(CountBonusPct(0, 5, 5) == 0, "nobody struck: nothing");
+    check(DamageWithPct(200, CountBonusPct(5, 5, 5)) == 240, "a 200 hit on 5 enemies: 240 on each");
+    // Focused Reaping: +50 % with exactly one enemy; Merciless Strike +40 % (summed with the others)
+    check(SingleTargetPct(1, 50) == 50 && SingleTargetPct(2, 50) == 0 && SingleTargetPct(0, 50) == 0, "exactly one");
+    check(DamageWithPct(100, 40) == 140 && DamageWithPct(0, 40) == 0, "Merciless Strike on 100: 140; a miss: 0");
+    // Reaper's Vitality: 10 % of max health, the same against one or many
+    check(PctOfMaxHealth(4321, 10) == 432 && PctOfMaxHealth(4321, 0) == 0, "10 % of max health");
+    // Killing Instinct v1.0: a crit's total x 1.2, x 1.5 with Predator's Fury
+    check(CritWithBonus(200, 20) == 240, "v1.0 Killing Instinct: a 200 crit deals 240");
     // Killing Instinct: a crit's total x 1.5
     check(CritWithBonus(200, 50) == 300, "a 200 crit deals 300");
     check(CritWithBonus(200, 0) == 200, "outside Killing Instinct: as rolled");

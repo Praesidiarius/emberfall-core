@@ -28,6 +28,10 @@
 //                                 Flash). The caster's hit bonuses for this spell run on every enemy struck (Crackling Air,
 //                                 Rising Air; self triggers once). A missile (speed > 0: the Pyromancer's Cinderbolt)
 //                                 builds as it strikes (First Flash's doubling is for builders without a missile).
+//                                 Rules (the Executioner's Talent Tree v1.0, not for a missile): spell_ef_kit_rule_build_
+//                                 low_health / _count give more (an enemy struck at or below misc B % health; at least
+//                                 misc B enemies struck), spell_ef_kit_rule_build_floor at least its value while the caster
+//                                 carries its trigger's aura (EfClassKit.h Rules).
 //   spell_ef_kit_power_spender    a spender of the spec power (its Spell.dbc cost; damage, or since the Warlock healing:
 //                                 Bequest and Dole, whose overspend and echo heal and which may target the caster): a dummy on the caster with misc = a
 //                                 talent the caster knows (or = the spell itself: always, the Warlock's Spoil) spends up to
@@ -129,6 +133,37 @@ class spell_ef_kit_build_power : public SpellScript
 
     uint32 _hits = 0;          // enemies struck: AfterHit runs only for a hit (OnHit runs for a dodge or parry too)
     bool _first = true;
+    float _lowest = 101.0f;    // the lowest health % of the enemies struck, before the blow (the build rules' gate)
+
+    // before the blow lands: the enemy's health for the low-health build rules (Executioner's Opportunity)
+    void BeforeHitTarget(SpellMissInfo missInfo)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (caster && target && target != caster && missInfo == SPELL_MISS_NONE)
+            _lowest = std::min(_lowest, target->GetHealthPct());
+    }
+
+    // The Executioner's build rules (talents.md / warrior-executioner.md §15; classkit/scripts_exec.py): extra points when
+    // an enemy struck was at or below misc B % health (spell_ef_kit_rule_build_low_health) or at least misc B enemies were
+    // struck (spell_ef_kit_rule_build_count), and the least it builds while the caster carries the trigger's aura
+    // (spell_ef_kit_rule_build_floor).
+    int32 WithRules(Unit* caster, int32 gain)
+    {
+        using namespace Emberfall::ClassKit;
+        uint32 const id = GetSpellInfo()->Id;
+        int32 bonus = 0, floor = 0;
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_build_low_health", id))
+            if (_lowest <= 100.0f && Logic::AtOrBelowHealth(_lowest, eff->GetMiscValueB()))
+                bonus += eff->GetAmount();
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_build_count", id))
+            if (Logic::CountReached(_hits, eff->GetMiscValueB()))
+                bonus += eff->GetAmount();
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_build_floor", id))
+            if (uint32 const aura = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell; aura && caster->HasAura(aura))
+                floor = std::max(floor, eff->GetAmount());
+        return Logic::BuildWithRules(gain, bonus, floor);
+    }
 
     // A missile (Spell.dbc speed: the Pyromancer's Cinderbolt) strikes after the cast is done: its build waits for the hit.
     bool Delayed() { return GetSpellInfo()->Speed > 0.0f && NeedsHit(GetSpellInfo()); }
@@ -163,8 +198,8 @@ class spell_ef_kit_build_power : public SpellScript
         SpellEffectInfo const& eff = GetSpellInfo()->Effects[index];
         bool const first = eff.MiscValue && eff.TriggerSpell && caster->HasAura(uint32(eff.MiscValue))
                            && !caster->HasAura(eff.TriggerSpell);
-        int32 const gain = Emberfall::ClassKit::Logic::PowerGain(eff.CalcValue(caster), eff.MiscValueB, _hits,
-                                                                 NeedsHit(GetSpellInfo()), first);
+        int32 const gain = WithRules(caster, Emberfall::ClassKit::Logic::PowerGain(eff.CalcValue(caster), eff.MiscValueB,
+                                                                                _hits, NeedsHit(GetSpellInfo()), first));
         if (gain <= 0)
             return;
         if (Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id) > 0 && first)
@@ -173,6 +208,7 @@ class spell_ef_kit_build_power : public SpellScript
 
     void Register() override
     {
+        BeforeHit += BeforeSpellHitFn(spell_ef_kit_build_power::BeforeHitTarget);
         AfterHit += SpellHitFn(spell_ef_kit_build_power::AfterHitTarget);
         AfterCast += SpellCastFn(spell_ef_kit_build_power::Finish);
     }

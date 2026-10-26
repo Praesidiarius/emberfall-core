@@ -36,6 +36,7 @@
 #include "SpellAuras.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
+#include "SpellScript.h"
 #include "StringFormat.h"
 
 #include <algorithm>
@@ -165,8 +166,10 @@ namespace Emberfall::ClassKit
                 }
                 kit->second.spells.push_back(s);
                 // a helper aura that lasts until cancelled marks the fight (First Flash Spent): it goes when the fight
-                // ends (EfSpecPower.cpp)
-                if (s.source == Source::Helper && info->GetMaxDuration() == -1 && !info->IsPassive())
+                // ends (EfSpecPower.cpp); not one that stays even through death (the Executioner's Growing Precision:
+                // its stacks are kept out of combat, SPELL_ATTR3_ALLOW_AURA_WHILE_DEAD)
+                if (s.source == Source::Helper && info->GetMaxDuration() == -1 && !info->IsPassive()
+                    && !info->HasAttribute(SPELL_ATTR3_ALLOW_AURA_WHILE_DEAD))
                     AddFightMarker(s.spell);
                 // a shatter spell's effect 3 trigger is a shell aura (IsShellSpell), known before any AddToShell (a
                 // shell kept over a relog)
@@ -495,6 +498,8 @@ namespace Emberfall::ClassKit
             uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
             if (!trigger || eff->GetMiscValueB() < 0 || stacks < uint32(eff->GetMiscValueB()))
                 continue;
+            if (IsRule(eff->GetBase()))   // a talent rule (Death's Momentum, Blood Frenzy): its trigger is the rule's
+                continue;
             // the spell named by misc, or (misc 0) every spell of the effect's class mask (Hallowed Ground: the holy swords)
             bool const named = uint32(eff->GetMiscValue()) == spellId;
             // (a dummy without a class mask names no spell: the core's IsAffected takes an empty mask for the whole
@@ -535,6 +540,39 @@ namespace Emberfall::ClassKit
             else
                 caster->CastSpell(target, b.trigger, true);
         }
+    }
+
+    bool IsRule(Aura const* aura)
+    {
+        if (!aura)
+            return false;
+        for (AuraScript const* script : aura->m_loadedScripts)
+            if (std::string const* name = script ? script->_GetScriptName() : nullptr; name && name->rfind("spell_ef_kit_rule_", 0) == 0)
+                return true;
+        return false;
+    }
+
+    std::vector<AuraEffect const*> Rules(Unit* caster, char const* script, uint32 spellId)
+    {
+        std::vector<AuraEffect const*> out;
+        if (!caster || !script)
+            return out;
+        SpellInfo const* info = spellId ? sSpellMgr->GetSpellInfo(spellId) : nullptr;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+        {
+            if (!eff->GetBase()->GetScriptByName(script))
+                continue;
+            bool const masked = eff->HasSpellClassMask();
+            bool named = false;
+            if (spellId)
+                named = uint32(eff->GetMiscValue()) == spellId
+                        || (eff->GetMiscValue() == 0 && masked && info && eff->IsAffectedOnSpell(info));
+            else
+                named = eff->GetMiscValue() == 0 && !masked;
+            if (named)
+                out.push_back(eff);
+        }
+        return out;
     }
 
     uint32 AddSelfStacks(Unit* caster, uint32 stackSpell, int32 count)

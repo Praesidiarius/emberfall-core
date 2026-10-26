@@ -40,6 +40,7 @@
 #include <vector>
 
 class Aura;
+class AuraEffect;
 class Player;
 class SpellInfo;
 class Unit;
@@ -116,6 +117,16 @@ namespace Emberfall::ClassKit
     //   their first enemy only, so an area spend counts once). A trigger whose ExcludeCasterAuraSpell the caster carries
     //   is skipped (Heaven's Answer while Heaven's Answer Spent holds).
     void HitBonuses(Unit* caster, Unit* target, uint32 spellId, uint32 stacks, bool selfTriggers = true);
+    //   A rule passive (IsRule, below) is never a hit bonus: its dummy's trigger is what the rule casts.
+    // Talent rules (the Executioner's Talent Tree v1.0, Emberfall docs/design/classes/warrior-executioner.md §15; the
+    // contracts: Emberfall's classkit/scripts_exec.py): a talent passive bound to one of the `spell_ef_kit_rule_*` aura
+    // scripts, which do nothing by themselves. The ability's own scripts (spell_ef_kit_rules, spell_ef_kit_build_power)
+    // and the kill hook find the caster's rules by that script and read their numbers from the passive's dummy effect.
+    // Whether an aura is a rule passive (any of its aura scripts is a spell_ef_kit_rule_*).
+    bool IsRule(Aura const* aura);
+    // The caster's rules of script `script` that name `spellId`: the dummy effects whose misc is `spellId`, or misc 0 and a
+    // class mask covering it; with `spellId` 0 the rules that name no spell (misc 0, no class mask: any kill).
+    std::vector<AuraEffect const*> Rules(Unit* caster, char const* script, uint32 spellId);
     // Self stacks (the Paladin's Sunblades): adds `count` stacks of the caster's own aura `stackSpell`, up to its cap
     // (effect 1's value with the caster's spell mods: Crown of Blades raises it; EfClassKitLogic.h StackCap), refreshing
     // it; stacks above a cap that fell stay. Returns the stacks.
