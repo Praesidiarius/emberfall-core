@@ -17,7 +17,8 @@
 
 // Standalone tests of the Sunwarden's arithmetic (src/classkit/EfClassKitSunLogic.h; tests/run_tests.sh builds and runs
 // them): the overheal share, the pooled shields and their caps, restored charges, the counter, the mana on a hit, the
-// low-health bonus, the periodic rider, the circle's raid cap and the combo's steps.
+// low-health bonus, the periodic rider, the circle's raid cap and the combo's steps. The numbers are examples fed to
+// the functions, not the kit's values (those: the game repo's content/data/classes/paladin.yaml and its tests).
 
 #include "EfClassKitSunLogic.h"
 
@@ -43,20 +44,19 @@ namespace
 
 int main()
 {
-    // Solenne's Embrace: 75 % of the overheal (85 % with Overflowing Light)
+    // a share of the overheal
     check(OverhealShare(252, 52, 75) == 150, "200 overheal: 150");
     check(OverhealShare(252, 252, 75) == 0, "no overheal: nothing");
     check(OverhealShare(252, 0, 85) == 214, "all overheal at 85 %");
     check(OverhealShare(100, 140, 75) == 0, "more healed than the heal (never): nothing");
 
-    // pooled shields: Embrace's cap 30 % (of 1000: 300), Dawnbreak's 5 % an application, at most 10 %
+    // pooled shields: each share adds, up to a cap
     check(PooledAbsorb(0, 150, 300) == 150, "first share");
     check(PooledAbsorb(150, 200, 300) == 300, "capped at 30 %");
     check(PooledAbsorb(0, 50, 100) == 50 && PooledAbsorb(50, 50, 100) == 100 && PooledAbsorb(100, 50, 100) == 100,
-          "Dawnbreak: 5 %, 10 %, still 10 %");
+          "a share an application, up to the cap");
     check(PooledAbsorb(20, 60, 100) == 80, "a worn shield is topped up");
     check(PooledAbsorb(120, 50, 100) == 120, "a cap that fell keeps what is held, adds nothing");
-    check(PooledAbsorb(0, 60, 100) == 60, "Sheltering Dawn: 6 %");
 
     // restored charges (stacks = charges recharging)
     check(RechargingAfterRestore(3, 0) == 0, "Salvation: all, recharge stopped");
@@ -64,7 +64,7 @@ int main()
     check(RechargingAfterRestore(1, 1) == 0, "the last one back: full");
     check(RechargingAfterRestore(0, 1) == 0, "at full: lost");
 
-    // Dawn's Renewal's count: every 3 (Renewed Devotion: 2), starting again after each
+    // a counter: fires every N, starting again after each
     CountStep s = Count(0, 3);
     check(!s.fire && s.count == 1, "first heal: 1");
     s = Count(1, 3);
@@ -75,10 +75,9 @@ int main()
     check(s.fire && s.count == 0, "Renewed Devotion: the second fires");
     check(Count(0, 0).fire, "need 0 counts as 1");
 
-    // Sunbreaker: 15 % of max mana, 30 % on a crit (Restoring Strike 18 / 36 %)
+    // mana on a hit: a percent of the pool, doubled on a crit with misc B
     check(ManaOnHit(2000, 15, false, true) == 300, "15 % of 2000");
     check(ManaOnHit(2000, 15, true, true) == 600, "a crit doubles");
-    check(ManaOnHit(2000, 18, true, true) == 720, "Restoring Strike's crit: 36 %");
     check(ManaOnHit(2000, 15, true, false) == 300, "no doubling without misc B");
     // playtest #67: of base mana (misc 1), whatever gear adds to the pool; max mana without it
     check(ManaPool(2400, 770, true) == 770, "misc 1: base mana");
@@ -86,12 +85,12 @@ int main()
     check(ManaPool(2400, 0, true) == 2400, "no base mana known: max mana");
     check(ManaOnHit(ManaPool(2400, 770, true), 25, true, true) == 385, "25 % of 770, doubled on a crit");
 
-    // Guiding Light: +20 % below 35 %
+    // a bonus below a health threshold
     check(LowHealthBonus(425, 34.0f, 35, 20) == 510, "below 35 %: +20 %");
     check(LowHealthBonus(425, 35.0f, 35, 20) == 425, "at 35 %: nothing");
     check(LowHealthBonus(425, 10.0f, 0, 20) == 425, "no threshold: nothing");
 
-    // Lingering Radiance: 15 % of 725 over 6 s in 2 s ticks
+    // a periodic rider: the whole split over the ticks
     check(PerTick(108, 6000, 2000) == 36, "108 in 3 ticks: 36");
     check(PerTick(2, 6000, 2000) == 1, "at least 1 a tick");
     check(PerTick(0, 6000, 2000) == 0, "nothing: nothing");
