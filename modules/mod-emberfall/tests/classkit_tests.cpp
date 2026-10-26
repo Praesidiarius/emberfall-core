@@ -297,6 +297,23 @@ int main()
     check(CritRampStacks(10, false, 10) == 10, "never above the stack maximum");
     check(CritRampStacks(4, true, 10) == 0, "a crit consumes and resets every stack");
     check(CritRampStacks(0, true, 10) == 0, "a crit at none: none");
+    // one proc a cast: an area cast critting several enemies opens Deathblow once (ankarna, 2026-10-26)
+    {
+        int castA = 0, castB = 0;           // two spell objects
+        OncePerCast once;
+        int procs = 0;
+        for (int enemy = 0; enemy < 5; ++enemy)   // Whirling Steel crits 5 enemies in one update
+            if (once.Allows(&castA, 1, 1000))
+            {
+                once.Took(&castA, 1, 1000);
+                ++procs;
+            }
+        check(procs == 1, "five crits of one Whirling Steel: one Deathblow proc");
+        check(once.Allows(&castA, 1, 2500), "the next cast (the spell object reused later): procs again");
+        check(once.Allows(&castB, 1, 1000), "another cast: procs");
+        check(once.Allows(&castA, 2, 1000), "another spell: procs");
+        check(once.Allows(nullptr, 1, 1000), "a proc without a spell: allowed");
+    }
     // stored procs: the cap is effect 1 (a talent raises it), never above the aura's stack maximum
     check(StackCap(1, 2) == 1 && StacksAfter(1, 1, StackCap(1, 2)) == 1, "without Lingering Death: one proc, a new one refreshes");
     check(StackCap(2, 2) == 2 && StacksAfter(1, 1, StackCap(2, 2)) == 2, "Lingering Death: a second proc is stored");
