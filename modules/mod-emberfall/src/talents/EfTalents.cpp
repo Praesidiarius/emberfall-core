@@ -1461,7 +1461,7 @@ namespace Emberfall::Talents
             pickTables = static_cast<uint32>(r->Fetch()[0].Get<uint64>());
         if (pickTables == 2)
         {
-            if (QueryResult r = WorldDatabase.Query("SELECT `tree`, `grp`, `slot`, `points` FROM `ef_talent_slot` ORDER BY `tree`, `grp`, `slot`"))
+            if (QueryResult r = WorldDatabase.Query("SELECT `tree`, `grp`, `slot`, `points`, `earned` FROM `ef_talent_slot` ORDER BY `tree`, `grp`, `slot`"))
             {
                 do
                 {
@@ -1475,11 +1475,14 @@ namespace Emberfall::Talents
                     }
                     if (group > it->second.groups.size())
                         it->second.groups.emplace_back();
-                    if (slot != it->second.groups[group - 1].size() + 1)
+                    if (slot != it->second.groups[group - 1].slots.size() + 1)
                         problems.push_back("ef_talent_slot: tree " + std::to_string(tree) + " group " + std::to_string(group) + " slot " +
                                            std::to_string(slot) + " out of order");
                     else
-                        it->second.groups[group - 1].push_back(f[3].Get<uint16>());
+                    {
+                        it->second.groups[group - 1].slots.push_back(f[3].Get<uint16>());
+                        it->second.groups[group - 1].earned = f[4].Get<uint8>() != 0;
+                    }
                 } while (r->NextRow());
             }
             if (QueryResult r = WorldDatabase.Query("SELECT `node`, `grp` FROM `ef_talent_pick`"))

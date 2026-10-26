@@ -66,7 +66,7 @@ namespace ef::talents
         uint32_t specId = 0;                        // 0 = the class tree
         std::vector<EfNode> nodes;                  // in `ord` order
         std::vector<RuleGate> gates;
-        std::vector<std::vector<uint32_t>> groups;  // pick groups (ef_talent_slot): [g-1] the points each slot opens at
+        std::vector<RuleGroup> groups;              // pick groups (ef_talent_slot): [g-1] the slots, by points earned or spent
         RuleTree rules;                             // TalentRules.h view (parents as `ord` indices)
     };
 
@@ -533,7 +533,7 @@ namespace ef::talents
                 tree.rules.gates = tree.gates;
                 tree.rules.groups = tree.groups;
                 for (size_t g = 0; g < tree.groups.size(); ++g)
-                    if (tree.groups[g].empty() || !std::is_sorted(tree.groups[g].begin(), tree.groups[g].end()))
+                    if (tree.groups[g].slots.empty() || !std::is_sorted(tree.groups[g].slots.begin(), tree.groups[g].slots.end()))
                         problems.push_back("tree " + std::to_string(id) + ": pick group " + std::to_string(g + 1) +
                                            " needs rising slot thresholds");
                 for (const EfNode& n : tree.nodes)
@@ -763,7 +763,7 @@ namespace ef::talents
                     {
                         std::vector<std::string> groups;
                         for (const auto& g : t.groups)
-                            groups.push_back(ints(g, false));
+                            groups.push_back(object({{"earned", num(g.earned ? 1 : 0)}, {"slots", ints(g.slots, false)}}));
                         fields.emplace_back("groups", list(groups));
                     }
                     fields.insert(fields.end(), {{"id", num(t.id)}, {"nodes", list(nodes)}, {"spec", num(t.specId)}});

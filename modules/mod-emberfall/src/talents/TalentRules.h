@@ -23,10 +23,12 @@
 //
 // Pick groups (2026-10-26, the Wrathbringer's row abilities; talents.md §1.3 rule 7): a node with a `group` (1-based into
 // the tree's `groups`) is a **pick**: rank 0 or 1, never paid (no point, no budget counts it), but a player holds only as
-// many picks of a group as its slots are open, slot k opening once the tree's paid points reach the group's k-th
-// threshold. A final state is valid when some order of its picks reaches it: each pick made while its group has a free
-// open slot, counting only the paid points of the nodes that do not hang on a later pick (Slot; detail: the first pick
-// in `ord` order the largest set of picks reached, the first found depth-first, lacks).
+// many picks of a group as its slots are open, slot k opening once the group's k-th threshold is reached: by the
+// points the character has **earned** for the tree (its budget at the level; an `earned` group, the Wrathbringer's) or
+// by the tree's **paid** points (a `spent` group). A final state is valid when some order of its picks reaches it: each
+// pick made while its group has a free open slot, counting (for a spent group) only the paid points of the nodes that do
+// not hang on a later pick (Slot; detail: the first pick in `ord` order the largest set of picks reached, the first found
+// depth-first, lacks). An earned group's slots do not depend on the picks: for it this is a plain count.
 //
 // Checks, the first failure wins: Decode (length, characters, a letter on a normal node); then per node of the class
 // tree and then of the spec tree, in `ord` order, for each invested paid node: Rank (above its max), Level (its
@@ -119,11 +121,19 @@ namespace ef::talents
         uint32_t points = 0;
     };
 
+    // A pick group: its slot thresholds, counted in points earned for the tree or spent in it.
+    struct RuleGroup
+    {
+        bool earned = false;
+        std::vector<uint32_t> slots;
+        bool operator==(const RuleGroup&) const = default;
+    };
+
     struct RuleTree
     {
         std::vector<RuleNode> nodes; // in `ord` order
         std::vector<RuleGate> gates; // the row gates (already folded into each node's `gate`; kept for the UI)
-        std::vector<std::vector<uint32_t>> groups; // pick groups: [g-1] the points spent in the tree each slot opens at
+        std::vector<RuleGroup> groups; // pick groups, 1-based by RuleNode::group
     };
 
     // One node's entry in a rank string: the rank (a choice node: 1 when an option is picked) and the
@@ -186,14 +196,16 @@ namespace ef::talents
     // What a loadout stores for this spec: paid nodes and picks.
     inline bool isStored(const RuleNode& node, uint32_t specBit) { return isPaid(node, specBit) || isPick(node); }
 
-    // How many picks group `group` (1-based) allows at `paid` points spent in the tree.
-    inline uint32_t openSlots(const RuleTree& tree, uint32_t group, uint32_t paid)
+    // How many picks group `group` (1-based) allows at `paid` points spent in the tree and `earned` points earned for it
+    // (the tree's budget at the character's level).
+    inline uint32_t openSlots(const RuleTree& tree, uint32_t group, uint32_t paid, uint32_t earned)
     {
         if (group < 1 || group > tree.groups.size())
             return 0;
+        const RuleGroup& g = tree.groups[group - 1];
         uint32_t open = 0;
-        for (const uint32_t at : tree.groups[group - 1])
-            if (at <= paid)
+        for (const uint32_t at : g.slots)
+            if (at <= (g.earned ? earned : paid))
                 ++open;
         return open;
     }
@@ -365,7 +377,8 @@ namespace ef::talents
 
     // Slot: some order makes every pick the state holds, each while its group has a free open slot (depth-first over the
     // sets of picks made, in `ord` order; rules.py check_slots step for step).
-    inline RuleResult checkSlots(const RuleTree& tree, std::span<const NodeValue> values, uint32_t level, uint32_t specBit)
+    inline RuleResult checkSlots(const RuleTree& tree, std::span<const NodeValue> values, uint32_t level, uint32_t specBit,
+                                 uint32_t earned)
     {
         std::vector<size_t> picks;
         for (size_t i = 0; i < tree.nodes.size() && i < values.size(); ++i)
@@ -407,7 +420,7 @@ namespace ef::talents
                 for (size_t j = 0; j < tree.nodes.size(); ++j)
                     if (have[j] && tree.nodes[j].group == group)
                         ++used;
-                if (used < openSlots(tree, group, state.total) && state.holds(picks[b]))
+                if (used < openSlots(tree, group, state.total, earned) && state.holds(picks[b]))
                     if (self(self, mask | (1u << b)))
                         return true;
             }
@@ -421,15 +434,17 @@ namespace ef::talents
         return {};
     }
 
-    // Every node rule of one tree, in `ord` order, then its Slot check (no budget).
-    inline RuleResult checkTree(const RuleTree& tree, std::span<const NodeValue> values, uint32_t level, uint32_t specBit)
+    // Every node rule of one tree, in `ord` order, then its Slot check (no budget; `earned`: the tree's budget at the level,
+    // what earned pick groups count).
+    inline RuleResult checkTree(const RuleTree& tree, std::span<const NodeValue> values, uint32_t level, uint32_t specBit,
+                                uint32_t earned = 0)
     {
         if (values.size() != tree.nodes.size())
             return {RuleError::Decode, 0};
         for (size_t i = 0; i < tree.nodes.size(); ++i)
             if (const RuleResult r = checkNode(tree, values, i, level, specBit); !r.ok())
                 return r;
-        return checkSlots(tree, values, level, specBit);
+        return checkSlots(tree, values, level, specBit, earned);
     }
 
     // A whole loadout `<classRanks>.<specRanks>` for a character of `level` in the spec with `specBit`
@@ -444,9 +459,9 @@ namespace ef::talents
         const auto specValues = decodeRanks(specTree, loadout.substr(dot + 1));
         if (!classValues || !specValues)
             return {RuleError::Decode, 0};
-        if (const RuleResult r = checkTree(classTree, *classValues, level, specBit); !r.ok())
+        if (const RuleResult r = checkTree(classTree, *classValues, level, specBit, classBudget); !r.ok())
             return r;
-        if (const RuleResult r = checkTree(specTree, *specValues, level, specBit); !r.ok())
+        if (const RuleResult r = checkTree(specTree, *specValues, level, specBit, specBudget); !r.ok())
             return r;
         if (spentPoints(classTree, *classValues, specBit) > classBudget)
             return {RuleError::BudgetClass, 0};

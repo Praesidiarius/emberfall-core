@@ -151,15 +151,16 @@ namespace
     namespace eft = ef::eft;
 
     // A vectors tree's pick groups ("groups": the slot thresholds per group; none when absent).
-    std::vector<std::vector<uint32_t>> groupsOf(Json const& t)
+    std::vector<RuleGroup> groupsOf(Json const& t)
     {
-        std::vector<std::vector<uint32_t>> out;
+        std::vector<RuleGroup> out;
         if (t.obj().count("groups"))
             for (Json const& g : t["groups"].arr())
             {
                 out.emplace_back();
-                for (Json const& at : g.arr())
-                    out.back().push_back(static_cast<uint32_t>(at.num()));
+                out.back().earned = g["earned"].num() != 0;
+                for (Json const& at : g["slots"].arr())
+                    out.back().slots.push_back(static_cast<uint32_t>(at.num()));
             }
         return out;
     }
@@ -285,9 +286,9 @@ namespace
         m->Finish(problems);
         check(problems.empty(), "pick model: " + (problems.empty() ? std::string() : problems[0]));
         EfSpec const& spec = *m->Spec(91);
-        check(m->trees[830].rules.groups == std::vector<std::vector<uint32_t>>{{2, 4}, {7, 9}}, "pick model: the groups' slots");
+        check(m->trees[830].rules.groups == std::vector<RuleGroup>{{false, {2, 4}}, {false, {7, 9}}}, "pick model: the groups' slots");
         std::string const json = m->CanonicalJson();
-        check(json.find("\"groups\":[[2,4],[7,9]]") != std::string::npos && json.find("\"group\":2") != std::string::npos,
+        check(json.find("\"groups\":[{\"earned\":0,\"slots\":[2,4]},{\"earned\":0,\"slots\":[7,9]}]") != std::string::npos && json.find("\"group\":2") != std::string::npos,
               "pick model: the groups are hashed");
         std::string const cls(m->trees[820].nodes.size(), '0');
         auto picked = m->PairsOf(spec, cls + ".02100000000");
@@ -303,6 +304,20 @@ namespace
         eft::Pairs const tooMany = {{8302, {1, 0}}, {8304, {1, 0}}, {8306, {1, 0}}};
         RuleResult const r = m->Validate(spec, m->LoadoutString(spec, m->Remap(spec, tooMany, changed)), 60);
         check(r.code == RuleError::Slot, "pick model: a remapped loadout whose picks do not fit is refused (reset)");
+        // tree 831: group 1 by points EARNED (the spec budget at the level: 3 and 5), the Wrathbringer's way. A loadout from
+        // before with both rows bought keeps them where the level opens both slots, and is reset (SLOT) where it does not.
+        auto e = model(treeJson.at(820), treeJson.at(831), 1);
+        e->points[0] = {{1, {99, 3}}, {2, {99, 5}}};
+        problems.clear();
+        e->Finish(problems);
+        check(problems.empty() && e->trees[831].rules.groups[0].earned, "earned pick model");
+        EfSpec const& es = *e->Spec(91);
+        eft::Pairs const before = {{8304, {1, 0}}, {8306, {1, 0}}};
+        eft::Pairs const kept = e->Remap(es, before, changed);
+        check(kept.count(8303) && kept.count(8305), "earned picks: Remap picks both rows' abilities");
+        check(e->Validate(es, e->LoadoutString(es, kept), 2).ok(), "earned picks: both slots open at 5 points earned");
+        check(e->Validate(es, e->LoadoutString(es, kept), 1).code == RuleError::Slot, "earned picks: one slot at 3: reset");
+        check(e->Validate(es, cls + ".00100000000", 1).ok(), "earned picks: a pick with nothing spent");
         std::cout << "picks: groups, storage, Remap\n";
     }
 
