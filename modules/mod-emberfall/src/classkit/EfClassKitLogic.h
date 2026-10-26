@@ -504,6 +504,33 @@ namespace Emberfall::ClassKit::Logic
         return std::clamp<int32_t>(std::max<int32_t>(0, have) + 1, 1, std::max<int32_t>(1, max));
     }
 
+    // One proc a cast (spell_ef_kit_once_a_cast; ankarna's feedback of 2026-10-26: Whirling Steel, Earthbreaker and
+    // Reaping Arc open Deathblow at most once a cast however many enemies they crit). A cast is known by its spell
+    // object, its spell ID and the game time of its hits (an area cast handles every enemy in the same update, so a
+    // spell object the core reuses later is never mistaken for the old cast). `Allows` asks before a proc, `Took` marks
+    // the cast that procced.
+    struct OncePerCast
+    {
+        void const* spell = nullptr;
+        uint32_t spellId = 0;
+        uint64_t atMs = 0;
+
+        constexpr bool Same(void const* s, uint32_t id, uint64_t nowMs) const
+        {
+            return s && s == spell && id == spellId && nowMs == atMs;
+        }
+
+        // no spell (a proc without one): always allowed
+        constexpr bool Allows(void const* s, uint32_t id, uint64_t nowMs) const { return !Same(s, id, nowMs); }
+
+        constexpr void Took(void const* s, uint32_t id, uint64_t nowMs)
+        {
+            spell = s;
+            spellId = id;
+            atMs = nowMs;
+        }
+    };
+
     // Relentless Whirl: percent more on every enemy for `targets` enemies struck, `pctPerExtra` for each beyond the first,
     // counting at most `maxTargets` (5 % up to 5: 0 / 5 / 10 / 15 / 20 %, then 20 % however many).
     constexpr int32_t CountBonusPct(uint32_t targets, int32_t pctPerExtra, int32_t maxTargets)

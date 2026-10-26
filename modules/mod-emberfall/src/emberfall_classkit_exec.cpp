@@ -55,12 +55,15 @@
 //                           The build rules (_build_low_health, _build_count, _build_floor) are spell_ef_kit_build_power's;
 //                           _kill_cut with no ability named (Opportunistic Throw: any killing blow) the kill hook's below.
 //   spell_ef_kit_rule_*     the rules' own aura scripts: markers (nothing happens in them)
+//   spell_ef_kit_once_a_cast  a proc aura that procs at most once a cast (ankarna's feedback of 2026-10-26: the Deathblow
+//                           window; Whirling Steel, Earthbreaker and Reaping Arc critting several enemies open it once)
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
 
 #include "CellImpl.h"
 #include "Creature.h"
+#include "GameTime.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
 #include "ObjectAccessor.h"
@@ -377,6 +380,37 @@ class spell_ef_kit_rule : public AuraScript
     void Register() override { }
 };
 
+// A proc aura that procs at most once a cast (the Deathblow window, ankarna 2026-10-26): an area cast's hits each raise a
+// proc event; the first that procs marks the cast, the others of that cast are refused (EfClassKitLogic.h OncePerCast).
+class spell_ef_kit_once_a_cast : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_once_a_cast);
+
+    Emberfall::ClassKit::Logic::OncePerCast _once;
+
+    static uint64 Now() { return uint64(GameTime::GetGameTimeMS().count()); }
+
+    static uint32 SpellIdOf(Spell const* spell) { return spell ? spell->GetSpellInfo()->Id : 0; }
+
+    bool CheckProc(ProcEventInfo& info)
+    {
+        Spell const* spell = info.GetProcSpell();
+        return _once.Allows(spell, SpellIdOf(spell), Now());
+    }
+
+    void Took(ProcEventInfo& info)
+    {
+        if (Spell const* spell = info.GetProcSpell())
+            _once.Took(spell, SpellIdOf(spell), Now());
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_ef_kit_once_a_cast::CheckProc);
+        AfterProc += AuraProcFn(spell_ef_kit_once_a_cast::Took);
+    }
+};
+
 // Opportunistic Throw: any killing blow of the player's (its damage over time too) runs the kill-cut rules that name no
 // ability.
 class emberfall_classkit_exec_kills : public PlayerScript
@@ -396,6 +430,7 @@ void AddEmberfallClassKitExecScripts()
     RegisterSpellScript(spell_ef_kit_sweep);
     RegisterSpellScript(spell_ef_kit_sweep_hit);
     RegisterSpellScript(spell_ef_kit_rules);
+    RegisterSpellScript(spell_ef_kit_once_a_cast);
     for (char const* name : { "spell_ef_kit_rule_build_low_health", "spell_ef_kit_rule_build_count",
                               "spell_ef_kit_rule_build_floor", "spell_ef_kit_rule_crit_refund", "spell_ef_kit_rule_crit_ramp",
                               "spell_ef_kit_rule_crit_extend", "spell_ef_kit_rule_crit_low_health", "spell_ef_kit_rule_kill_cut",
