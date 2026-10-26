@@ -2682,6 +2682,21 @@ void Spell::DoAllEffectOnTarget(TargetInfo* target)
 
     SpellMissInfo missInfo = target->missCondition;
 
+    // EMBERFALL: the combat log tap (PATCHES.md #12): a hostile spell that missed this target (miss, resist, dodge,
+    // parry, block, evade, immune, deflect, reflect) reaches the client in SMSG_SPELL_GO's miss list, never through
+    // SendSpellMiss: the meter counts it as an avoid
+    if (missInfo != SPELL_MISS_NONE && caster && !m_spellInfo->IsPositive() && Emberfall::CombatLog::Active())
+    {
+        Emberfall::CombatLog::Event e;
+        e.kind = Emberfall::CombatLog::Kind::SpellMiss;
+        e.source = caster;
+        e.target = effectUnit;
+        e.spellId = m_spellInfo->Id;
+        e.missInfo = uint8(missInfo);
+        e.targetHealthBefore = effectUnit->GetHealth();
+        Emberfall::CombatLog::Emit(e);
+    }
+
     // Need init unitTarget by default unit (can changed in code on reflect)
     // Or on missInfo != SPELL_MISS_NONE unitTarget undefined (but need in trigger subsystem)
     unitTarget = effectUnit;
@@ -2890,6 +2905,18 @@ void Spell::DoAllEffectOnTarget(TargetInfo* target)
                 m_damage = 0;
 
                 // no packet found in sniffs
+                // EMBERFALL: the combat log tap (PATCHES.md #12): the meter counts it as an avoid
+                if (Emberfall::CombatLog::Active())
+                {
+                    Emberfall::CombatLog::Event e;
+                    e.kind = Emberfall::CombatLog::Kind::SpellMiss;
+                    e.source = caster;
+                    e.target = unitTarget;
+                    e.spellId = m_spellInfo->Id;
+                    e.missInfo = uint8(SPELL_MISS_IMMUNE);
+                    e.targetHealthBefore = unitTarget->GetHealth();
+                    Emberfall::CombatLog::Emit(e);
+                }
             }
             else
             {

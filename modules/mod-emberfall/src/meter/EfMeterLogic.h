@@ -24,8 +24,9 @@
 // a meter hands out once and keeps until it is dropped, so clients learn a name (WHO) once.
 //
 // Segments: the current fight starts with the first hostile damage a participant deals or takes (a miss counts) and
-// ends when no participant has been in combat for kGraceMs (or nothing happened for kIdleMs). Its duration runs from
-// that first event to the last one. The last kHistory fights are kept, and "overall" (id 0): every fight since the
+// ends when no participant has been in combat for kGraceMs (or nothing happened for kIdleMs; a fight nobody was in
+// combat in, at a dummy that never enters combat, after kNoCombatGapMs without an event). Its duration runs from that
+// first event to the last one. The last kHistory fights are kept, and "overall" (id 0): every fight since the
 // last reset, its duration the fights' durations added up. Nothing outside a fight is counted (a heal before the pull,
 // falling damage on the road), so overall is the sum of the fights.
 //
@@ -67,6 +68,9 @@ namespace Emberfall::Meter
     constexpr std::uint32_t kVersion = 1;
     constexpr std::uint32_t kPushMs = 1000;        // a client gets what changed at most this often
     constexpr std::uint32_t kGraceMs = 3000;       // every participant out of combat this long: the fight is over
+    constexpr std::uint32_t kNoCombatGapMs = 8000; // a fight nobody was in combat in (a training dummy that never enters
+                                                   // combat): over after this long without an event, not kGraceMs (a slow
+                                                   // swing, a long cast or a 3 s DoT tick left alone split it before)
     constexpr std::uint32_t kIdleMs = 20000;       // nothing happened this long: over even if someone is still in combat
     constexpr std::uint32_t kCombatStaleMs = 5000; // a combat report this old does not count (the player left the map)
     constexpr std::uint32_t kActiveGapMs = 5000;   // a pause up to this long between two actions is active time (a slow cast)
@@ -258,6 +262,7 @@ namespace Emberfall::Meter
         std::uint32_t id = 0;        // 0: overall
         std::uint64_t startMs = 0, lastEventMs = 0;
         bool live = false, boss = false;
+        bool sawCombat = false;      // a participant was in combat during the fight (else kNoCombatGapMs ends it)
         std::string name;
         std::map<std::uint8_t, Row> rows;
         std::uint32_t version = 0;
@@ -412,7 +417,11 @@ namespace Emberfall::Meter
             c.inCombat = inCombat;
             c.seenMs = nowMs;
             if (inCombat)
+            {
                 _lastCombatMs = nowMs;
+                if (Segment* live = Live())
+                    live->sawCombat = true;
+            }
             Tick(nowMs);
         }
 
@@ -433,7 +442,8 @@ namespace Emberfall::Meter
             Segment* live = Live();
             if (!live)
                 return false;
-            bool const quiet = !AnyInCombat(nowMs) && nowMs >= _lastCombatMs + kGraceMs && nowMs >= live->lastEventMs + kGraceMs;
+            std::uint64_t const gap = live->sawCombat ? kGraceMs : kNoCombatGapMs;
+            bool const quiet = !AnyInCombat(nowMs) && nowMs >= _lastCombatMs + kGraceMs && nowMs >= live->lastEventMs + gap;
             bool const idle = nowMs >= live->lastEventMs + kIdleMs;
             if (!quiet && !idle)
                 return false;
@@ -652,6 +662,7 @@ namespace Emberfall::Meter
                 s.id = _nextId++;
                 s.startMs = nowMs;
                 s.live = true;
+                s.sawCombat = AnyInCombat(nowMs);
                 fights.push_front(std::move(s));
                 while (fights.size() > kHistory)
                     fights.pop_back();
@@ -945,6 +956,12 @@ namespace Emberfall::Meter
         if (c.view >= 0)
             if (Segment const* v = m.Find(std::uint32_t(c.view)); v && (segments.empty() || v != segments.front()))
                 segments.push_back(v);
+        // A fight the client last heard of as live that has ended since: its end (and last rows) once, also when the
+        // next fight started in the same moment (else the client kept it live, its duration running on)
+        for (Segment const& s : m.fights)
+            if (auto it = c.sent.find(s.id); !s.live && it != c.sent.end() && it->second != s.version
+                && std::find(segments.begin(), segments.end(), &s) == segments.end())
+                segments.push_back(&s);
         for (Segment const* s : segments)
         {
             auto it = c.sent.find(s->id);
