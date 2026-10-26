@@ -292,14 +292,14 @@ namespace Emberfall::Talents
             return !info || info->IsPassive();
         }
 
-        // The replacing nodes of the active spec's active loadout (M6), empty without a spec.
-        std::vector<EfTalentModel::Replacement> ActiveReplacements(PlayerState& st, EfTalentModel const& data)
+        // The replacing nodes of the active spec's active loadout at the player's level (M6), empty without a spec.
+        std::vector<EfTalentModel::Replacement> ActiveReplacements(Player* player, PlayerState& st, EfTalentModel const& data)
         {
             EfSpec const* spec = data.SpecOrPre(st.activeSpec, ClassOf(st));
             if (!spec)
                 return {};
             Loadout const* l = st.Active(spec->id);
-            return data.Replacements(*spec, l ? l->pairs : eft::Pairs{}, IsPassiveSpell);
+            return data.Replacements(*spec, l ? l->pairs : eft::Pairs{}, player->GetLevel(), IsPassiveSpell);
         }
 
         // The action bars follow the replacing nodes (§1.4, M6), both ways: while a node is invested, every button
@@ -309,7 +309,7 @@ namespace Emberfall::Talents
         bool RewriteReplacedBars(Player* player, PlayerState& st, EfTalentModel const& data)
         {
             bool changed = false;
-            for (EfTalentModel::Replacement const& r : ActiveReplacements(st, data))
+            for (EfTalentModel::Replacement const& r : ActiveReplacements(player, st, data))
             {
                 uint32 const to = r.by ? r.by : r.replaced;
                 if (!player->HasSpell(to))
@@ -403,7 +403,7 @@ namespace Emberfall::Talents
             // Replacing nodes (M6): a replaced spell the core taught goes while its node is invested and comes back after.
             // (A replaced spell the module taught, a baseline spell, simply is not expected.)
             std::set<uint32> replaced;
-            for (EfTalentModel::Replacement const& r : ActiveReplacements(st, data))
+            for (EfTalentModel::Replacement const& r : ActiveReplacements(player, st, data))
                 if (r.by)
                     replaced.insert(r.replaced);
             for (uint32 const spell : replaced)
@@ -813,7 +813,7 @@ namespace Emberfall::Talents
                 // Frostbolt at the first choice; Frostbolt -> Magic Bolt in a spec without it), before unknown spells go.
                 std::vector<BarButton> mapped = current;
                 std::map<uint32, uint32> back = data.ReplacedBy(s->classId), forward;
-                for (EfTalentModel::Replacement const& r : ActiveReplacements(st, data))
+                for (EfTalentModel::Replacement const& r : ActiveReplacements(player, st, data))
                     if (r.by)
                         forward[r.replaced] = r.by;
                 for (BarButton& b : mapped)
@@ -1658,7 +1658,7 @@ namespace Emberfall::Talents
         out.push_back(fmt::format("  granted ({}): {}", st->granted.size(), granted.empty() ? "-" : granted));
         // replacing nodes of the active loadout (M6): replaced -> by (0: not invested), and the core-taught spells taken
         std::string swaps;
-        for (EfTalentModel::Replacement const& r : ActiveReplacements(*st, *data))
+        for (EfTalentModel::Replacement const& r : ActiveReplacements(player, *st, *data))
             swaps += fmt::format("{}{}->{}", swaps.empty() ? "" : ",", r.replaced, r.by);
         std::string taken;
         for (uint32 const spell : st->suppressed)
