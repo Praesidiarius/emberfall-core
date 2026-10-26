@@ -436,9 +436,14 @@ namespace Emberfall::Talents
 
         // ---- state load and migration (§3.7) -------------------------------------------------------
 
+        void SendLoadout(Player* player, EfTalentModel const& data, Loadout const& l);
+        Loadout& ActiveLoadout(PlayerState& st, uint32 spec, eft::Pairs const* seed);
+
         // Re-validates every stored loadout against the current data and the player's level: after a data
         // change (hash differs) through node IDs (dropped nodes, clamped ranks), and at every level; a loadout
-        // that fails is reset (RESET DATA / LEVEL). Then reconciles the spells.
+        // that fails is reset (RESET DATA / LEVEL). Then the class tree's fill nodes (the Paladin's strip) take the
+        // points they can in every loadout (EfTalentModel::Fill; the active spec gets its active loadout for it when it
+        // has none yet), and the spells are reconciled. `notify`: RESET and the filled loadouts go to a synced client.
         void Revalidate(Player* player, PlayerState& st, EfTalentModel const& data, bool notify)
         {
             uint32 const guid = player->GetGUID().GetCounter();
@@ -491,6 +496,28 @@ namespace Emberfall::Talents
                 }
                 ++it;
             }
+            // the fill nodes (2026-10-26): each level's class point to the next slot of the strip, in every loadout
+            std::vector<std::pair<uint32, uint32>> filled; // (spec, loadout) whose pairs the fill changed
+            if (data.HasFill(player->getClass()))
+            {
+                if (data.SpecOrPre(st.activeSpec, player->getClass()) && !st.Active(st.activeSpec))
+                {
+                    Loadout& l = ActiveLoadout(st, st.activeSpec, nullptr);
+                    l.hash = data.dataHash;
+                }
+                for (Loadout& l : st.loadouts)
+                {
+                    EfSpec const* spec = data.SpecOrPre(l.spec, player->getClass());
+                    bool changed = false;
+                    if (spec)
+                        l.pairs = data.Fill(*spec, l.pairs, level, changed);
+                    if (!changed)
+                        continue;
+                    l.hash = data.dataHash;
+                    SaveLoadoutRow(trans, guid, l);
+                    filled.emplace_back(l.spec, l.id);
+                }
+            }
             if (st.dataHash != data.dataHash || specChanged)
             {
                 st.dataHash = data.dataHash;
@@ -503,6 +530,9 @@ namespace Emberfall::Talents
                 for (auto const& [spec, reason] : st.resets)
                     SendBody(player, eft::body(0, "RESET", {std::to_string(spec), reason}));
                 st.resets.clear();
+                for (auto const& [spec, id] : filled)
+                    if (Loadout const* l = st.Find(spec, id))
+                        SendLoadout(player, data, *l);
             }
         }
 
@@ -772,10 +802,16 @@ namespace Emberfall::Talents
             Emberfall::ClassKit::ApplySpecPower(player);
         }
 
-        // Applies validated pairs to the active loadout of the active spec: save, reconcile.
+        // Applies validated pairs to the active loadout of the active spec: the fill nodes bought (a reset tree gets its
+        // strip back at once), save, reconcile.
         void ApplyPairs(Player* player, PlayerState& st, EfTalentModel const& data, eft::Pairs pairs)
         {
             uint32 const guid = player->GetGUID().GetCounter();
+            if (EfSpec const* spec = data.SpecOrPre(st.activeSpec, player->getClass()))
+            {
+                bool filled = false;
+                pairs = data.Fill(*spec, std::move(pairs), player->GetLevel(), filled);
+            }
             CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
             Loadout& l = ActiveLoadout(st, st.activeSpec);
             l.pairs = std::move(pairs);
@@ -968,7 +1004,8 @@ namespace Emberfall::Talents
             }
             else
             {
-                target->pairs = std::move(*pairs);
+                bool filled = false;
+                target->pairs = data.Fill(*spec, std::move(*pairs), level, filled);
                 target->hash = data.dataHash;
                 target->updated = static_cast<uint32>(std::time(nullptr));
                 CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
@@ -1363,6 +1400,25 @@ namespace Emberfall::Talents
                     it->second.freeSpecs.push_back(f[1].Get<uint16>());
             } while (r->NextRow());
         }
+        // nodes the server buys by itself (2026-10-26: the class layout's strip, EfTalentModel::Fill); optional, so a world
+        // from before the table keeps working without it
+        bool fillTable = false;
+        if (QueryResult r = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND "
+            "TABLE_NAME = 'ef_talent_fill'"))
+            fillTable = r->Fetch()[0].Get<uint64>() != 0;
+        if (fillTable)
+            if (QueryResult r = WorldDatabase.Query("SELECT `node` FROM `ef_talent_fill`"))
+            {
+                do
+                {
+                    uint32 const node = r->Fetch()[0].Get<uint32>();
+                    auto it = nodes.find(node);
+                    if (it == nodes.end())
+                        problems.push_back("ef_talent_fill: unknown node " + std::to_string(node));
+                    else
+                        it->second.fill = true;
+                } while (r->NextRow());
+            }
         for (auto& [id, n] : nodes)
         {
             auto it = data->trees.find(n.tree);

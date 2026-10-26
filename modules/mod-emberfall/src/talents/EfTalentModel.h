@@ -55,6 +55,7 @@ namespace ef::talents
         std::vector<std::vector<uint32_t>> options; // [option - 1] -> spells (choice nodes)
         uint32_t freeSpecMask = 0;                  // bit (spec sort - 1)
         std::vector<uint32_t> freeSpecs;            // spec IDs (ef_talent_free)
+        bool fill = false;                          // bought by the server, in `ord` order (ef_talent_fill; Fill below)
     };
 
     struct EfTree
@@ -247,6 +248,52 @@ namespace ef::talents
                 return {RuleError::Decode, 0};
             const auto [classBudget, specBudget] = Budget(spec.classId, level);
             return validateLoadout(ct->rules, st ? st->rules : emptyTree, loadout, level, classBudget, specBudget, SpecBit(spec));
+        }
+
+        // Whether the class's class tree has nodes the server buys by itself (ef_talent_fill).
+        bool HasFill(uint32_t classId) const
+        {
+            const EfClass* cls = Class(classId);
+            const EfTree* ct = cls ? Tree(cls->classTree) : nullptr;
+            if (ct)
+                for (const EfNode& n : ct->nodes)
+                    if (n.fill)
+                        return true;
+            return false;
+        }
+
+        // A loadout with the class tree's fill nodes bought (ef_talent_fill, 2026-10-26: the Paladin class tree's strip,
+        // Emberfall's talents.md §5.3): each in `ord` order, rank by rank, as long as the loadout stays valid at `level`
+        // (path, gate, level, the class budget), so each level's class point goes to the next slot of the strip. Stops at
+        // the first rank that does not fit: the order is fixed, nothing after a gap is bought. A loadout that is not valid
+        // to begin with comes back as it is. `changed` says whether anything was bought.
+        eft::Pairs Fill(const EfSpec& spec, eft::Pairs pairs, uint32_t level, bool& changed) const
+        {
+            changed = false;
+            const EfClass* cls = Class(spec.classId);
+            const EfTree* ct = cls ? Tree(cls->classTree) : nullptr;
+            if (!ct || !Validate(spec, LoadoutString(spec, pairs), level).ok())
+                return pairs;
+            for (size_t i = 0; i < ct->nodes.size(); ++i)
+            {
+                const EfNode& n = ct->nodes[i];
+                if (!n.fill || n.kind == NodeKind::Choice || !isPaid(ct->rules.nodes[i], SpecBit(spec)))
+                    continue;
+                for (;;)
+                {
+                    const auto it = pairs.find(n.id);
+                    const uint32_t rank = it == pairs.end() ? 0u : it->second.rank;
+                    if (rank >= n.maxRank)
+                        break;
+                    eft::Pairs next = pairs;
+                    next[n.id] = eft::Pair{static_cast<uint8_t>(rank + 1), 0};
+                    if (!Validate(spec, LoadoutString(spec, next), level).ok())
+                        return pairs;
+                    pairs = std::move(next);
+                    changed = true;
+                }
+            }
+            return pairs;
         }
 
         // Stored pairs after a data change (§3.7): nodes that left the spec's trees dropped, ranks clamped to
