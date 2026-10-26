@@ -47,7 +47,8 @@
 //                              ticks once more (its own tick: the cooldown, the bonuses). Refused below 1 point.
 //   spell_ef_kit_collapse      effect 1 a dummy on the caster: value = percent of what the curses still had to deal
 //                              (Hungry Deep), trigger = the hit cast at each cursed enemy with that amount; effect 2: misc
-//                              = a talent, trigger = a curse detonated but left (Unbroken Vow: Drowning Vow); effect 3:
+//                              = a talent, trigger = a curse detonated but left (Unbroken Vow: Drowning Vow; its time
+//                              left is consumed, it goes on with its own duration from the Collapse); effect 3:
 //                              misc = a talent, value = seconds: the curses without a target limit come back with that
 //                              much left (Second Wave). Remaining = the ticks left (rounded up) x the tick as it would
 //                              land now. Refused when no curse of the caster is up.
@@ -441,6 +442,14 @@ class spell_ef_kit_collapse : public SpellScript
             int32 const amount = Seal::CollapseHit(b.remaining, pct);
             if (hit && amount > 0)
                 caster->CastCustomSpell(target, hit, &amount, nullptr, nullptr, true);
+            // Unbroken Vow: the curse stays, but what it had left was just dealt: it goes on with its own duration
+            if (kept && target->IsAlive())
+                if (Aura* aura = target->GetAura(kept, caster->GetGUID()))
+                {
+                    int32 const fresh = Seal::KeptAfterCollapse(aura->CalcMaxDuration(caster));
+                    aura->SetMaxDuration(fresh);
+                    aura->SetDuration(fresh);
+                }
             // Second Wave: the curses without a target limit back with its time
             if (waveMs <= 0 || !target->IsAlive())
                 continue;

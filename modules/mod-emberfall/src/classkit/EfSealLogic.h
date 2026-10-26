@@ -67,6 +67,15 @@ namespace Emberfall::ClassKit::Seal
         return int32_t(std::min<int64_t>(hit, 0x7FFFFFFF));
     }
 
+    // The time a curse that Crimson Collapse detonates but leaves (Unbroken Vow: Drowning Vow) keeps: its time left is
+    // what the Collapse just dealt, so it is consumed and the curse goes on as freshly sworn, its own duration
+    // (`freshMs`, 18 s) from now (feedback #81: it kept the time it had, so every Collapse dealt the same Vow again
+    // and Sanguine Torrent's extensions piled up on a Vow that never went).
+    constexpr int32_t KeptAfterCollapse(int32_t freshMs)
+    {
+        return std::max<int32_t>(0, freshMs);
+    }
+
     // Sanguine Torrent: `seals` spent, `msPerSeal` (1000; Rising Water 1250/1500) added to each curse, past every cap.
     constexpr int32_t TorrentExtension(int32_t seals, int32_t msPerSeal)
     {

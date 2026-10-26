@@ -435,6 +435,16 @@ int main()
         // Sanguine Torrent: 10 Seals, +10 s each; Rising Water 2: +15 s; past the cap
         check(TorrentExtension(10, 1000) == 10000 && TorrentExtension(10, 1500) == 15000, "the extension");
         check(Extended(20000, 10000) == 30000 && Extended(-1, 3000) == 3000, "past the 23 s cap");
+        // Unbroken Vow (feedback #81): the Vow a Collapse detonates but leaves goes on with its own 18 s, not the time
+        // it had (a Vow at 38 s after a Torrent was dealt as 38 ticks by the Collapse, then ticked those 38 again and
+        // grew with the next Torrent)
+        {
+            int32_t const left = Extended(23000, TorrentExtension(10, 1500));
+            int64_t const dealt = TicksLeft(left, 1000);
+            int32_t const kept = KeptAfterCollapse(18000);
+            check(dealt == 38 && kept == 18000 && kept < left, "a detonated 38 s Vow goes on with 18 s, not 38 s");
+            check(KeptAfterCollapse(-1) == 0, "never below 0");
+        }
         // Blood Tide: both missing first, then one, then none; the closest on a tie
         {
             std::vector<Candidate> c{ { 0, 0, 1.0f }, { 1, 1, 9.0f }, { 2, 2, 25.0f }, { 3, 1, 4.0f } };
