@@ -24,7 +24,8 @@
 //   3. the EFT protocol (EftProtocol.h): parse, chunking both ways, names, stored pairs, rate limit; and a
 //      decode fuzz: random and mutated bodies never crash and always give a defined result;
 //   4. saved loadouts and per-spec bars (EfLoadouts.h): new loadout IDs and the limit, a spec's first bars;
-//   5. the fill nodes (EfTalentModel::Fill, ef_talent_fill: the class layout's strip) bought in order.
+//   5. the class layout's strip: the player buys it in order (no server fill since 2026-10-26), and the abilities a
+//      purchase gives (EfTalentModel::NewAbilities, for the bar).
 //
 //   talent_tests VECTORS.json...    exit status 0 when everything passed
 
@@ -150,6 +151,21 @@ namespace
     using namespace ef::talents;
     namespace eft = ef::eft;
 
+    // A vectors tree's pick groups ("groups": the slot thresholds per group; none when absent).
+    std::vector<RuleGroup> groupsOf(Json const& t)
+    {
+        std::vector<RuleGroup> out;
+        if (t.obj().count("groups"))
+            for (Json const& g : t["groups"].arr())
+            {
+                out.emplace_back();
+                out.back().earned = g["earned"].num() != 0;
+                for (Json const& at : g["slots"].arr())
+                    out.back().slots.push_back(static_cast<uint32_t>(at.num()));
+            }
+        return out;
+    }
+
     RuleTree ruleTree(Json const& t)
     {
         RuleTree tree;
@@ -175,10 +191,13 @@ namespace
             for (Json const& p : n["parentRanks"].arr())
                 if (k < kMaxParents)
                     r.parentRanks[k++] = static_cast<uint8_t>(p.num());
+            if (n.obj().count("group")) // a pick node (pick groups, only where a tree has them)
+                r.group = static_cast<uint8_t>(n["group"].num());
             tree.nodes.push_back(r);
         }
         for (Json const& g : t["gates"].arr())
             tree.gates.push_back(RuleGate{static_cast<uint32_t>(g["row"].num()), static_cast<uint32_t>(g["points"].num())});
+        tree.groups = groupsOf(t);
         return tree;
     }
 
@@ -236,6 +255,8 @@ namespace
                     e.parents.push_back(ids[static_cast<size_t>(p.num())]);
                 for (Json const& p : n["parentRanks"].arr())
                     e.parentRanks.push_back(static_cast<uint32_t>(p.num()));
+                if (n.obj().count("group"))
+                    e.group = static_cast<uint32_t>(n["group"].num());
                 if (e.kind == NodeKind::Choice)
                     for (long long o = 1; o <= n["numOptions"].num(); ++o)
                         e.options.push_back({e.id * 10 + static_cast<uint32_t>(o)});
@@ -248,9 +269,57 @@ namespace
             }
             for (Json const& g : (*json)["gates"].arr())
                 t.gates.push_back(RuleGate{static_cast<uint32_t>(g["row"].num()), static_cast<uint32_t>(g["points"].num())});
+            t.groups = groupsOf(*json);
             m->trees[t.id] = t;
         }
         return m;
+    }
+
+    // Pick groups (Emberfall's talents.md §1.3 rule 7, the Wrathbringer's row abilities since 2026-10-26) on the vectors'
+    // pick tree 830: group 1 (8303, 8305; slots at 2 and 4 points spent), group 2 (8307, 8309; at 7 and 9). The model
+    // stores picks like paid nodes, teaches a pick's spell once picked, hashes the groups, and Remap picks the ability of
+    // a row whose modifiers a loadout from before (a granted ability) holds.
+    void pickTests(std::map<long long, Json> const& treeJson)
+    {
+        auto m = model(treeJson.at(820), treeJson.at(830), 1);
+        m->points[0][60] = {99, 99};
+        std::vector<std::string> problems;
+        m->Finish(problems);
+        check(problems.empty(), "pick model: " + (problems.empty() ? std::string() : problems[0]));
+        EfSpec const& spec = *m->Spec(91);
+        check(m->trees[830].rules.groups == std::vector<RuleGroup>{{false, {2, 4}}, {false, {7, 9}}}, "pick model: the groups' slots");
+        std::string const json = m->CanonicalJson();
+        check(json.find("\"groups\":[{\"earned\":0,\"slots\":[2,4]},{\"earned\":0,\"slots\":[7,9]}]") != std::string::npos && json.find("\"group\":2") != std::string::npos,
+              "pick model: the groups are hashed");
+        std::string const cls(m->trees[820].nodes.size(), '0');
+        auto picked = m->PairsOf(spec, cls + ".02100000000");
+        check(picked && picked->count(8303) && picked->at(8303).rank == 1 && picked->count(8302), "pick model: a pick is stored");
+        check(picked && m->Expected(spec, *picked, 60).count(83031) && !m->Expected(spec, {}, 60).count(83031),
+              "pick model: a pick teaches its spell once picked");
+        // a loadout from before the pick groups: the rows' modifiers without their abilities (they were granted)
+        bool changed = true;
+        eft::Pairs const old = {{8302, {3, 0}}, {8304, {2, 0}}, {8306, {1, 0}}};
+        eft::Pairs const remapped = m->Remap(spec, old, changed);
+        check(!changed && remapped.count(8303) && remapped.count(8305) && remapped.size() == 5, "pick model: Remap picks the rows' abilities");
+        check(m->Validate(spec, m->LoadoutString(spec, remapped), 60).ok(), "pick model: the remapped loadout fits its slots");
+        eft::Pairs const tooMany = {{8302, {1, 0}}, {8304, {1, 0}}, {8306, {1, 0}}};
+        RuleResult const r = m->Validate(spec, m->LoadoutString(spec, m->Remap(spec, tooMany, changed)), 60);
+        check(r.code == RuleError::Slot, "pick model: a remapped loadout whose picks do not fit is refused (reset)");
+        // tree 831: group 1 by points EARNED (the spec budget at the level: 3 and 5), the Wrathbringer's way. A loadout from
+        // before with both rows bought keeps them where the level opens both slots, and is reset (SLOT) where it does not.
+        auto e = model(treeJson.at(820), treeJson.at(831), 1);
+        e->points[0] = {{1, {99, 3}}, {2, {99, 5}}};
+        problems.clear();
+        e->Finish(problems);
+        check(problems.empty() && e->trees[831].rules.groups[0].earned, "earned pick model");
+        EfSpec const& es = *e->Spec(91);
+        eft::Pairs const before = {{8304, {1, 0}}, {8306, {1, 0}}};
+        eft::Pairs const kept = e->Remap(es, before, changed);
+        check(kept.count(8303) && kept.count(8305), "earned picks: Remap picks both rows' abilities");
+        check(e->Validate(es, e->LoadoutString(es, kept), 2).ok(), "earned picks: both slots open at 5 points earned");
+        check(e->Validate(es, e->LoadoutString(es, kept), 1).code == RuleError::Slot, "earned picks: one slot at 3: reset");
+        check(e->Validate(es, cls + ".00100000000", 1).ok(), "earned picks: a pick with nothing spent");
+        std::cout << "picks: groups, storage, Remap\n";
     }
 
     // T6 on the Frostguard test tree (Emberfall's tools/py/tests/data/talents/frostguard.yaml): granted nodes (s1a, s1b
@@ -391,6 +460,8 @@ namespace
         if (!treeJson.count(810) || !treeJson.count(811))
         {
             frostguardTests(treeJson);
+            if (treeJson.count(830))
+                pickTests(treeJson);
             return; // the rest is about the example tree
         }
         // Remap after a data change: a node removed, a max rank lowered, an option removed.
@@ -624,42 +695,43 @@ namespace
         check(FirstBars({{200, 1, 0}}, known, {}).empty(), "bars: a button past 143 is dropped");
     }
 
-    // The fill nodes (ef_talent_fill, 2026-10-26: the class layout's strip): EfTalentModel::Fill buys them in `ord`
-    // order as far as the loadout stays valid, and stops at the first that does not fit.
-    void fillTests()
+    // The class layout's strip (2026-10-26, Nathanael: the player buys it, one point a slot, in order): each slot needs
+    // the one before (its parent), nothing is bought by itself; EfTalentModel::NewAbilities names the abilities a purchase
+    // gives (they go on the bar).
+    void stripTests()
     {
         using namespace ef::talents;
         EfTalentModel m;
-        m.points[0] = {{1, {0, 0}}, {2, {1, 0}}, {3, {2, 0}}, {4, {3, 0}}, {5, {4, 0}}, {6, {5, 0}}, {10, {5, 1}}};
-        auto node = [](uint32_t id, uint32_t tree, uint32_t ord, uint32_t row, std::vector<uint32_t> parents, uint32_t gate, bool fill,
-                       uint32_t maxRank = 1) {
+        m.points[0] = {{1, {0, 0}}, {2, {1, 0}}, {3, {2, 0}}, {4, {3, 0}}, {5, {4, 0}}, {10, {4, 1}}};
+        auto node = [](uint32_t id, uint32_t ord, uint32_t row, NodeKind kind, std::vector<uint32_t> parents, uint32_t level) {
             EfNode n;
             n.id = id;
-            n.tree = tree;
+            n.tree = 1;
             n.ord = ord;
             n.row = row;
-            n.maxRank = maxRank;
+            n.kind = kind;
+            n.requiredLevel = level;
             n.parentRanks.assign(parents.size(), 0);
             n.parents = std::move(parents);
-            n.gate = gate;
-            n.fill = fill;
-            for (uint32_t r = 1; r <= maxRank; ++r)
-                n.ranks.push_back({id * 10 + r});
+            if (kind == NodeKind::Choice)
+                n.options = {{id * 10 + 1}, {id * 10 + 2}};
+            else
+                n.ranks.push_back({id * 10 + 1});
             return n;
         };
         EfTree ct;
         ct.id = 1;
         ct.classId = 1;
-        // the strip 11 -> 12 -> 13 (12 from level 4), then a row node behind a gate of 3 and a free-standing fill node 14
-        ct.nodes = {node(11, 1, 0, 1, {}, 0, true), node(12, 1, 1, 1, {11}, 0, true), node(13, 1, 2, 1, {12}, 0, true),
-                    node(14, 1, 3, 1, {}, 0, true), node(21, 1, 4, 2, {}, 4, false, 2)};
-        ct.nodes[1].requiredLevel = 4;
+        // the strip 11 (level 2, passive) -> 12 (3, active) -> 13 (4, passive), then a choice row node 21
+        ct.nodes = {node(11, 0, 1, NodeKind::Passive, {}, 2), node(12, 1, 1, NodeKind::Active, {11}, 3),
+                    node(13, 2, 1, NodeKind::Passive, {12}, 4), node(21, 3, 2, NodeKind::Choice, {}, 0)};
         m.trees[1] = ct;
         EfTree st;
         st.id = 2;
         st.classId = 1;
         st.specId = 91;
-        st.nodes = {node(31, 2, 0, 1, {}, 0, false)};
+        st.nodes = {node(31, 0, 1, NodeKind::Passive, {}, 0)};
+        st.nodes[0].tree = 2;
         m.trees[2] = st;
         EfSpec spec;
         spec.id = 91;
@@ -668,25 +740,25 @@ namespace
         m.specs[91] = spec;
         std::vector<std::string> problems;
         m.Finish(problems);
-        check(problems.empty(), "fill: model problems: " + (problems.empty() ? std::string() : problems[0]));
-        check(m.HasFill(1) && !m.HasFill(2), "fill: HasFill");
+        check(problems.empty(), "strip: model problems: " + (problems.empty() ? std::string() : problems[0]));
         EfSpec const& pre = *m.PreSpec(1);
-        bool changed = true;
-        check(m.Fill(pre, {}, 1, changed).empty() && !changed, "fill: no point at level 1, nothing bought");
-        eft::Pairs const at3 = m.Fill(pre, {}, 3, changed);
-        check(changed && at3 == eft::Pairs{{11, {1, 0}}}, "fill: a gap (12 from level 4) stops the fill: 14 is not bought past it");
-        eft::Pairs const at5 = m.Fill(pre, at3, 5, changed);
-        check(changed && at5 == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}, {14, {1, 0}}}, "fill: one point a slot, in order");
-        eft::Pairs const at6 = m.Fill(*m.Spec(91), at5, 6, changed);
-        check(!changed && at6 == at5, "fill: the strip full, the next point stays free (the row node is the player's)");
-        eft::Pairs withRow = at5;
-        withRow[21] = {1, 0};
-        check(m.Fill(*m.Spec(91), withRow, 6, changed) == withRow && !changed, "fill: a full loadout stays as it is");
-        eft::Pairs const invalid = {{21, {1, 0}}};
-        check(m.Fill(pre, invalid, 6, changed) == invalid && !changed, "fill: an invalid loadout comes back as it is");
-        eft::Pairs const reset = m.Fill(*m.Spec(91), {{31, {1, 0}}}, 10, changed);
-        check(changed && reset.size() == 5 && reset.at(31).rank == 1 && reset.at(14).rank == 1,
-              "fill: a reset class tree gets its strip back, the spec tree untouched");
+        auto valid = [&](eft::Pairs const& p, uint32_t level) { return m.Validate(pre, m.LoadoutString(pre, p), level).ok(); };
+        check(valid({}, 4), "strip: unspent points are valid (nothing is bought by itself)");
+        check(valid({{11, {1, 0}}}, 2), "strip: the first slot at level 2");
+        check(!valid({{12, {1, 0}}}, 3), "strip: the second slot needs the first (PATH)");
+        check(!valid({{11, {1, 0}}, {12, {1, 0}}}, 2), "strip: the second slot not before its level");
+        check(valid({{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}}, 4), "strip: one point a slot, in order");
+        check(!valid({{11, {1, 0}}, {13, {1, 0}}}, 4), "strip: no slot skipped");
+
+        auto passive = [](uint32_t spell) { return spell == 111; };
+        check(m.NewAbilities({{11, {1, 0}}}, {{11, {1, 0}}, {12, {1, 0}}}, passive) == std::vector<uint32_t>{121},
+              "new abilities: a bought active node's spell");
+        check(m.NewAbilities({}, {{11, {1, 0}}, {13, {1, 0}}}, passive).empty(), "new abilities: passive nodes give none");
+        check(m.NewAbilities({{12, {1, 0}}}, {{12, {1, 0}}}, passive).empty(), "new abilities: an owned node gives none");
+        check(m.NewAbilities({}, {{21, {1, 2}}}, passive) == std::vector<uint32_t>{212}, "new abilities: a picked option");
+        check(m.NewAbilities({{21, {1, 1}}}, {{21, {1, 2}}}, passive) == std::vector<uint32_t>{212},
+              "new abilities: a switched option");
+        check(m.NewAbilities({{12, {1, 0}}}, {}, passive).empty(), "new abilities: a refund gives none");
     }
 }
 
@@ -698,7 +770,7 @@ int main(int argc, char** argv)
             runVectors(argv[i]);
         protocolTests();
         loadoutTests();
-        fillTests();
+        stripTests();
         fuzz();
     }
     catch (std::exception const& e)

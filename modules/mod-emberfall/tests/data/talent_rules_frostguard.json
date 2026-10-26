@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "source": "the Frostguard test tree (tools/py/tests/data/talents/frostguard.yaml); written by python -m emberfall_content.talents vectors",
+ "source": "the Frostguard test tree (tools/py/tests/data/talents/frostguard.yaml) and the pick tree (vectors.py PICK_TREE); written by python -m emberfall_content.talents vectors",
  "trees": [
   {
    "id": 820,
@@ -1239,6 +1239,388 @@
      "points": 28
     }
    ]
+  },
+  {
+   "id": 830,
+   "nodes": [
+    {
+     "id": 8301,
+     "row": 1,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [
+      0
+     ],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8302,
+     "row": 1,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      0
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8303,
+     "row": 2,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": [],
+     "group": 1
+    },
+    {
+     "id": 8304,
+     "row": 2,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      2
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8305,
+     "row": 3,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": [],
+     "group": 1
+    },
+    {
+     "id": 8306,
+     "row": 3,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      4
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8307,
+     "row": 4,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": [],
+     "group": 2
+    },
+    {
+     "id": 8308,
+     "row": 4,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      6
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8309,
+     "row": 5,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": [],
+     "group": 2
+    },
+    {
+     "id": 8310,
+     "row": 5,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      8
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8311,
+     "row": 6,
+     "kind": 3,
+     "maxRank": 1,
+     "numOptions": 2,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 9,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    }
+   ],
+   "gates": [],
+   "groups": [
+    {
+     "earned": 0,
+     "slots": [
+      2,
+      4
+     ]
+    },
+    {
+     "earned": 0,
+     "slots": [
+      7,
+      9
+     ]
+    }
+   ]
+  },
+  {
+   "id": 831,
+   "nodes": [
+    {
+     "id": 8301,
+     "row": 1,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [
+      0
+     ],
+     "parents": [],
+     "parentRanks": []
+    },
+    {
+     "id": 8302,
+     "row": 1,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      0
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8303,
+     "row": 2,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": [],
+     "group": 1
+    },
+    {
+     "id": 8304,
+     "row": 2,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      2
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8305,
+     "row": 3,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": [],
+     "group": 1
+    },
+    {
+     "id": 8306,
+     "row": 3,
+     "kind": 1,
+     "maxRank": 3,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      4
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8307,
+     "row": 4,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": [],
+     "group": 2
+    },
+    {
+     "id": 8308,
+     "row": 4,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      6
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8309,
+     "row": 5,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [],
+     "parentRanks": [],
+     "group": 2
+    },
+    {
+     "id": 8310,
+     "row": 5,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 0,
+     "auto": [],
+     "parents": [
+      8
+     ],
+     "parentRanks": [
+      0
+     ]
+    },
+    {
+     "id": 8311,
+     "row": 6,
+     "kind": 3,
+     "maxRank": 1,
+     "numOptions": 2,
+     "requiredLevel": 0,
+     "freeSpecMask": 0,
+     "gate": 9,
+     "auto": [],
+     "parents": [],
+     "parentRanks": []
+    }
+   ],
+   "gates": [],
+   "groups": [
+    {
+     "earned": 1,
+     "slots": [
+      3,
+      5
+     ]
+    },
+    {
+     "earned": 0,
+     "slots": [
+      7,
+      9
+     ]
+    }
+   ]
   }
  ],
  "cases": [
@@ -1493,6 +1875,222 @@
    "loadout": "000000000000000000.0000000000000000000000000000",
    "code": "OK",
    "detail": 0
+  },
+  {
+   "name": "picks: nothing chosen",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.00000000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "picks: the first slot at 2 points spent",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.02100000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "picks: a choice before its slot opens",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.01100000000",
+   "code": "SLOT",
+   "detail": 8303
+  },
+  {
+   "name": "picks: a pick's row needs the pick",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.02010000000",
+   "code": "PATH",
+   "detail": 8304
+  },
+  {
+   "name": "picks: the second slot of group 1 at 4",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.03121000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "picks: in any order (8305 first, its row opens the slot of 8303)",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.02101200000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "picks: two choices on one open slot",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.02101000000",
+   "code": "SLOT",
+   "detail": 8305
+  },
+  {
+   "name": "picks: a pick's own row does not open its slot",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.03121111000",
+   "code": "SLOT",
+   "detail": 8307
+  },
+  {
+   "name": "picks: one more point before it does",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.03121211000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "picks: both groups and the capstone",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.0312131212a",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "picks: a pick is one rank",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.02200000000",
+   "code": "RANK",
+   "detail": 8303
+  },
+  {
+   "name": "picks: a choice costs no point",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 2,
+   "loadout": "000000000000000000.02100000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "picks: a modifier does",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 2,
+   "loadout": "000000000000000000.02110000000",
+   "code": "BUDGET_S",
+   "detail": 0
+  },
+  {
+   "name": "earned picks: no slot with 2 points earned, whatever is spent",
+   "classTree": 820,
+   "specTree": 831,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 2,
+   "loadout": "000000000000000000.02100000000",
+   "code": "SLOT",
+   "detail": 8303
+  },
+  {
+   "name": "earned picks: the first slot at 3 earned, nothing spent",
+   "classTree": 820,
+   "specTree": 831,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 3,
+   "loadout": "000000000000000000.00100000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "earned picks: two choices at 3 earned",
+   "classTree": 820,
+   "specTree": 831,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 3,
+   "loadout": "000000000000000000.00101000000",
+   "code": "SLOT",
+   "detail": 8305
+  },
+  {
+   "name": "earned picks: both at 5 earned, nothing spent",
+   "classTree": 820,
+   "specTree": 831,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 5,
+   "loadout": "000000000000000000.00101000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "earned picks: the spent group 2 still counts spent points",
+   "classTree": 820,
+   "specTree": 831,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000000000000.00101010000",
+   "code": "SLOT",
+   "detail": 8307
   }
  ]
 }

@@ -55,7 +55,7 @@ namespace ef::talents
         std::vector<std::vector<uint32_t>> options; // [option - 1] -> spells (choice nodes)
         uint32_t freeSpecMask = 0;                  // bit (spec sort - 1)
         std::vector<uint32_t> freeSpecs;            // spec IDs (ef_talent_free)
-        bool fill = false;                          // bought by the server, in `ord` order (ef_talent_fill; Fill below)
+        uint32_t group = 0;                         // a pick node's pick group, 1-based in its tree (ef_talent_pick), 0 = none
     };
 
     struct EfTree
@@ -65,6 +65,7 @@ namespace ef::talents
         uint32_t specId = 0;                        // 0 = the class tree
         std::vector<EfNode> nodes;                  // in `ord` order
         std::vector<RuleGate> gates;
+        std::vector<RuleGroup> groups;              // pick groups (ef_talent_slot): [g-1] the slots, by points earned or spent
         RuleTree rules;                             // TalentRules.h view (parents as `ord` indices)
     };
 
@@ -210,7 +211,7 @@ namespace ef::talents
         }
 
         // A wire loadout -> pairs (only after validateLoadout accepted it). Free nodes of the spec are left
-        // out: they are full for it whatever the string says.
+        // out: they are full for it whatever the string says. Picks (pick groups) are stored like paid nodes.
         std::optional<eft::Pairs> PairsOf(const EfSpec& spec, std::string_view loadout) const
         {
             const uint32_t bit = SpecBit(spec);
@@ -234,7 +235,7 @@ namespace ef::talents
                     return std::nullopt;
                 // free and granted nodes are never stored: they follow from the spec and the paid points
                 for (size_t i = 0; i < values->size(); ++i)
-                    if (((*values)[i].rank != 0 || (*values)[i].option != 0) && isPaid(tree->rules.nodes[i], bit))
+                    if (((*values)[i].rank != 0 || (*values)[i].option != 0) && isStored(tree->rules.nodes[i], bit))
                         out[tree->nodes[i].id] = eft::Pair{(*values)[i].rank, (*values)[i].option};
             }
             return out;
@@ -252,55 +253,78 @@ namespace ef::talents
             return validateLoadout(ct->rules, st ? st->rules : emptyTree, loadout, level, classBudget, specBudget, SpecBit(spec));
         }
 
-        // Whether the class's class tree has nodes the server buys by itself (ef_talent_fill).
-        bool HasFill(uint32_t classId) const
+        // The abilities a change of a loadout's pairs gives (Emberfall 2026-10-26, Nathanael: a bought ability goes to the
+        // first empty bar button): each active node's spells at a rank above its rank before, each choice node's option
+        // other than before; spells `passive` says are passive left out. In node ID order.
+        template <typename Passive>
+        std::vector<uint32_t> NewAbilities(const eft::Pairs& before, const eft::Pairs& after, Passive passive) const
         {
-            const EfClass* cls = Class(classId);
-            const EfTree* ct = cls ? Tree(cls->classTree) : nullptr;
-            if (ct)
-                for (const EfNode& n : ct->nodes)
-                    if (n.fill)
-                        return true;
-            return false;
-        }
-
-        // A loadout with the class tree's fill nodes bought (ef_talent_fill, 2026-10-26: the Paladin class tree's strip,
-        // Emberfall's talents.md §5.3): each in `ord` order, rank by rank, as long as the loadout stays valid at `level`
-        // (path, gate, level, the class budget), so each level's class point goes to the next slot of the strip. Stops at
-        // the first rank that does not fit: the order is fixed, nothing after a gap is bought. A loadout that is not valid
-        // to begin with comes back as it is. `changed` says whether anything was bought.
-        eft::Pairs Fill(const EfSpec& spec, eft::Pairs pairs, uint32_t level, bool& changed) const
-        {
-            changed = false;
-            const EfClass* cls = Class(spec.classId);
-            const EfTree* ct = cls ? Tree(cls->classTree) : nullptr;
-            if (!ct || !Validate(spec, LoadoutString(spec, pairs), level).ok())
-                return pairs;
-            for (size_t i = 0; i < ct->nodes.size(); ++i)
+            std::vector<uint32_t> out;
+            for (auto const& [id, pair] : after)
             {
-                const EfNode& n = ct->nodes[i];
-                if (!n.fill || n.kind == NodeKind::Choice || !isPaid(ct->rules.nodes[i], SpecBit(spec)))
+                const EfNode* n = Node(id);
+                if (!n)
                     continue;
-                for (;;)
+                auto const old = before.find(id);
+                const std::vector<uint32_t>* spells = nullptr;
+                if (n->kind == NodeKind::Choice)
                 {
-                    const auto it = pairs.find(n.id);
-                    const uint32_t rank = it == pairs.end() ? 0u : it->second.rank;
-                    if (rank >= n.maxRank)
-                        break;
-                    eft::Pairs next = pairs;
-                    next[n.id] = eft::Pair{static_cast<uint8_t>(rank + 1), 0};
-                    if (!Validate(spec, LoadoutString(spec, next), level).ok())
-                        return pairs;
-                    pairs = std::move(next);
-                    changed = true;
+                    if (pair.option >= 1 && pair.option <= n->options.size() && (old == before.end() || old->second.option != pair.option))
+                        spells = &n->options[pair.option - 1];
                 }
+                else if (n->kind == NodeKind::Active && pair.rank >= 1 && pair.rank <= n->ranks.size() &&
+                         (old == before.end() || old->second.rank < pair.rank))
+                    spells = &n->ranks[pair.rank - 1];
+                if (spells)
+                    for (uint32_t spell : *spells)
+                        if (!passive(spell) && std::find(out.begin(), out.end(), spell) == out.end())
+                            out.push_back(spell);
             }
-            return pairs;
+            return out;
         }
 
         // Stored pairs after a data change (§3.7): nodes that left the spec's trees dropped, ranks clamped to
-        // the new max rank, options the node no longer has dropped. `changed` says whether anything was.
+        // the new max rank, options the node no longer has dropped. And a node that became a pick (a pick group's,
+        // talents.md §1.3 rule 7; the Wrathbringer's row abilities were granted until 2026-10-26) is picked when a node
+        // it opens is stored and nothing else opens that one: the row a player filled keeps its ability (Validate then
+        // says whether the picks fit the slots; else the loadout is reset). `changed` says whether anything the player
+        // chose was dropped or clamped (an added pick is not: the caller saves the remapped pairs either way).
         eft::Pairs Remap(const EfSpec& spec, const eft::Pairs& pairs, bool& changed) const
+        {
+            eft::Pairs out = RemapNodes(spec, pairs, changed);
+            const EfClass* cls = Class(spec.classId);
+            const uint32_t bit = SpecBit(spec);
+            for (const uint32_t treeId : {cls ? cls->classTree : 0u, spec.treeId})
+            {
+                const EfTree* tree = Tree(treeId);
+                if (!tree)
+                    continue;
+                const auto present = [&](uint32_t id) {
+                    const auto it = nodeIndex.find(id);
+                    if (it == nodeIndex.end() || it->second.first != tree->id)
+                        return false;
+                    const RuleNode& r = tree->rules.nodes[it->second.second];
+                    return out.count(id) != 0 || r.autoCount != 0 || (r.freeSpecMask & bit) != 0;
+                };
+                for (const EfNode& n : tree->nodes) // in `ord` order: a row's parents come before its children
+                {
+                    if (!out.count(n.id) || n.parents.empty())
+                        continue;
+                    if (std::any_of(n.parents.begin(), n.parents.end(), present))
+                        continue;
+                    for (const uint32_t p : n.parents)
+                        if (const EfNode* parent = Node(p); parent && parent->group && parent->tree == tree->id)
+                        {
+                            out[p] = eft::Pair{1, 0}; // not a change the player is told of: nothing chosen is lost
+                            break;
+                        }
+                }
+            }
+            return out;
+        }
+
+        // Remap's first step: the stored pairs node by node.
+        eft::Pairs RemapNodes(const EfSpec& spec, const eft::Pairs& pairs, bool& changed) const
         {
             changed = false;
             const EfClass* cls = Class(spec.classId);
@@ -490,6 +514,11 @@ namespace ef::talents
                 }
                 tree.rules = RuleTree{};
                 tree.rules.gates = tree.gates;
+                tree.rules.groups = tree.groups;
+                for (size_t g = 0; g < tree.groups.size(); ++g)
+                    if (tree.groups[g].slots.empty() || !std::is_sorted(tree.groups[g].slots.begin(), tree.groups[g].slots.end()))
+                        problems.push_back("tree " + std::to_string(id) + ": pick group " + std::to_string(g + 1) +
+                                           " needs rising slot thresholds");
                 for (const EfNode& n : tree.nodes)
                 {
                     RuleNode r;
@@ -507,7 +536,10 @@ namespace ef::talents
                     r.autoCount = static_cast<uint8_t>(std::min<size_t>(n.autoAt.size(), kMaxWireRank));
                     for (size_t k = 0; k < r.autoCount; ++k)
                         r.autoAt[k] = n.autoAt[k];
+                    r.group = static_cast<uint8_t>(std::min<uint32_t>(n.group, 255));
                     const std::string where = "node " + std::to_string(n.id) + ": ";
+                    if (n.group && (n.group > tree.groups.size() || !n.autoAt.empty() || n.kind == NodeKind::Choice || n.maxRank != 1))
+                        problems.push_back(where + "a pick node needs a group of its tree, one rank and no `auto`");
                     if (!n.autoAt.empty() && (n.kind == NodeKind::Choice || n.autoAt.size() != n.ranks.size() || !n.parents.empty()))
                         problems.push_back(where + "a granted node needs one threshold per rank and no parents");
                     if (n.parents.size() > kMaxParents)
@@ -699,13 +731,26 @@ namespace ef::talents
                         std::vector<std::string> parents;
                         for (const auto& pp : parentPairs)
                             parents.push_back(ints(pp, false));
-                        nodes.push_back(object({{"auto", ints(n->autoAt, false)}, {"free", num(n->freeSpecMask)}, {"gate", num(n->gate)},
-                                                {"id", num(n->id)}, {"kind", num(static_cast<uint32_t>(n->kind))},
-                                                {"max_rank", num(n->maxRank)}, {"options", list(options)}, {"ord", num(n->ord)},
-                                                {"parents", list(parents)}, {"ranks", list(ranks)}, {"replaces", num(n->replaces)},
-                                                {"required_level", num(n->requiredLevel)}, {"row", num(n->row)}}));
+                        std::vector<std::pair<std::string, std::string>> fields = {
+                            {"auto", ints(n->autoAt, false)}, {"free", num(n->freeSpecMask)}, {"gate", num(n->gate)}};
+                        if (n->group) // only on picks, so trees without pick groups hash as before
+                            fields.emplace_back("group", num(n->group));
+                        fields.insert(fields.end(), {{"id", num(n->id)}, {"kind", num(static_cast<uint32_t>(n->kind))},
+                                                     {"max_rank", num(n->maxRank)}, {"options", list(options)}, {"ord", num(n->ord)},
+                                                     {"parents", list(parents)}, {"ranks", list(ranks)}, {"replaces", num(n->replaces)},
+                                                     {"required_level", num(n->requiredLevel)}, {"row", num(n->row)}});
+                        nodes.push_back(object(fields));
                     }
-                    treeList.push_back(object({{"gates", list(gates)}, {"id", num(t.id)}, {"nodes", list(nodes)}, {"spec", num(t.specId)}}));
+                    std::vector<std::pair<std::string, std::string>> fields = {{"gates", list(gates)}};
+                    if (!t.groups.empty()) // only where there are any
+                    {
+                        std::vector<std::string> groups;
+                        for (const auto& g : t.groups)
+                            groups.push_back(object({{"earned", num(g.earned ? 1 : 0)}, {"slots", ints(g.slots, false)}}));
+                        fields.emplace_back("groups", list(groups));
+                    }
+                    fields.insert(fields.end(), {{"id", num(t.id)}, {"nodes", list(nodes)}, {"spec", num(t.specId)}});
+                    treeList.push_back(object(fields));
                 }
                 classList.push_back(object({{"class", num(classId)}, {"specs", list(specList)}, {"trees", list(treeList)}}));
             }
