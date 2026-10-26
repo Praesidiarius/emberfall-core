@@ -163,14 +163,14 @@ static void json()
 static void markers()
 {
     Marker m;
-    m.kind = Kind::Creature, m.id = 91019, m.entry = 90203, m.pos = {-277.667f, 110.333f, 41.51f, 1.01191f};
+    m.kind = Kind::Creature, m.id = 91019, m.entry = 90203, m.pos = {-1137.111f, -955.558f, 48.994f, 1.01191f};
     m.wander = 6, m.respawn = 120, m.flags = "mp", m.lowguid = 4711;
     std::string const e = encodeMarker(m);
-    CHECK(e == "c,91019,90203,-277.67,110.33,41.51,1.012,6.0,120,mp,4711");
+    CHECK(e == "c,91019,90203,-1137.11,-955.56,48.99,1.012,6.0,120,mp,4711");
     auto back = decodeMarker(e);
     CHECK(back && back->id == 91019 && back->flags == "mp" && back->lowguid == 4711);
-    CHECK(!decodeMarker("c,91019,90203,-277.67,110.33,41.51,1.012,6.0,120,mp"));
-    CHECK(!decodeMarker("q,91019,90203,-277.67,110.33,41.51,1.012,6.0,120,mp,1"));
+    CHECK(!decodeMarker("c,91019,90203,-1137.11,-955.56,48.99,1.012,6.0,120,mp"));
+    CHECK(!decodeMarker("q,91019,90203,-1137.11,-955.56,48.99,1.012,6.0,120,mp,1"));
 
     std::vector<std::string> entries(40, e);
     auto bodies = pages("MARK", {"7"}, entries);
@@ -233,7 +233,7 @@ static void fuzz()
     std::vector<std::string> seeds = {
         "1;5;ADD;c;90203;-290.1;96.0;41.7;4.1", "1;6;MOVE;n;90129;-158.17;91.83;42.23;3.9",
         "1;7;SET;c;91019;wander;10", "1;8;DEL;c;9000001", "1;9;SCAN;0;-280;100;120",
-        "{\"x\":1.5,\"y\":-2,\"z\":null,\"s\":\"t\"}", "c,91019,90203,-277.67,110.33,41.51,1.012,6.0,120,mp,4711"};
+        "{\"x\":1.5,\"y\":-2,\"z\":null,\"s\":\"t\"}", "c,91019,90203,-1137.11,-955.56,48.99,1.012,6.0,120,mp,4711"};
     char const alphabet[] = "0123456789.-;,|:/{}\"\\ acnxyzADDMOVESETwanderrespawnnull\t\x01\xff";
     for (int round = 0; round < 200000; ++round)
     {

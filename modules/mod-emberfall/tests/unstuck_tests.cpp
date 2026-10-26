@@ -42,26 +42,27 @@ namespace
         }
     }
 
-    // A few of Emberfall's town points (world.yaml): Millbrook, Hollybank, Coldharrow, Second Station; one on map 1.
+    // A few of Emberfall's town points (world.yaml): Millbrook, Hollybank, Coldharrow, Second Station; one on map 1 at
+    // the spot of the first query on map 0. (World coordinates after the world scale of 2026-10-26.)
     std::vector<Point> const kPoints = {
-        { 90001, 0, -165.0f, -64.0f, 45.0f, 3.14f, "Millbrook" },
-        { 90029, 0, -310.0f, -248.0f, 47.0f, 1.2f, "Hollybank" },
-        { 90010, 0, -760.4f, -560.4f, 48.4f, 0.0f, "Coldharrow" },
-        { 90022, 0, -3157.7f, -979.7f, 58.0f, 0.0f, "Second Station" },
-        { 99999, 1, -170.0f, -70.0f, 45.0f, 0.0f, "Elsewhere" },
+        { 90001, 0, -1037.57f, -1178.35f, 52.36f, 3.14f, "Millbrook" },
+        { 90029, 0, -1330.79f, -1612.64f, 54.6f, 1.2f, "Hollybank" },
+        { 90010, 0, -2145.85f, -2192.03f, 56.15f, 0.0f, "Coldharrow" },
+        { 90022, 0, -6324.27f, -2956.83f, 69.28f, 0.0f, "Second Station" },
+        { 99999, 1, -1046.1f, -1191.95f, 52.36f, 0.0f, "Elsewhere" },
     };
 
     void TestNearest()
     {
-        auto n = NearestTown(kPoints, 0, -170.0f, -70.0f, 40.0f);
+        auto n = NearestTown(kPoints, 0, -1046.1f, -1191.95f, 46.72f);
         check(n && kPoints[*n].id == 90001, "next to Millbrook: Millbrook (not map 1's point at the same spot)");
-        n = NearestTown(kPoints, 0, -700.0f, -500.0f, 50.0f);
+        n = NearestTown(kPoints, 0, -2085.45f, -2131.62f, 57.75f);
         check(n && kPoints[*n].id == 90010, "near Coldharrow: Coldharrow");
-        n = NearestTown(kPoints, 0, -3000.0f, -1200.0f, 60.0f);
+        n = NearestTown(kPoints, 0, -6006.54f, -3593.47f, 66.43f);
         check(n && kPoints[*n].id == 90022, "in Redmere: Second Station");
-        n = NearestTown(kPoints, 0, -290.0f, -230.0f, 47.0f);
+        n = NearestTown(kPoints, 0, -1273.08f, -1558.94f, 54.28f);
         check(n && kPoints[*n].id == 90029, "in Hollybank Fields: Hollybank");
-        n = NearestTown(kPoints, 1, 5000.0f, 5000.0f, 0.0f);
+        n = NearestTown(kPoints, 1, 5950.0f, 6750.0f, -11.2f);
         check(n && kPoints[*n].id == 99999, "map 1: its only point, however far");
         check(!NearestTown(kPoints, 530, 0, 0, 0), "a map without points: none");
         check(!NearestTown({}, 0, 0, 0, 0), "no points: none");
@@ -69,11 +70,11 @@ namespace
 
     void TestChoose()
     {
-        Target t = Choose(kPoints, 0, false, false, -170.0f, -70.0f, 40.0f);
+        Target t = Choose(kPoints, 0, false, false, -1046.1f, -1191.95f, 46.72f);
         check(t.where == Where::Town && t.town && kPoints[*t.town].id == 90001, "open world: the nearest town");
         t = Choose(kPoints, 751, true, true, 47.0f, 268.0f, 30.0f);
         check(t.where == Where::Entrance, "the Barrows (an instance with a door): the entrance");
-        t = Choose(kPoints, 0, true, true, -165.0f, -64.0f, 45.0f);
+        t = Choose(kPoints, 0, true, true, -1037.57f, -1178.35f, 52.36f);
         check(t.where == Where::Entrance, "an instance: the entrance, even at a town's coordinates");
         t = Choose(kPoints, 760, true, false, 0, 0, 0);
         check(t.where == Where::Home, "an instance without a door and no town: home");

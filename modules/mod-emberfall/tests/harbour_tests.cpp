@@ -39,10 +39,11 @@ namespace
         }
     }
 
-    // The war ferry's two stops (Emberfall's design: period 283 s; the first berth at the period's start).
+    // The war ferry's two stops (Emberfall's design: period 283 s; the first berth at the period's start). World
+    // coordinates after the world scale of 2026-10-26 (harbours moved rigidly).
     std::vector<Stop> const kStops = {
-        { 0, 119.9f, -2245.5f, 0, 50000 },        // the War-Ferry Stage (map 0)
-        { 1, 1855.9f, 1187.4f, 142000, 192000 },  // the Ferry Hards (map 1)
+        { 0, -618.3f, -5000.48f, 0, 50000 },        // the War-Ferry Stage (map 0)
+        { 1, 465.98f, 33.4f, 142000, 192000 },  // the Ferry Hards (map 1)
     };
     constexpr uint32_t kPeriod = 283000;
 }
@@ -50,12 +51,12 @@ namespace
 int main()
 {
     // the pier's stop: same map, within reach
-    auto at0 = BerthNear(kStops, 0, 125.0f, -2250.0f);
+    auto at0 = BerthNear(kStops, 0, -613.2f, -5004.98f);
     check(at0 && at0->arrive == 0, "the stage's harbourmaster finds the stage's stop");
-    auto at1 = BerthNear(kStops, 1, 1840.0f, 1180.0f);
+    auto at1 = BerthNear(kStops, 1, 450.08f, 26.0f);
     check(at1 && at1->arrive == 142000, "the Ferry Hards' harbourmaster finds its stop");
-    check(!BerthNear(kStops, 0, 1855.9f, 1187.4f), "a stop on the other map is not this pier's");
-    check(!BerthNear(kStops, 0, 400.0f, -2245.5f), "a stop 280 yd away is not this pier's");
+    check(!BerthNear(kStops, 0, 465.98f, 33.4f), "a stop on the other map is not this pier's");
+    check(!BerthNear(kStops, 0, -180.45f, -5086.01f), "a stop 450 yd away is not this pier's");
 
     // at the pier
     Sailing s = NextSailing(kStops[0], 10000, kPeriod);

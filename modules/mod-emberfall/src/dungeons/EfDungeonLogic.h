@@ -40,12 +40,13 @@ namespace Emberfall::Dungeons
     };
     // Just inside the mound door (layout.yaml `spawn`, design (245, 466)), facing north into the barrow.
     constexpr Spot kBarrowsInside{ kBarrowsMap, 47.33f, 268.33f, 30.1f, 0.0f };
-    // Beside the mound door on Cairnmoor's Barrow Field (map 0), facing west.
-    constexpr Spot kBarrowsDoor{ 0, -5092.0f, -1295.0f, 59.0f, 1.5708f };
+    // Beside the mound door on Cairnmoor's Barrow Field (map 0), facing west (the game repo's content/data/barrows:
+    // world.yaml `barrowsdoor`, the way out of triggers.yaml; scaled with the world on 2026-10-26).
+    constexpr Spot kBarrowsDoor{ 0, -9711.0f, -3466.25f, 71.4f, 1.5708f };
     // `.tele millbrook` (content/data/world.yaml, design (146, 275) on the green), and the same place should game_tele
     // have no row of that name.
     constexpr std::string_view kMillbrookTele = "millbrook";
-    constexpr Spot kMillbrook{ 0, 23.33f, 230.33f, 46.8f, 3.14159f };
+    constexpr Spot kMillbrook{ 0, -829.85f, -833.4f, 54.37f, 3.14159f };
 
     // The creatures (content/data/barrows/creatures.yaml).
     constexpr std::uint32_t kFirstInterred = 97015;
