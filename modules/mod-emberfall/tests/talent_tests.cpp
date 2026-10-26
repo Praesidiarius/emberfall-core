@@ -319,6 +319,18 @@ namespace
         check(e->Validate(es, e->LoadoutString(es, kept), 2).ok(), "earned picks: both slots open at 5 points earned");
         check(e->Validate(es, e->LoadoutString(es, kept), 1).code == RuleError::Slot, "earned picks: one slot at 3: reset");
         check(e->Validate(es, cls + ".00100000000", 1).ok(), "earned picks: a pick with nothing spent");
+        // picks cost a point (2026-10-26, Nathanael; free before): Nathanael's level-38 Wrathbringer (15 spec points, 2 picks
+        // and 14 ranks) in small. Two picks and 4 ranks fit the 5 points earned at level 2 only while picks were free: such
+        // a stored loadout fails now (BUDGET_S), so the login's Revalidate resets it, the first time with the data notice.
+        eft::Pairs const freePicks = {{8303, {1, 0}}, {8304, {2, 0}}, {8305, {1, 0}}, {8306, {2, 0}}};
+        check(e->Validate(es, e->LoadoutString(es, freePicks), 2).code == RuleError::BudgetSpec,
+              "picks cost a point: two picks and 4 ranks are over 5 points (reset at login)");
+        eft::Pairs fits = freePicks;
+        fits[8306] = {1, 0};
+        check(e->Validate(es, e->LoadoutString(es, fits), 2).ok(), "picks cost a point: two picks and 2 + 1 ranks are 5");
+        check(e->PaidIn(e->trees[831], freePicks, e->SpecBit(es)) == 6, "picks cost a point: the paid points count the picks");
+        check(std::string(RevalidateResetReason(0)) == "DATA" && std::string(RevalidateResetReason(kSpecFlagPicksPaid)) == "LEVEL",
+              "picks cost a point: the first revalidation's reset says the data changed, later ones the level");
         std::cout << "picks: groups, storage, Remap\n";
     }
 

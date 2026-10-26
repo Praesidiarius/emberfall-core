@@ -22,12 +22,13 @@
 // abilities until 2026-10-26); below it its rank is 0, so the nodes it opens stay shut.
 //
 // Pick groups (2026-10-26, the Wrathbringer's row abilities; talents.md §1.3 rule 7): a node with a `group` (1-based into
-// the tree's `groups`) is a **pick**: rank 0 or 1, never paid (no point, no budget counts it), but a player holds only as
-// many picks of a group as its slots are open, slot k opening once the group's k-th threshold is reached: by the
+// the tree's `groups`) is a **pick**: rank 0 or 1, paid like any other rank (1 point, since 2026-10-26 evening; they were
+// free before), and a player holds only as many picks of a group as its slots are open, slot k opening once the group's
+// k-th threshold is reached: by the
 // points the character has **earned** for the tree (its budget at the level; an `earned` group, the Wrathbringer's) or
 // by the tree's **paid** points (a `spent` group). A final state is valid when some order of its picks reaches it: each
-// pick made while its group has a free open slot, counting (for a spent group) only the paid points of the nodes that do
-// not hang on a later pick (Slot; detail: the first pick in `ord` order the largest set of picks reached, the first found
+// pick made while its group has a free open slot, counting (for a spent group) only the paid points of the picks made and
+// of the nodes that do not hang on a later pick (Slot; detail: the first pick in `ord` order the largest set of picks reached, the first found
 // depth-first, lacks). An earned group's slots do not depend on the picks: for it this is a plain count.
 //
 // Checks, the first failure wins: Decode (length, characters, a letter on a normal node); then per node of the class
@@ -184,16 +185,16 @@ namespace ef::talents
         return out;
     }
 
-    // A pick node (of a pick group): picked for free, as the group's open slots allow.
+    // A pick node (of a pick group): bought for 1 point, as the group's open slots allow.
     inline bool isPick(const RuleNode& node) { return node.group != 0; }
 
-    // Bought with points by this spec: not free for it, not granted, not a pick.
+    // Bought with points by this spec: not free for it, not granted (a pick is paid too).
     inline bool isPaid(const RuleNode& node, uint32_t specBit)
     {
-        return (node.freeSpecMask & specBit) == 0 && node.autoCount == 0 && !isPick(node);
+        return (node.freeSpecMask & specBit) == 0 && node.autoCount == 0;
     }
 
-    // What a loadout stores for this spec: paid nodes and picks.
+    // What a loadout stores for this spec: paid nodes (picks among them).
     inline bool isStored(const RuleNode& node, uint32_t specBit) { return isPaid(node, specBit) || isPick(node); }
 
     // How many picks group `group` (1-based) allows at `paid` points spent in the tree and `earned` points earned for it
@@ -305,8 +306,8 @@ namespace ef::talents
     namespace detail
     {
         // A state where of the picks only those in `have` (one flag per node, `ord` order) are made: which invested paid
-        // nodes count (their level, path through counted nodes, made picks, free and granted nodes, and gate by the
-        // counted nodes with a lower gate hold) and their paid points. The closure is unique: every condition only grows
+        // nodes count (a pick only when made; their level, path through counted nodes, made picks, free and granted nodes,
+        // and gate by the counted nodes with a lower gate hold) and their paid points. The closure is unique: every condition only grows
         // with the counted set.
         struct Restricted
         {
@@ -364,7 +365,7 @@ namespace ef::talents
                     for (size_t i = 0; i < tree.nodes.size(); ++i)
                     {
                         const RuleNode& n = tree.nodes[i];
-                        if (counted[i] || !isPaid(n, specBit) || boughtRank(n, values[i]) == 0 || !holds(i))
+                        if (counted[i] || !isPaid(n, specBit) || (isPick(n) && !have[i]) || boughtRank(n, values[i]) == 0 || !holds(i))
                             continue;
                         counted[i] = true;
                         total += boughtRank(n, values[i]);

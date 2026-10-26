@@ -438,8 +438,9 @@ namespace Emberfall::Talents
 
         // Re-validates every stored loadout against the current data and the player's level: after a data
         // change (hash differs) through node IDs (dropped nodes, clamped ranks), and at every level; a loadout
-        // that fails is reset (RESET DATA / LEVEL). Then reconciles the spells. Nothing is bought here: the class
-        // layout's strip is the player's to buy (2026-10-26, Nathanael: no automatic fill).
+        // that fails is reset (RESET DATA / LEVEL; DATA the first time since a pick costs a point, kSpecFlagPicksPaid).
+        // Then reconciles the spells. Nothing is bought here: the class layout's strip is the player's to buy
+        // (2026-10-26, Nathanael: no automatic fill).
         void Revalidate(Player* player, PlayerState& st, EfTalentModel const& data, bool notify)
         {
             uint32 const guid = player->GetGUID().GetCounter();
@@ -481,7 +482,7 @@ namespace Emberfall::Talents
                 if (!data.Validate(*spec, data.LoadoutString(*spec, l.pairs), level).ok())
                 {
                     l.pairs.clear();
-                    reason = "LEVEL";
+                    reason = RevalidateResetReason(st.flags);
                     SaveLoadoutRow(trans, guid, l);
                 }
                 if (!reason.empty())
@@ -492,7 +493,9 @@ namespace Emberfall::Talents
                 }
                 ++it;
             }
-            if (st.dataHash != data.dataHash || specChanged)
+            bool const picksPaidChecked = (st.flags & kSpecFlagPicksPaid) == 0; // once per character (RevalidateResetReason)
+            st.flags |= kSpecFlagPicksPaid;
+            if (st.dataHash != data.dataHash || specChanged || picksPaidChecked)
             {
                 st.dataHash = data.dataHash;
                 SaveSpecRow(trans, guid, st);
