@@ -180,7 +180,7 @@ namespace
         {
             std::uint64_t const t = 100000 + i * 10000;
             m.DamageDone(t, me, 0, H(133, 1), kWolf);
-            m.SetCombat(me, false, t + 4000);
+            m.SetCombat(me, false, t + 9000);
         }
         eq(m.fights.size(), kHistory, "ten fights kept");
         eq(m.fights.front().id, 15u, "newest first");
@@ -189,6 +189,73 @@ namespace
 
         m.Reset(9);
         check(m.fights.empty() && m.overall.rows.empty() && m.epoch == 9 && m.roster.size() == 2, "reset: fights gone, names kept");
+    }
+
+    // Feedback #91 (Cedric, 0.4.8/0.4.9: "the meter does not register all damage"): at a training dummy that never
+    // enters combat (the straw man) nobody's combat flag holds the fight, and kGraceMs after the last event ended it: a
+    // warrior's 3.6 s swings, a warlock's lone DoT ticking every 3 s (a few ms late on the map's clock) or a long cast
+    // started a new fight with every hit, and the current fight showed one hit. Such a fight now ends kNoCombatGapMs
+    // after its last event; a fight someone was in combat in still ends kGraceMs after the combat.
+    void TestNoCombatFights()
+    {
+        Enemy const kStraw{ "straw man", false };
+        Meter m;
+        std::uint8_t const warrior = m.PidFor(1, Kind::Player, 1, 0, "Brakka");
+        std::uint8_t const warlock = m.PidFor(2, Kind::Player, 9, 0, "Mirel");
+        // The warrior's swings every 3.6 s, polled out of combat four times a second.
+        std::uint64_t swung = 0;
+        for (std::uint64_t t = 1000; t <= 40000; t += 50)
+        {
+            if ((t - 1000) % 3600 == 0)
+            {
+                m.DamageDone(t, warrior, 0, H(0, 100), kStraw);
+                swung += 100;
+            }
+            if (t % 250 == 0)
+            {
+                m.SetCombat(warrior, false, t);
+                m.SetCombat(warlock, false, t);
+            }
+        }
+        eq(m.fights.size(), std::size_t(1), "3.6 s swings at a dummy out of combat: one fight");
+        check(m.Live() != nullptr, "still live 3.4 s after the last swing");
+        eq(m.Live()->rows.at(warrior).t.damage, swung, "the current fight has every swing");
+        eq(m.Live()->rows.at(warrior).spells[kDamage].at(Key(0, 0)).hits, 11u, "every swing a hit");
+        m.SetCombat(warrior, false, 37000 + kNoCombatGapMs - 1);
+        check(m.Live() != nullptr, "within the gap: live");
+        m.SetCombat(warrior, false, 37000 + kNoCombatGapMs);
+        check(!m.Live(), "the gap without an event: over");
+
+        // The warlock's lone DoT: a tick every 3 s, each 40 ms late (the map's update), polls in between.
+        std::uint64_t ticked = 0, at = 60000;
+        for (int i = 0; i < 8; ++i, at += 3040)
+        {
+            m.DamageDone(at, warlock, 0, H(172, 60, i == 3), kStraw);
+            ticked += 60;
+            for (std::uint64_t p = at + 250; p < at + 3040; p += 250)
+                m.SetCombat(warlock, false, p);
+        }
+        eq(m.fights.size(), std::size_t(2), "a DoT ticking alone: one fight");
+        eq(m.fights.front().rows.at(warlock).t.damage, ticked, "every tick in it");
+        eq(m.fights.front().rows.at(warlock).spells[kDamage].at(Key(0, 172)).crits, 1u, "the crit tick");
+        eq(m.overall.rows.at(warlock).t.damage, ticked, "overall too");
+
+        // A fight with combat: the combat flag ends it kGraceMs after it drops, as before.
+        Meter c;
+        std::uint8_t const me = c.PidFor(1, Kind::Player, 1, 0, "Brakka");
+        c.SetCombat(me, true, 1000);
+        c.DamageDone(1000, me, 0, H(0, 100), kWolf);
+        c.SetCombat(me, false, 1500);
+        c.SetCombat(me, false, 3900);
+        check(c.Live() != nullptr, "in a real fight: within the grace");
+        c.SetCombat(me, false, 4000);
+        check(!c.Live(), "in a real fight: over kGraceMs after the combat");
+        // Hits first, the combat flag a poll later: still a fight with combat.
+        c.DamageDone(10000, me, 0, H(0, 100), kWolf);
+        c.SetCombat(me, true, 10100);
+        c.SetCombat(me, false, 10350);
+        c.SetCombat(me, false, 13350);
+        check(!c.Live(), "the flag came after the first hit: the grace ends it");
     }
 
     void TestAttribution()
@@ -283,6 +350,25 @@ namespace
         eq(fourth.size(), std::size_t(2), "overall SEG and SUM");
         eq(fourth[0], std::string("1;0;SEG;0;1;uk;"), "overall SEG (live while a fight is: 1.1 s)");
         eq(fourth[1], std::string("1;0;SUM;0;1,zz,0,0,0,0,0,0,0,0,0|2,10,0,0,0,0,0,0,0,0,0"), "overall rows");
+
+        // A fight that ends as the next one starts (the end found by the next hit, no poll between): its end still
+        // comes, once.
+        c.view = -1;
+        Push(m, c, 2200);
+        m.DamageDone(2300, a, 0, H(133, 10), kWolf);
+        Push(m, c, 2300);
+        m.DamageDone(30000, a, 0, H(133, 36), kWolf); // idle for 27 s: fight 1 ends, fight 2 starts
+        auto ended = Push(m, c, 30000);
+        bool oldEnd = false, newSeg = false;
+        for (std::string const& body : ended)
+        {
+            oldEnd = oldEnd || body.rfind("1;0;SEG;1;0;", 0) == 0;
+            newSeg = newSeg || body.rfind("1;0;SEG;2;1;", 0) == 0;
+        }
+        check(oldEnd && newSeg, "the old fight's end (not live) and the new fight");
+        for (std::string const& body : Push(m, c, 31000))
+            check(body.rfind("1;0;SEG;1;", 0) != 0, "the old fight's end only once");
+        c.view = 0;
 
         // A reset is a new meter: ON again, then the names.
         m.Reset(4);
@@ -389,6 +475,7 @@ int main()
 {
     TestWire();
     TestSegments();
+    TestNoCombatFights();
     TestAttribution();
     TestDeaths();
     TestPush();
