@@ -1968,19 +1968,19 @@
    "level": 60,
    "classBudget": 23,
    "specBudget": 99,
-   "loadout": "000000000000000000.03121111000",
+   "loadout": "000000000000000000.02120011000",
    "code": "SLOT",
    "detail": 8307
   },
   {
-   "name": "picks: one more point before it does",
+   "name": "picks: a pick's point counts towards the next slot",
    "classTree": 820,
    "specTree": 830,
    "specBit": 1,
    "level": 60,
    "classBudget": 23,
    "specBudget": 99,
-   "loadout": "000000000000000000.03121211000",
+   "loadout": "000000000000000000.03121011000",
    "code": "OK",
    "detail": 0
   },
@@ -2009,7 +2009,7 @@
    "detail": 8303
   },
   {
-   "name": "picks: a choice costs no point",
+   "name": "picks: a choice costs a point",
    "classTree": 820,
    "specTree": 830,
    "specBit": 1,
@@ -2017,17 +2017,29 @@
    "classBudget": 23,
    "specBudget": 2,
    "loadout": "000000000000000000.02100000000",
-   "code": "OK",
+   "code": "BUDGET_S",
    "detail": 0
   },
   {
-   "name": "picks: a modifier does",
+   "name": "picks: the point it costs",
    "classTree": 820,
    "specTree": 830,
    "specBit": 1,
    "level": 60,
    "classBudget": 23,
-   "specBudget": 2,
+   "specBudget": 3,
+   "loadout": "000000000000000000.02100000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "picks: a modifier one more",
+   "classTree": 820,
+   "specTree": 830,
+   "specBit": 1,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 3,
    "loadout": "000000000000000000.02110000000",
    "code": "BUDGET_S",
    "detail": 0

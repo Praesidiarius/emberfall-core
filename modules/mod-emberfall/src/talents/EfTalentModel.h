@@ -36,6 +36,15 @@
 
 namespace ef::talents
 {
+    // ef_character_spec.flags bit 1 (Emberfall 2026-10-26, Nathanael): the character's loadouts have been checked since a pick
+    // group's ability costs a point (the Wrathbringer's row abilities; they were free before). Until the bit is set, a stored
+    // loadout that no longer validates was broken by that rule change (more picks and ranks than spec points), so it is
+    // reset (Sacred Brand and the other granted nodes stay: they are never stored) with the data notice, not the level one.
+    constexpr uint32_t kSpecFlagPicksPaid = 0x2;
+
+    // The RESET reason of a stored loadout that fails at the character's level (Revalidate), by ef_character_spec.flags.
+    inline const char* RevalidateResetReason(uint32_t specFlags) { return (specFlags & kSpecFlagPicksPaid) ? "LEVEL" : "DATA"; }
+
     struct EfNode
     {
         uint32_t id = 0;
