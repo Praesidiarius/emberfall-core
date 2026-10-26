@@ -39,12 +39,23 @@
 #include "Util.h"
 #include "Vehicle.h"
 #include "WorldPacket.h"
+#include "EmberfallOwnData.h"       // EMBERFALL: own data (PATCHES.md)
+#include "EmberfallPeriodicCrit.h"  // EMBERFALL: periodic crits (PATCHES.md #23)
 
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
 //  however, for some reasons removing it would cause a damn linking issue
 //  there is probably some underlying problem with imports which should properly addressed
 //  see: https://github.com/azerothcore/azerothcore-wotlk/issues/9766
 #include "GridNotifiersImpl.h"
+
+// EMBERFALL: periodic crits (PATCHES.md #23) - the header's raw values are upstream's
+static_assert(Emberfall::PeriodicCrit::AURA_PERIODIC_DAMAGE == uint32(SPELL_AURA_PERIODIC_DAMAGE));
+static_assert(Emberfall::PeriodicCrit::AURA_PERIODIC_HEAL == uint32(SPELL_AURA_PERIODIC_HEAL));
+static_assert(Emberfall::PeriodicCrit::AURA_PERIODIC_LEECH == uint32(SPELL_AURA_PERIODIC_LEECH));
+static_assert(Emberfall::PeriodicCrit::DMG_CLASS_NONE == uint32(SPELL_DAMAGE_CLASS_NONE));
+static_assert(Emberfall::PeriodicCrit::DMG_CLASS_MAGIC == uint32(SPELL_DAMAGE_CLASS_MAGIC));
+static_assert(Emberfall::PeriodicCrit::DMG_CLASS_MELEE == uint32(SPELL_DAMAGE_CLASS_MELEE));
+static_assert(Emberfall::PeriodicCrit::DMG_CLASS_RANGED == uint32(SPELL_DAMAGE_CLASS_RANGED));
 
 class Aura;
 //
@@ -1081,6 +1092,18 @@ float AuraEffect::CalcPeriodicCritChance(Unit const* caster, Unit const* target)
                     if (GetSpellInfo()->SpellFamilyFlags[0] & 0x100000)
                         critChance = modOwner->SpellDoneCritChance(nullptr, GetSpellInfo(), GetSpellInfo()->GetSchoolMask(), BASE_ATTACK, true);
                     break;
+            }
+
+            // EMBERFALL: periodic crits (PATCHES.md #23) - every damage, leech and heal tick of a player's spell can crit,
+            // on the caster's chance for its damage class (EmberfallPeriodicCrit.h: a pet or guardian its own); class none
+            // and CANT_CRIT never do
+            if (critChance <= 0.0f && Emberfall::OwnData())
+            {
+                using namespace Emberfall::PeriodicCrit;
+                Source const source = Rule(GetAuraType(), GetSpellInfo()->DmgClass, GetSpellInfo()->HasAttribute(SPELL_ATTR2_CANT_CRIT), true);
+                if (source != Source::None)
+                    critChance = caster->SpellDoneCritChance(nullptr, GetSpellInfo(), GetSpellInfo()->GetSchoolMask(),
+                        source == Source::Ranged ? RANGED_ATTACK : BASE_ATTACK, true);
             }
         }
     }
