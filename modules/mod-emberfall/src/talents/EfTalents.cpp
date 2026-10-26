@@ -498,6 +498,7 @@ namespace Emberfall::Talents
             }
             // the fill nodes (2026-10-26): each level's class point to the next slot of the strip, in every loadout
             std::vector<std::pair<uint32, uint32>> filled; // (spec, loadout) whose pairs the fill changed
+            std::vector<uint32> newAbilities;             // the active loadout's newly filled abilities (for the bar)
             if (data.HasFill(player->getClass()))
             {
                 if (data.SpecOrPre(st.activeSpec, player->getClass()) && !st.Active(st.activeSpec))
@@ -509,6 +510,7 @@ namespace Emberfall::Talents
                 {
                     EfSpec const* spec = data.SpecOrPre(l.spec, player->getClass());
                     bool changed = false;
+                    eft::Pairs const before = l.pairs;
                     if (spec)
                         l.pairs = data.Fill(*spec, l.pairs, level, changed);
                     if (!changed)
@@ -516,6 +518,19 @@ namespace Emberfall::Talents
                     l.hash = data.dataHash;
                     SaveLoadoutRow(trans, guid, l);
                     filled.emplace_back(l.spec, l.id);
+                    if (l.spec != st.activeSpec || !l.active)
+                        continue;
+                    for (auto const& [node, pair] : l.pairs)
+                    {
+                        EfNode const* n = data.Node(node);
+                        auto const old = before.find(node);
+                        if (!n || n->kind != NodeKind::Active || (old != before.end() && old->second.rank >= pair.rank) ||
+                            pair.rank < 1 || pair.rank > n->ranks.size())
+                            continue;
+                        for (uint32 const spell : n->ranks[pair.rank - 1])
+                            if (!IsPassiveSpell(spell))
+                                newAbilities.push_back(spell);
+                    }
                 }
             }
             if (st.dataHash != data.dataHash || specChanged)
@@ -525,6 +540,25 @@ namespace Emberfall::Talents
             }
             Reconcile(player, st, data, trans);
             Commit(trans);
+            // a filled ability (the strip's Searing Edge at 3, Noonday at 6) goes to the first empty button of the first
+            // bar unless a button holds it already (EfLoadouts.h FirstBars), as the spec's baseline spells do
+            if (!newAbilities.empty())
+            {
+                std::vector<BarButton> const current = CurrentBars(player);
+                std::vector<uint32> known;
+                for (uint32 const spell : newAbilities)
+                    if (player->HasSpell(spell))
+                        known.push_back(spell);
+                bool placed = false;
+                for (BarButton const& b : FirstBars(current, [](uint32) { return true; }, known))
+                    if (std::none_of(current.begin(), current.end(), [&](BarButton const& c) { return c.button == b.button; }))
+                    {
+                        player->addActionButton(static_cast<uint8>(b.button), b.action, static_cast<uint8>(b.type));
+                        placed = true;
+                    }
+                if (placed)
+                    player->SendActionButtons(1);
+            }
             if (notify && st.hello)
             {
                 for (auto const& [spec, reason] : st.resets)
