@@ -242,6 +242,19 @@ int main()
     check(ExtendCapped(5000, 8000, 20000) == 13000, "5 s left: 13 s");
     check(ExtendCapped(15000, 8000, 20000) == 20000, "15 s left: capped at 20 s");
     check(ExtendCapped(0, 8000, 0) == 8000, "no cap: the add");
+    // a refresh window in percent of the duration as cast (the Stormbringer's Stormbrand: 130 %)
+    check(PctCapMs(18000, 130) == 23400, "18 s at 130 %: 23.4 s");
+    check(ExtendCapped(4000, 18000, PctCapMs(18000, 130)) == 22000, "4 s left: all of it kept (22 s)");
+    check(ExtendCapped(9000, 18000, PctCapMs(18000, 130)) == 23400, "9 s left: the window caps it at 23.4 s");
+    check(ExtendCapped(4000, 36000, PctCapMs(36000, 130)) == 40000, "doubled while the storm cell holds: 4 s + 36 s");
+    check(PctCapMs(-5, 130) == 0 && PctCapMs(18000, -1) == 0, "nothing below zero");
+    // fields that stack (the Stormbringer's Hailwind): a tick strikes once per field covering the target
+    check(StackedFieldDamage(100, 0) == 100, "the ticking field itself at least");
+    check(StackedFieldDamage(100, 3) == 300, "three fields: three times");
+    check(StackedFieldDamage(0x7FFFFFFFu, 2) == 0x7FFFFFFFu, "never past the 32-bit damage");
+    check(InField(3.0f, 4.0f, 0.0f, 5.0f), "on the rim: inside");
+    check(!InField(3.0f, 4.1f, 0.0f, 5.0f), "past the rim: outside");
+    check(!InField(0.0f, 0.0f, 7.0f, 8.0f), "far above: outside");
     // a charge per gain, capped
     check(ChargesAfter(0, 2) == 1, "the first charge");
     check(ChargesAfter(1, 2) == 2, "the second charge");

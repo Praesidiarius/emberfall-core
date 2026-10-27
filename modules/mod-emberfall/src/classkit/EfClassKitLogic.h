@@ -406,6 +406,29 @@ namespace Emberfall::ClassKit::Logic
         return int32_t(std::max<int64_t>(left, std::min<int64_t>(want, std::max<int32_t>(capMs, addMs))));
     }
 
+    // The Stormbringer's Stormbrand (spell_ef_kit_capped_extend with effect 3's misc B 1, Emberfall
+    // docs/design/classes/druid-stormbringer.md §13): the cap in percent of the aura's own duration as cast (spell mods
+    // in: Long Brand, Supercell's doubling), so a refresh near its end keeps the time left up to `pct` % of a full one.
+    constexpr int32_t PctCapMs(int32_t durationMs, int32_t pct)
+    {
+        return int32_t(int64_t(std::max<int32_t>(0, durationMs)) * std::max<int32_t>(0, pct) / 100);
+    }
+
+    // The Stormbringer's Hailwind (spell_ef_kit_stacking_field): a tick of one field strikes as often as the caster's
+    // fields of that spell cover the target (at least once: the ticking field itself), so fields stack.
+    constexpr uint32_t StackedFieldDamage(uint32_t damage, uint32_t fields)
+    {
+        uint64_t const v = uint64_t(damage) * std::max<uint32_t>(1, fields);
+        return v > 0x7FFFFFFFu ? 0x7FFFFFFFu : uint32_t(v);
+    }
+
+    // Whether a point (dx, dy, dz from a field's centre) stands in a field of `radius` yards (the height within 6 yd, so a
+    // field on a slope still covers what stands on it).
+    constexpr bool InField(float dx, float dy, float dz, float radius)
+    {
+        return dx * dx + dy * dy <= radius * radius && dz <= 6.0f && dz >= -6.0f;
+    }
+
     // Solenne's Favor (spell_ef_kit_add_charge): the charges after a gain, at most `max` (2).
     constexpr int32_t ChargesAfter(int32_t have, int32_t max)
     {

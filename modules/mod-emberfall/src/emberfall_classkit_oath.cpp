@@ -36,8 +36,9 @@
 //   spell_ef_kit_exclude_target    the spell's areas round its target leave the target out (Aegis Ricochet's bounces)
 //   spell_ef_kit_capped_extend     a cast while the caster's own aura of the spell still runs on the unit it hits adds the
 //                                  spell's duration to what is left, at most effect 3's value in seconds (spell mods in: Long
-//                                  Resolve; no effect 3: no cap); one aura, never a second (Bastion's Resolve on the caster;
-//                                  the Executioner's Deathblow bleed on an enemy, +8 s an application)
+//                                  Resolve; no effect 3: no cap; effect 3's misc B 1: its value in percent of the duration as
+//                                  cast, the Stormbringer's Stormbrand); one aura, never a second (Bastion's Resolve on the
+//                                  caster; the Executioner's Deathblow bleed on an enemy, +8 s an application)
 //   spell_ef_kit_consume_aura      after the cast, one charge (or one stack) of the caster's aura the spell requires
 //                                  (Spell.dbc CasterAuraSpell) is taken: Bastion's Resolve's charges, Echo Ready, the
 //                                  Executioner's Deathblow window; not when every enemy target avoided the strike
@@ -193,9 +194,14 @@ class spell_ef_kit_capped_extend : public SpellScript
         if (!aura)
             return;
         int32 const add = aura->CalcMaxDuration(caster);
-        // the cap: effect 3's seconds (spell mods in: Long Resolve); no effect 3, no cap (the bleed)
-        int32 const capMs = GetSpellInfo()->Effects[EFFECT_2].Effect
-            ? GetSpellInfo()->Effects[EFFECT_2].CalcValue(caster) * IN_MILLISECONDS : 0;
+        // the cap: effect 3's seconds (spell mods in: Long Resolve), or with its misc B 1 its value in percent of the
+        // duration as cast (the Stormbringer's Stormbrand: 130 %, a refresh window that follows Long Brand and Supercell's
+        // doubling); no effect 3, no cap (the bleed)
+        SpellEffectInfo const& capEff = GetSpellInfo()->Effects[EFFECT_2];
+        int32 capMs = 0;
+        if (capEff.Effect)
+            capMs = capEff.MiscValueB == 1 ? Emberfall::ClassKit::Logic::PctCapMs(add, capEff.CalcValue(caster))
+                                           : capEff.CalcValue(caster) * IN_MILLISECONDS;
         int32 const total = Emberfall::ClassKit::Logic::ExtendCapped(left, add, capMs);
         aura->SetMaxDuration(std::max(total, add));
         aura->SetDuration(total);

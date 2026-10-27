@@ -9273,9 +9273,14 @@ float Unit::SpellTakenCritChance(Unit const* caster, SpellInfo const* spellProto
 
     if (caster)
     {
-        crit_chance += GetTotalAuraModifier(SPELL_AURA_MOD_CRIT_CHANCE_FOR_CASTER, [caster](AuraEffect const* aurEff)
+        // EMBERFALL: own data (PATCHES.md #24): an aura with a class mask raises the chance of the spells it names only
+        // (the Stormbringer's Stormbrand: Downburst always strikes critically on its bearer)
+        bool const ownData = Emberfall::OwnData();
+        crit_chance += GetTotalAuraModifier(SPELL_AURA_MOD_CRIT_CHANCE_FOR_CASTER, [caster, spellProto, ownData](AuraEffect const* aurEff)
         {
-            return caster->GetGUID() == aurEff->GetCasterGUID();
+            if (caster->GetGUID() != aurEff->GetCasterGUID())
+                return false;
+            return !ownData || !aurEff->HasSpellClassMask() || aurEff->IsAffectedOnSpell(spellProto);
         });
     }
 
