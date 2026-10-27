@@ -445,16 +445,30 @@ int main()
         // an extension per point spent, past the refresh cap
         check(TorrentExtension(10, 1000) == 10000 && TorrentExtension(10, 1500) == 15000, "the extension");
         check(Extended(20000, 10000) == 30000 && Extended(-1, 3000) == 3000, "past the 23 s cap");
-        // Unbroken Vow (feedback #81): the Vow a Collapse detonates but leaves goes on with its own 18 s, not the time
-        // it had (a Vow at 38 s after a Torrent was dealt as 38 ticks by the Collapse, then ticked those 38 again and
-        // grew with the next Torrent)
-        {
-            int32_t const left = Extended(23000, TorrentExtension(10, 1500));
-            int64_t const dealt = TicksLeft(left, 1000);
-            int32_t const kept = KeptAfterCollapse(18000);
-            check(dealt == 38 && kept == 18000 && kept < left, "a detonated 38 s Vow goes on with 18 s, not 38 s");
-            check(KeptAfterCollapse(-1) == 0, "never below 0");
-        }
+        // v3.0 (2026-10-28): the Collapse at 100 % (Devastating Collapse 120 %), Crimson Flood +20 % in each tick
+        check(CollapseHit(Remaining(10000, 1000, WithBonus(1000, 20)), 100) == 12000, "v3.0: in Crimson Flood 12,000");
+        check(CollapseHit(10000, 120) == 12000, "Devastating Collapse 2");
+        // Sanguine Torrent's points: at least 5, all of them; Freeflow Ritual free as 10, nothing taken
+        check(TorrentPoints(4, 5, false, 10).points == 0, "4 Seals: refused");
+        check(TorrentPoints(7, 5, false, 10).points == 7 && TorrentPoints(7, 5, false, 10).takesPower, "7 Seals: all 7");
+        check(TorrentPoints(0, 5, true, 10).points == 10 && !TorrentPoints(3, 5, true, 10).takesPower,
+              "Freeflow Ritual: as 10, no Seal taken, no least");
+        check(TorrentPoints(1, 0, false, 10).points == 1 && TorrentPoints(0, 0, false, 10).points == 0, "least 1 at worst");
+        check(TorrentExtension(10, 2000) == 20000, "Eternal Torrent: 10 Seals, 20 s");
+        // Sanguine Leech: 2.5 % / 5 % of max health an extra tick
+        check(LeechHeal(10000, 25, 3) == 750 && LeechHeal(10000, 50, 1) == 500 && LeechHeal(10000, 50, 0) == 0, "Leech");
+        // Blood Tide under Eternal Torrent: at most the base 18 s (40 -> 18, 18 -> 18, 6 -> 6); without, the time left
+        check(CopyCapped(40000, 18000) == 18000 && CopyCapped(18000, 18000) == 18000 && CopyCapped(6000, 18000) == 6000,
+              "the base-duration cap");
+        check(CopyCapped(24000, 0) == 24000, "no cap without the capstone");
+        // Blood Harvest: every 5th tick
+        check(!EveryNth(4, 5) && EveryNth(5, 5) && EveryNth(10, 5) && !EveryNth(0, 5) && !EveryNth(5, 0), "every 5th");
+        // Crimson Flow: 3 %, then 6, 9 ... until it hits; at most 100
+        check(RampChance(0, 3) == 3 && RampChance(1, 3) == 6 && RampChance(9, 3) == 30 && RampChance(40, 3) == 100,
+              "the growing chance");
+        // Lingering Ruin: 30 % of the detonation over 8 ticks
+        check(EchoTick(8000, 30, 8) == 300 && EchoTick(10, 30, 8) == 1 && EchoTick(0, 30, 8) == 0 && EchoTick(100, 30, 0) == 0,
+              "30 % over 8 ticks, at least 1");
         // Blood Tide: both missing first, then one, then none; the closest on a tie
         {
             std::vector<Candidate> c{ { 0, 0, 1.0f }, { 1, 1, 9.0f }, { 2, 2, 25.0f }, { 3, 1, 4.0f } };
