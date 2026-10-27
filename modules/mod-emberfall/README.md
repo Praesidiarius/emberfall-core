@@ -82,9 +82,12 @@ X. The rewrite follows every reconcile (apply, load, reset, login, level change;
 button changed) and entering a spec (after its bars are loaded). `.ef talents dump` lists the swaps
 (`replacing: X->by`, `by` 0 when the node is not invested) and the core spells taken.
 
-Free nodes (`ef_talent_free`, talents.md §8 Decision 6) are full for their spec at no cost and never stored: the
-validation treats them as full whatever the client sends, the stored pairs leave them out, and their spells are
-taught like an invested node's.
+The trees are v2 only (talents.md §5.3, 2026-10-27; db-world 2026_10_27_00): a node has at most one parent
+(`ef_talent_node.parent`, the node before it in its row, which opens it once full), its effective gate in
+`ef_talent_node.gate` and its pick group in `ef_talent_node.grp`. Free nodes per spec, several parents and edges
+that open with part of a parent's points are gone (ef_talent_free, _edge, _gate and _pick dropped). Granted nodes
+(`ef_talent_auto`) are never stored: the validation ignores their digits, and their spells are taught by the paid
+points (and from their required level).
 
 The switch `Emberfall.OwnData` (default 0) is read through `src/server/game/World/EmberfallOwnData.h`
 (`Emberfall::OwnData()`, shared with the remaining core hunks) from `worldserver.conf` or the
