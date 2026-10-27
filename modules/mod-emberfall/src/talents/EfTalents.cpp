@@ -1429,8 +1429,8 @@ namespace Emberfall::Talents
                 specs += fmt::format("{}{} {} (tree {}, {} nodes, {} baseline)", specs.empty() ? "" : ", ", s, spec->key, spec->treeId,
                     st ? st->nodes.size() : 0, spec->baseline.size());
             }
-            LOG_INFO("server.loading", ">> Emberfall talents: class {}: class tree {} ({} nodes, {} gates); specs {}", classId, cls.classTree,
-                ct ? ct->nodes.size() : 0, ct ? ct->gates.size() : 0, specs);
+            LOG_INFO("server.loading", ">> Emberfall talents: class {}: class tree {} ({} nodes); specs {}", classId, cls.classTree,
+                ct ? ct->nodes.size() : 0, specs);
         }
         LOG_INFO("server.loading", ">> Emberfall talents: {} classes, {} specs, {} trees, {} nodes, data hash {}; spec level {}",
             data->classes.size(), data->specs.size(), data->trees.size(), data->nodeIndex.size(), data->dataHash, data->specLevel);
