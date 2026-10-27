@@ -124,7 +124,7 @@ namespace Emberfall::ClassKit::Flow
     }
 
     // `pct` percent of `amount`, at least 1 while both are above 0 (Relentless Strike's 50 %, Vicious Follow-Through's 30 %).
-    constexpr int32_t PctOf(int32_t amount, int32_t pct)
+    constexpr int32_t ShareOf(int32_t amount, int32_t pct)
     {
         if (amount <= 0 || pct <= 0)
             return 0;

@@ -436,7 +436,7 @@ class spell_ef_kit_rules : public SpellScript
         if (_struck.size() == 1 && primary && primary->IsAlive())
             for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_lone_echo", id))
                 if (uint32 const trigger = TriggerOf(eff))
-                    if (int32 const echo = Flow::PctOf(damage, eff->GetAmount()); echo > 0)
+                    if (int32 const echo = Flow::ShareOf(damage, eff->GetAmount()); echo > 0)
                         caster->CastCustomSpell(primary, trigger, &echo, nullptr, nullptr, true);
         // Vicious Follow-Through: while the trigger's caster aura holds (No Quarter)
         if (primary && primary->IsAlive())
@@ -446,7 +446,7 @@ class spell_ef_kit_rules : public SpellScript
                 SpellInfo const* info = trigger ? sSpellMgr->GetSpellInfo(trigger) : nullptr;
                 if (!info || (info->CasterAuraSpell && !caster->HasAura(info->CasterAuraSpell)))
                     continue;
-                if (int32 const extra = Flow::PctOf(damage, eff->GetAmount()); extra > 0)
+                if (int32 const extra = Flow::ShareOf(damage, eff->GetAmount()); extra > 0)
                     caster->CastCustomSpell(primary, trigger, &extra, nullptr, nullptr, true);
             }
         // Perfect Rhythm: a landed finisher spends the buff; one that differs from the last landed gives it anew

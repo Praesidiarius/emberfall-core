@@ -414,7 +414,7 @@ int main()
               "the pool: the dummy's own, a passive's count, 1..8");
         check(StackBonusPct(20, 2) == 40 && StackBonusPct(0, 2) == 0 && WithPct(100, 40) == 140 && WithPct(100, 0) == 100,
               "Crimson Undertow: 2 % a stack, 40 % at 20");
-        check(PctOf(100, 50) == 50 && PctOf(1, 30) == 1 && PctOf(0, 30) == 0, "Relentless Strike's half, at least 1");
+        check(ShareOf(100, 50) == 50 && ShareOf(1, 30) == 1 && ShareOf(0, 30) == 0, "Relentless Strike's half, at least 1");
         check(CountAmount(3, 1, 10) == 3 && CountAmount(14, 1, 10) == 10 && CountAmount(0, 1, 10) == 0,
               "Evasive Sweep: 1 % an enemy, at most 10");
         check(!RhythmChanged(0, 91207) && !RhythmChanged(91207, 91207) && RhythmChanged(91206, 91207),

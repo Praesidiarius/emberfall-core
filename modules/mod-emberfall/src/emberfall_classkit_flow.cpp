@@ -401,7 +401,7 @@ class spell_ef_kit_split_dot : public SpellScript
     bool IsArea(SpellInfo const* dot) { return dot->Effects[EFFECT_0].Effect == SPELL_EFFECT_PERSISTENT_AREA_AURA; }
 
     // Crimson Undertow: the caster's stack-bonus rules naming this spell, read once before the first hit
-    void BeforeCast()
+    void ReadStacks()
     {
         Unit* caster = GetCaster();
         if (!caster)
@@ -500,7 +500,7 @@ class spell_ef_kit_split_dot : public SpellScript
 
     void Register() override
     {
-        BeforeCast += SpellCastFn(spell_ef_kit_split_dot::BeforeCast);
+        BeforeCast += SpellCastFn(spell_ef_kit_split_dot::ReadStacks);
         BeforeHit += BeforeSpellHitFn(spell_ef_kit_split_dot::BeforeHitTarget);
         OnHit += SpellHitFn(spell_ef_kit_split_dot::HitTarget);
         AfterHit += SpellHitFn(spell_ef_kit_split_dot::AfterHitTarget);
