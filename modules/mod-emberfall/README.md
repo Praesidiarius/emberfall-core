@@ -20,15 +20,15 @@ config file; this one has none (see below), so look for `mod-emberfall` in CMake
 
 ## Specs and talents (Emberfall `docs/design/talents.md` §3, WPs T3, M1-M6, T6)
 
-The spec and talent system: Emberfall's own class trees, and generated trees for stock classes on the
-stock-test profile. Switch `Emberfall.Talents.Enable` (default 0; `AC_EMBERFALL_TALENTS_ENABLE`, read
+The spec and talent system: Emberfall's own class trees (class trees in the class layout, spec trees in the
+rows layout; the generated stock test trees and the grid layout were retired on 2026-10-27). Switch `Emberfall.Talents.Enable` (default 0; `AC_EMBERFALL_TALENTS_ENABLE`, read
 through `sConfigMgr` like `Emberfall.OwnData` and independent of it; both Emberfall compose profiles set 1).
 For a class the system is active only when `ef_spec` has rows for it; every other class keeps the stock
 talent system untouched.
 
 | File | What |
 |---|---|
-| `data/sql/db-world/mod_emberfall_2026_10_11_00_talents.sql` | the ten `ef_*` tree tables (schema only; Emberfall's compiler writes the rows: `world.sql`, or `dist/test-talents/talents.sql` for the generated stock trees) and the help texts of the GM commands |
+| `data/sql/db-world/mod_emberfall_2026_10_11_00_talents.sql` | the ten `ef_*` tree tables (schema only; Emberfall's compiler writes the rows into `world.sql`) and the help texts of the GM commands |
 | `data/sql/db-world/mod_emberfall_2026_10_11_01_talents_help.sql` | the help texts of `.ef`, `.ef talents` and every subcommand as of M4/M5 (`.help ef ...`) |
 | `data/sql/db-characters/mod_emberfall_2026_10_11_00_talents.sql` | `ef_character_spec`, `ef_character_loadout`, `ef_character_actions`, `ef_character_granted` |
 | `data/sql/db-characters/mod_emberfall_2026_10_12_00_talents_replaced.sql` | M6: `ef_character_granted.source` 3 (a core-taught spell a replacing node took; the column comment only) |
@@ -69,8 +69,9 @@ then 1.
 
 Spells: learned with `Player::learnSpell` (saved in `character_spell`), removed with `removeSpell` plus the
 auras they own or triggered; `ef_character_granted` records exactly what the module taught, so a spell the core
-or a GM taught is never taken. Stock talent spells (generated trees only) leave a no-talent-group entry behind
-`removeSpell` that the core's rank logic would revive; the reconcile drops those (`DropLeftover`).
+or a GM taught is never taken. Stock talent spells (only the retired generated stock test trees taught any) leave a no-talent-group entry
+behind `removeSpell` that the core's rank logic would revive; the reconcile drops those (`DropLeftover`, kept as a
+safety net).
 
 Replacing nodes (WP M6, talents.md §1.4, `ef_talent_node.replaces`): while a node of the active loadout that
 replaces spell X is invested, X is not taught (a baseline spell) or is removed (a spell the core taught: a trainer or

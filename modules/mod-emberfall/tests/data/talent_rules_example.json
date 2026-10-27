@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "source": "the talents example (tools/py/tests/data/talents/example.yaml); written by python -m emberfall_content.talents vectors",
+ "source": "the example trees (tools/py/emberfall_content/talents/vector_trees.py); written by python -m emberfall_content.talents vectors",
  "trees": [
   {
    "id": 810,

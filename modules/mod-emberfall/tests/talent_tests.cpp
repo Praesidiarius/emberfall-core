@@ -334,7 +334,7 @@ namespace
         std::cout << "picks: groups, storage, Remap\n";
     }
 
-    // T6 on the Frostguard test tree (Emberfall's tools/py/tests/data/talents/frostguard.yaml): granted nodes (s1a, s1b
+    // T6 on the Frostguard test tree (Emberfall's tools/py/emberfall_content/talents/vector_trees.py): granted nodes (s1a, s1b
     // at once, s1c ranking up at 0/10/20/30, s3c at 4 points), edges with a point count, the pre-spec state.
     void frostguardTests(std::map<long long, Json> const& treeJson)
     {

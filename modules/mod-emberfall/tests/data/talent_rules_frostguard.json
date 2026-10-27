@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "source": "the Frostguard test tree (tools/py/tests/data/talents/frostguard.yaml) and the pick tree (vectors.py PICK_TREE); written by python -m emberfall_content.talents vectors",
+ "source": "the Frostguard trees (tools/py/emberfall_content/talents/vector_trees.py) and the pick tree (vectors.py PICK_TREE); written by python -m emberfall_content.talents vectors",
  "trees": [
   {
    "id": 820,
