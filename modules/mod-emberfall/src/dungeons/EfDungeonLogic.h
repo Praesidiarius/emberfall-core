@@ -42,7 +42,7 @@ namespace Emberfall::Dungeons
     constexpr Spot kBarrowsInside{ kBarrowsMap, 47.33f, 268.33f, 30.1f, 0.0f };
     // Beside the mound door on Cairnmoor's Barrow Field (map 0), facing west (the game repo's content/data/barrows:
     // world.yaml `barrowsdoor`, the way out of triggers.yaml; scaled with the world on 2026-10-26).
-    constexpr Spot kBarrowsDoor{ 0, -9711.0f, -3466.25f, 71.4f, 1.5708f };
+    constexpr Spot kBarrowsDoor{ 0, -9711.0f, -3466.25f, 82.35f, 1.5708f };
     // `.tele millbrook` (content/data/world.yaml, design (146, 275) on the green), and the same place should game_tele
     // have no row of that name.
     constexpr std::string_view kMillbrookTele = "millbrook";
