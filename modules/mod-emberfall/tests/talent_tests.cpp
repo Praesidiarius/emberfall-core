@@ -18,7 +18,7 @@
 // Standalone tests of mod-emberfall's talent code that needs no core (tests/run_tests.sh builds and runs it;
 // it is not part of the worldserver build, which compiles src/ only):
 //
-//   1. the rules vectors (Emberfall's tools/py/tests/data/talent_rules/*.json, a copy in tests/data/) through
+//   1. the rules vectors (Emberfall's tools/py/tests/data/talent_rules/example.json, a copy in tests/data/) through
 //      the module's copy of TalentRules.h: every case's first error and detail, as the client's Catch2 test does;
 //   2. EfTalentModel over the vectors' trees: wire strings <-> stored pairs round trips, Remap;
 //   3. the EFT protocol (EftProtocol.h): parse, chunking both ways, names, stored pairs, rate limit; and a
@@ -173,61 +173,33 @@ namespace
         {
             RuleNode r;
             r.id = static_cast<uint32_t>(n["id"].num());
-            r.row = static_cast<uint32_t>(n["row"].num());
             r.kind = static_cast<NodeKind>(n["kind"].num());
             r.maxRank = static_cast<uint8_t>(n["maxRank"].num());
             r.numOptions = static_cast<uint8_t>(n["numOptions"].num());
             r.requiredLevel = static_cast<uint32_t>(n["requiredLevel"].num());
-            r.freeSpecMask = static_cast<uint32_t>(n["freeSpecMask"].num());
             r.gate = static_cast<uint32_t>(n["gate"].num());
             for (Json const& a : n["auto"].arr())
                 if (r.autoCount < kMaxWireRank)
                     r.autoAt[r.autoCount++] = static_cast<uint32_t>(a.num());
-            size_t k = 0;
-            for (Json const& p : n["parents"].arr())
-                if (k < kMaxParents)
-                    r.parents[k++] = static_cast<int32_t>(p.num());
-            k = 0;
-            for (Json const& p : n["parentRanks"].arr())
-                if (k < kMaxParents)
-                    r.parentRanks[k++] = static_cast<uint8_t>(p.num());
-            if (n.obj().count("group")) // a pick node (pick groups, only where a tree has them)
-                r.group = static_cast<uint8_t>(n["group"].num());
+            r.parent = static_cast<int32_t>(n["parent"].num());
+            r.group = static_cast<uint8_t>(n["group"].num());
             tree.nodes.push_back(r);
         }
-        for (Json const& g : t["gates"].arr())
-            tree.gates.push_back(RuleGate{static_cast<uint32_t>(g["row"].num()), static_cast<uint32_t>(g["points"].num())});
         tree.groups = groupsOf(t);
         return tree;
     }
 
-    // An EfTalentModel of one class (1) with one spec (sort 1 or 2 per the case) over the vectors' trees; node
-    // spells are made up (node ID x 10 + rank / option).
-    std::unique_ptr<EfTalentModel> model(Json const& classTree, Json const& specTree, uint32_t specSort)
+    // An EfTalentModel of one class (1) with one spec (91) over the vectors' trees; node spells are made up (node ID x 10 +
+    // rank / option).
+    std::unique_ptr<EfTalentModel> model(Json const& classTree, Json const& specTree)
     {
         auto m = std::make_unique<EfTalentModel>();
         EfSpec spec;
         spec.id = 91;
         spec.classId = 1;
-        spec.sort = specSort;
+        spec.sort = 1;
         spec.baseline = {{91901, 10}, {91902, 20}};
         m->specs[spec.id] = spec;
-        // The vectors' free node is free for the spec of sort 1; a case in the spec of sort 2 gets that one as
-        // another spec (with an empty tree of its own).
-        uint32_t const freeSpec = specSort == 1 ? 91 : 92;
-        if (specSort != 1)
-        {
-            EfSpec other;
-            other.id = 92;
-            other.classId = 1;
-            other.sort = 1;
-            m->specs[other.id] = other;
-            EfTree empty;
-            empty.id = 999;
-            empty.classId = 1;
-            empty.specId = 92;
-            m->trees[empty.id] = empty;
-        }
         for (auto const& [json, specId] : {std::pair{&classTree, 0u}, std::pair{&specTree, 91u}})
         {
             EfTree t;
@@ -244,31 +216,23 @@ namespace
                 e.id = static_cast<uint32_t>(n["id"].num());
                 e.tree = t.id;
                 e.ord = ord++;
-                e.row = static_cast<uint32_t>(n["row"].num());
                 e.kind = static_cast<NodeKind>(n["kind"].num());
                 e.maxRank = static_cast<uint32_t>(n["maxRank"].num());
                 e.requiredLevel = static_cast<uint32_t>(n["requiredLevel"].num());
                 e.gate = static_cast<uint32_t>(n["gate"].num());
                 for (Json const& a : n["auto"].arr())
                     e.autoAt.push_back(static_cast<uint32_t>(a.num()));
-                for (Json const& p : n["parents"].arr())
-                    e.parents.push_back(ids[static_cast<size_t>(p.num())]);
-                for (Json const& p : n["parentRanks"].arr())
-                    e.parentRanks.push_back(static_cast<uint32_t>(p.num()));
-                if (n.obj().count("group"))
-                    e.group = static_cast<uint32_t>(n["group"].num());
+                if (n["parent"].num() >= 0)
+                    e.parent = ids[static_cast<size_t>(n["parent"].num())];
+                e.group = static_cast<uint32_t>(n["group"].num());
                 if (e.kind == NodeKind::Choice)
                     for (long long o = 1; o <= n["numOptions"].num(); ++o)
                         e.options.push_back({e.id * 10 + static_cast<uint32_t>(o)});
                 else
                     for (uint32_t r = 1; r <= e.maxRank; ++r)
                         e.ranks.push_back({e.id * 10 + r});
-                if (n["freeSpecMask"].num() & 1)
-                    e.freeSpecs.push_back(freeSpec);
                 t.nodes.push_back(e);
             }
-            for (Json const& g : (*json)["gates"].arr())
-                t.gates.push_back(RuleGate{static_cast<uint32_t>(g["row"].num()), static_cast<uint32_t>(g["points"].num())});
             t.groups = groupsOf(*json);
             m->trees[t.id] = t;
         }
@@ -281,7 +245,7 @@ namespace
     // a row whose modifiers a loadout from before (a granted ability) holds.
     void pickTests(std::map<long long, Json> const& treeJson)
     {
-        auto m = model(treeJson.at(820), treeJson.at(830), 1);
+        auto m = model(treeJson.at(810), treeJson.at(830));
         m->points[0][60] = {99, 99};
         std::vector<std::string> problems;
         m->Finish(problems);
@@ -291,7 +255,7 @@ namespace
         std::string const json = m->CanonicalJson();
         check(json.find("\"groups\":[{\"earned\":0,\"slots\":[2,4]},{\"earned\":0,\"slots\":[7,9]}]") != std::string::npos && json.find("\"group\":2") != std::string::npos,
               "pick model: the groups are hashed");
-        std::string const cls(m->trees[820].nodes.size(), '0');
+        std::string const cls(m->trees[810].nodes.size(), '0');
         auto picked = m->PairsOf(spec, cls + ".02100000000");
         check(picked && picked->count(8303) && picked->at(8303).rank == 1 && picked->count(8302), "pick model: a pick is stored");
         check(picked && m->Expected(spec, *picked, 60).count(83031) && !m->Expected(spec, {}, 60).count(83031),
@@ -307,7 +271,7 @@ namespace
         check(r.code == RuleError::Slot, "pick model: a remapped loadout whose picks do not fit is refused (reset)");
         // tree 831: group 1 by points EARNED (the spec budget at the level: 3 and 5), the Wrathbringer's way. A loadout from
         // before with both rows bought keeps them where the level opens both slots, and is reset (SLOT) where it does not.
-        auto e = model(treeJson.at(820), treeJson.at(831), 1);
+        auto e = model(treeJson.at(810), treeJson.at(831));
         e->points[0] = {{1, {99, 3}}, {2, {99, 5}}};
         problems.clear();
         e->Finish(problems);
@@ -328,72 +292,69 @@ namespace
         eft::Pairs fits = freePicks;
         fits[8306] = {1, 0};
         check(e->Validate(es, e->LoadoutString(es, fits), 2).ok(), "picks cost a point: two picks and 2 + 1 ranks are 5");
-        check(e->PaidIn(e->trees[831], freePicks, e->SpecBit(es)) == 6, "picks cost a point: the paid points count the picks");
+        check(e->PaidIn(e->trees[831], freePicks) == 6, "picks cost a point: the paid points count the picks");
         check(std::string(RevalidateResetReason(0)) == "DATA" && std::string(RevalidateResetReason(kSpecFlagPicksPaid)) == "LEVEL",
               "picks cost a point: the first revalidation's reset says the data changed, later ones the level");
         std::cout << "picks: groups, storage, Remap\n";
     }
 
-    // T6 on the Frostguard test tree (Emberfall's tools/py/tests/data/talents/frostguard.yaml): granted nodes (s1a, s1b
-    // at once, s1c ranking up at 0/10/20/30, s3c at 4 points), edges with a point count, the pre-spec state.
-    void frostguardTests(std::map<long long, Json> const& treeJson)
+    // T6 on the example's spec tree (Emberfall's tools/py/emberfall_content/talents/vector_trees.py): the granted ability
+    // shard (9101, at once) and the granted passive winterhide (9107: rank 1 at once, rank 2 at 4 points spent); the
+    // pre-spec state on the class tree (its strip keen -> surge -> ward at levels 2, 3, 4).
+    void grantedTests(std::map<long long, Json> const& treeJson)
     {
-        auto m = model(treeJson.at(820), treeJson.at(821), 1);
+        auto m = model(treeJson.at(810), treeJson.at(811));
         m->points[0][1] = {23, 36};
         std::vector<std::string> problems;
         m->Finish(problems);
-        check(problems.empty(), "frostguard model: " + (problems.empty() ? std::string() : problems[0]));
-        EfSpec const& fg = *m->Spec(91);
-        SpellSet const none = m->Expected(fg, {}, 60);
-        check(none.count(81011) && none.count(81021) && none.count(81031) && !none.count(81032) && !none.count(81071),
-              "granted at once: s1a, s1b, s1c rank 1; s3c not before 4 points");
-        // 10 paid points: s2a 4, s3a, s3b, s4b 2, s4a 2 -> s1c rank 2, s3c granted
-        eft::Pairs const ten = {{8104, {4, 0}}, {8105, {1, 0}}, {8106, {1, 0}}, {8109, {2, 0}}, {8108, {2, 0}}};
-        check(m->PaidIn(m->trees[821], ten, 1) == 10, "PaidIn counts paid ranks");
-        SpellSet const at10 = m->Expected(fg, ten, 60);
-        check(at10.count(81032) && !at10.count(81031) && at10.count(81071), "s1c ranks up at 10 points, s3c is granted at 4");
-        std::string const wire = m->LoadoutString(fg, ten);
-        check(m->Validate(fg, wire, 60).ok(), "the 10-point build is valid");
+        check(problems.empty(), "granted model: " + (problems.empty() ? std::string() : problems[0]));
+        EfSpec const& spec = *m->Spec(91);
+        SpellSet const none = m->Expected(spec, {}, 60);
+        check(none.count(91011) && none.count(91071) && !none.count(91072), "granted at once: shard and winterhide rank 1");
+        // 4 paid points: splinter 2, linger 2 -> winterhide rank 2
+        eft::Pairs const four = {{9102, {2, 0}}, {9103, {2, 0}}};
+        check(m->PaidIn(m->trees[811], four) == 4, "PaidIn counts paid ranks");
+        SpellSet const at4 = m->Expected(spec, four, 60);
+        check(at4.count(91072) && !at4.count(91071), "winterhide ranks up at 4 points");
+        std::string const wire = m->LoadoutString(spec, four);
+        check(m->Validate(spec, wire, 60).ok(), "the 4-point build is valid");
         // a granted node's digit in a wire string is not stored
         std::string given = wire;
-        given[given.find('.') + 1] = '1'; // s1a
-        auto pairs = m->PairsOf(fg, given);
-        check(pairs && !pairs->count(8101) && *pairs == ten, "a granted node's digit is never stored");
+        given[given.find('.') + 1] = '1'; // shard
+        auto pairs = m->PairsOf(spec, given);
+        check(pairs && !pairs->count(9101) && *pairs == four, "a granted node's digit is never stored");
         // a granted replacing node replaces at once; the class-wide map takes its spells back to the replaced spell
-        for (EfNode& n : m->trees[821].nodes)
-            if (n.id == 8101)
+        for (EfNode& n : m->trees[811].nodes)
+            if (n.id == 9101)
                 n.replaces = 777;
-        auto const reps = m->Replacements(fg, {}, 60, [](uint32_t) { return false; });
-        check(reps.size() == 1 && reps[0].replaced == 777 && reps[0].by == 81011, "a granted replacing node is invested at once");
-        check(m->ReplacedBy(1).at(81011) == 777, "ReplacedBy maps the node's spell back");
-        check(!m->Expected(fg, {}, 60).count(777), "the replaced spell is not expected");
-        // a granted node with a required level (the Wrathbringer's row abilities): nothing below it, granted from it
-        for (size_t i = 0; i < m->trees[821].nodes.size(); ++i)
-            if (m->trees[821].nodes[i].id == 8101)
-                m->trees[821].rules.nodes[i].requiredLevel = 20;
-        check(!m->Expected(fg, {}, 19).count(81011) && m->Expected(fg, {}, 20).count(81011), "a granted node waits for its level");
-        check(m->Replacements(fg, {}, 19, [](uint32_t) { return false; })[0].by == 0
-                  && m->Replacements(fg, {}, 20, [](uint32_t) { return false; })[0].by == 81011,
+        auto const reps = m->Replacements(spec, {}, 60, [](uint32_t) { return false; });
+        check(reps.size() == 1 && reps[0].replaced == 777 && reps[0].by == 91011, "a granted replacing node is invested at once");
+        check(m->ReplacedBy(1).at(91011) == 777, "ReplacedBy maps the node's spell back");
+        check(!m->Expected(spec, {}, 60).count(777), "the replaced spell is not expected");
+        // a granted node with a required level: nothing below it, granted from it
+        m->trees[811].rules.nodes[0].requiredLevel = 20;
+        check(!m->Expected(spec, {}, 19).count(91011) && m->Expected(spec, {}, 20).count(91011), "a granted node waits for its level");
+        check(m->Replacements(spec, {}, 19, [](uint32_t) { return false; })[0].by == 0
+                  && m->Replacements(spec, {}, 20, [](uint32_t) { return false; })[0].by == 91011,
               "a granted replacing node replaces from its level");
-        for (size_t i = 0; i < m->trees[821].nodes.size(); ++i)
-            if (m->trees[821].nodes[i].id == 8101)
-                m->trees[821].rules.nodes[i].requiredLevel = 0;
-        // the pre-spec state: the class tree only, spec bit 0
+        m->trees[811].rules.nodes[0].requiredLevel = 0;
+        // the pre-spec state: the class tree only
         EfSpec const* pre = m->PreSpec(1);
         check(pre && pre->id == 0 && m->SpecOrPre(0, 1) == pre && m->SpecOrPre(0, 2) == nullptr, "PreSpec / SpecOrPre");
         if (pre)
         {
-            eft::Pairs const cls = {{8001, {2, 0}}, {8002, {1, 0}}, {8003, {1, 0}}}; // c1a 2, c1b 1, c2a (Barrier) 1
+            eft::Pairs const cls = {{9001, {1, 0}}, {9002, {1, 0}}, {9003, {1, 0}}}; // the strip
             std::string const pw = m->LoadoutString(*pre, cls);
             check(!pw.empty() && pw.back() == '.', "a pre-spec loadout has an empty spec part");
-            m->points[0][5] = {4, 0};
             m->points[0][4] = {3, 0};
-            check(m->Validate(*pre, pw, 5).ok() && m->Validate(*pre, pw, 4).code == RuleError::BudgetClass, "pre-spec budgets");
+            check(m->Validate(*pre, pw, 4).ok(), "pre-spec: three class points at level 4");
+            m->points[0][4] = {2, 0};
+            check(m->Validate(*pre, pw, 4).code == RuleError::BudgetClass, "pre-spec budgets");
             check(m->PairsOf(*pre, pw) == cls, "pre-spec pairs");
-            SpellSet const pe = m->Expected(*pre, cls, 5);
-            check(pe.count(80011 + 1) && pe.count(80031) && !pe.count(81011), "pre-spec: the class tree's spells, no spec tree");
+            SpellSet const pe = m->Expected(*pre, cls, 4);
+            check(pe.count(90011) && pe.count(90031) && !pe.count(91011), "pre-spec: the class tree's spells, no spec tree");
         }
-        std::cout << "frostguard: granted nodes, pre-spec\n";
+        std::cout << "granted nodes, pre-spec\n";
     }
 
     void runVectors(std::string const& path)
@@ -419,14 +380,12 @@ namespace
             RuleTree const& ct = trees.at(c["classTree"].num());
             RuleTree const& st = trees.at(c["specTree"].num());
             RuleResult const r = validateLoadout(ct, st, c["loadout"].str(), static_cast<uint32_t>(c["level"].num()),
-                                                 static_cast<uint32_t>(c["classBudget"].num()), static_cast<uint32_t>(c["specBudget"].num()),
-                                                 static_cast<uint32_t>(c["specBit"].num()));
+                                                 static_cast<uint32_t>(c["classBudget"].num()), static_cast<uint32_t>(c["specBudget"].num()));
             check(errorCode(r.code) == c["code"].str() && r.detail == static_cast<uint32_t>(c["detail"].num()),
                   path + ": " + c["name"].str() + ": expected " + c["code"].str() + " " + std::to_string(c["detail"].num()) + ", got " +
                       errorCode(r.code) + " " + std::to_string(r.detail));
 
             // The model gives the same answer, and a valid loadout survives wire -> pairs -> wire.
-            uint32_t const sort = c["specBit"].num() == 2 ? 2 : 1;
             // the pre-spec state (spec tree 0, T6): a model over the class tree with any spec tree, its PreSpec
             bool const pre = c["specTree"].num() == 0;
             long long specTreeId = c["specTree"].num();
@@ -434,7 +393,7 @@ namespace
                 for (auto const& [id, t] : treeJson)
                     if (id != 0 && id != c["classTree"].num())
                         specTreeId = id;
-            auto m = model(treeJson.at(c["classTree"].num()), treeJson.at(specTreeId), sort);
+            auto m = model(treeJson.at(c["classTree"].num()), treeJson.at(specTreeId));
             m->points[0][1] = {static_cast<uint32_t>(c["classBudget"].num()), static_cast<uint32_t>(c["specBudget"].num())};
             std::vector<std::string> problems;
             m->Finish(problems);
@@ -448,7 +407,7 @@ namespace
                 check(pairs.has_value(), c["name"].str() + ": PairsOf");
                 if (pairs)
                 {
-                    // A free node given explicitly reads back as given; compare through the pairs.
+                    // a granted node's digit reads back as 0: compare through the pairs
                     std::string const again = m->LoadoutString(spec, *pairs);
                     auto pairs2 = m->PairsOf(spec, again);
                     check(pairs2 && *pairs2 == *pairs, c["name"].str() + ": wire -> pairs -> wire");
@@ -469,31 +428,26 @@ namespace
         check(cases > 0, path + ": no cases");
         std::cout << path << ": " << cases << " cases\n";
 
-        if (!treeJson.count(810) || !treeJson.count(811))
-        {
-            frostguardTests(treeJson);
-            if (treeJson.count(830))
-                pickTests(treeJson);
-            return; // the rest is about the example tree
-        }
+        grantedTests(treeJson);
+        pickTests(treeJson);
         // Remap after a data change: a node removed, a max rank lowered, an option removed.
-        auto m = model(treeJson.begin()->second, std::next(treeJson.begin())->second, 1);
+        auto m = model(treeJson.at(810), treeJson.at(811));
         m->points[0][1] = {99, 99};
         std::vector<std::string> problems;
         m->Finish(problems);
-        eft::Pairs const pairs = {{9002, {2, 0}}, {9101, {2, 0}}, {9104, {1, 2}}, {12345, {1, 0}}};
+        eft::Pairs const pairs = {{9008, {2, 0}}, {9102, {2, 0}}, {9006, {1, 2}}, {12345, {1, 0}}};
         bool changed = false;
         eft::Pairs const kept = m->Remap(*m->Spec(91), pairs, changed);
         check(changed && !kept.count(12345) && kept.size() == 3, "Remap drops an unknown node");
-        m->trees[811].nodes[0].maxRank = 1;
-        m->trees[811].nodes[0].ranks.resize(1);
-        m->trees[811].nodes[3].options.resize(1);
+        m->trees[811].nodes[1].maxRank = 1;
+        m->trees[811].nodes[1].ranks.resize(1);
+        m->trees[810].nodes[5].options.resize(1);
         m->Finish(problems); // the choice node has one option now: a problem, but Remap still works
         eft::Pairs const kept2 = m->Remap(*m->Spec(91), pairs, changed);
-        check(changed && kept2.at(9101).rank == 1 && !kept2.count(9104), "Remap clamps ranks and drops a lost option");
+        check(changed && kept2.at(9102).rank == 1 && !kept2.count(9006), "Remap clamps ranks and drops a lost option");
 
-        // Replacing nodes (M6): the class tree's 9004 replaces the baseline spell 91901 (as in the example tree).
-        auto r = model(treeJson.begin()->second, std::next(treeJson.begin())->second, 1);
+        // Replacing nodes (M6): the class tree's 9004 replaces the baseline spell 91901.
+        auto r = model(treeJson.at(810), treeJson.at(811));
         r->points[0][1] = {99, 99};
         r->Finish(problems);
         EfTree& ct = r->trees[810];
@@ -502,8 +456,8 @@ namespace
                 n.replaces = 91901;
         EfSpec const& lamp = *r->Spec(91);
         auto const notPassive = [](uint32_t) { return false; };
-        eft::Pairs const without = {{9002, {2, 0}}};
-        eft::Pairs const with = {{9002, {2, 0}}, {9004, {1, 0}}};
+        eft::Pairs const without = {{9008, {2, 0}}};
+        eft::Pairs const with = {{9008, {2, 0}}, {9004, {1, 0}}};
         SpellSet const before = r->Expected(lamp, without, 20), after = r->Expected(lamp, with, 20);
         check(before.count(91901) && !after.count(91901) && after.count(90041), "an invested replacing node takes the baseline spell's place");
         auto const reps = r->Replacements(lamp, with, 20, notPassive);
@@ -658,15 +612,14 @@ namespace
         {
             RuleNode n;
             n.id = 100 + k;
-            n.row = 1 + k / 2;
             n.kind = k == 4 ? NodeKind::Choice : NodeKind::Passive;
             n.maxRank = k == 4 ? 1 : 3;
             n.numOptions = k == 4 ? 2 : 0;
             if (k >= 2)
-                n.parents[0] = static_cast<int32_t>(k - 2);
+                n.parent = static_cast<int32_t>(k - 2);
+            n.gate = k >= 4 ? 4 : 0;
             tree.nodes.push_back(n);
         }
-        tree.gates.push_back(RuleGate{3, 4});
         std::string const chars = "0123456789abcd.x";
         for (int i = 0; i < 100000; ++i)
         {
@@ -674,7 +627,7 @@ namespace
             size_t const n = rng() % 16;
             for (size_t k = 0; k < n; ++k)
                 s += chars[rng() % chars.size()];
-            RuleResult const r = validateLoadout(tree, tree, s, rng() % 90, rng() % 20, rng() % 20, 1u << (rng() % 3));
+            RuleResult const r = validateLoadout(tree, tree, s, rng() % 90, rng() % 20, rng() % 20);
             check(r.code <= RuleError::BudgetSpec, "fuzz: rules result in range");
         }
     }
@@ -715,16 +668,14 @@ namespace
         using namespace ef::talents;
         EfTalentModel m;
         m.points[0] = {{1, {0, 0}}, {2, {1, 0}}, {3, {2, 0}}, {4, {3, 0}}, {5, {4, 0}}, {10, {4, 1}}};
-        auto node = [](uint32_t id, uint32_t ord, uint32_t row, NodeKind kind, std::vector<uint32_t> parents, uint32_t level) {
+        auto node = [](uint32_t id, uint32_t ord, NodeKind kind, uint32_t parent, uint32_t level) {
             EfNode n;
             n.id = id;
             n.tree = 1;
             n.ord = ord;
-            n.row = row;
             n.kind = kind;
             n.requiredLevel = level;
-            n.parentRanks.assign(parents.size(), 0);
-            n.parents = std::move(parents);
+            n.parent = parent;
             if (kind == NodeKind::Choice)
                 n.options = {{id * 10 + 1}, {id * 10 + 2}};
             else
@@ -735,14 +686,14 @@ namespace
         ct.id = 1;
         ct.classId = 1;
         // the strip 11 (level 2, passive) -> 12 (3, active) -> 13 (4, passive), then a choice row node 21
-        ct.nodes = {node(11, 0, 1, NodeKind::Passive, {}, 2), node(12, 1, 1, NodeKind::Active, {11}, 3),
-                    node(13, 2, 1, NodeKind::Passive, {12}, 4), node(21, 3, 2, NodeKind::Choice, {}, 0)};
+        ct.nodes = {node(11, 0, NodeKind::Passive, 0, 2), node(12, 1, NodeKind::Active, 11, 3),
+                    node(13, 2, NodeKind::Passive, 12, 4), node(21, 3, NodeKind::Choice, 0, 0)};
         m.trees[1] = ct;
         EfTree st;
         st.id = 2;
         st.classId = 1;
         st.specId = 91;
-        st.nodes = {node(31, 0, 1, NodeKind::Passive, {}, 0)};
+        st.nodes = {node(31, 0, NodeKind::Passive, 0, 0)};
         st.nodes[0].tree = 2;
         m.trees[2] = st;
         EfSpec spec;

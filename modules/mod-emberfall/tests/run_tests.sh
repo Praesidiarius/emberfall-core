@@ -78,7 +78,7 @@ if ! printf '%s\n' "$TESTS" | xargs -P "$JOBS" -n 3 sh "$HERE/run_tests.sh" --co
     exit 1
 fi
 
-if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json" "$HERE/data/talent_rules_frostguard.json"; fi
+if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json"; fi
 "$EF_TEST_OUT/talent" "$@"
 for name in $(printf '%s\n' "$TESTS" | cut -d' ' -f1 | tail -n +2); do
     "$EF_TEST_OUT/$name"

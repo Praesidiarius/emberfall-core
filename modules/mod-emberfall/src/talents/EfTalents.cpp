@@ -1203,11 +1203,11 @@ namespace Emberfall::Talents
             return false;
         }
         static char const* const tables[] = {"ef_talent_meta", "ef_talent_points", "ef_spec", "ef_spec_spell", "ef_talent_tree",
-            "ef_talent_gate", "ef_talent_node", "ef_talent_node_spell", "ef_talent_edge", "ef_talent_free", "ef_talent_auto"};
+            "ef_talent_node", "ef_talent_node_spell", "ef_talent_auto", "ef_talent_slot"};
         uint32 found = 0;
         if (QueryResult r = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN "
-            "('ef_talent_meta', 'ef_talent_points', 'ef_spec', 'ef_spec_spell', 'ef_talent_tree', 'ef_talent_gate', 'ef_talent_node', "
-            "'ef_talent_node_spell', 'ef_talent_edge', 'ef_talent_free', 'ef_talent_auto')"))
+            "('ef_talent_meta', 'ef_talent_points', 'ef_spec', 'ef_spec_spell', 'ef_talent_tree', 'ef_talent_node', "
+            "'ef_talent_node_spell', 'ef_talent_auto', 'ef_talent_slot')"))
             found = static_cast<uint32>(r->Fetch()[0].Get<uint64>());
         if (found != std::size(tables))
         {
@@ -1293,21 +1293,9 @@ namespace Emberfall::Talents
                 data->trees[t.id] = t;
             } while (r->NextRow());
         }
-        if (QueryResult r = WorldDatabase.Query("SELECT `tree`, `row`, `points` FROM `ef_talent_gate`"))
-        {
-            do
-            {
-                Field* f = r->Fetch();
-                uint32 const tree = f[0].Get<uint16>();
-                auto it = data->trees.find(tree);
-                if (it == data->trees.end())
-                    problems.push_back("ef_talent_gate: unknown tree " + std::to_string(tree));
-                else
-                    it->second.gates.push_back(RuleGate{f[1].Get<uint8>(), f[2].Get<uint16>()});
-            } while (r->NextRow());
-        }
         std::map<uint32, EfNode> nodes;
-        if (QueryResult r = WorldDatabase.Query("SELECT `id`, `tree`, `ord`, `row`, `col`, `kind`, `max_rank`, `required_level`, `replaces`, `gate` FROM `ef_talent_node`"))
+        if (QueryResult r = WorldDatabase.Query("SELECT `id`, `tree`, `ord`, `kind`, `max_rank`, `required_level`, `replaces`, `gate`, "
+            "`parent`, `grp` FROM `ef_talent_node`"))
         {
             do
             {
@@ -1316,16 +1304,16 @@ namespace Emberfall::Talents
                 n.id = f[0].Get<uint32>();
                 n.tree = f[1].Get<uint16>();
                 n.ord = f[2].Get<uint16>();
-                n.row = f[3].Get<uint8>();
-                n.col = f[4].Get<float>();
-                uint32 const kind = f[5].Get<uint8>();
+                uint32 const kind = f[3].Get<uint8>();
                 if (kind < 1 || kind > 3)
                     problems.push_back("ef_talent_node " + std::to_string(n.id) + ": kind " + std::to_string(kind));
                 n.kind = static_cast<NodeKind>(kind);
-                n.maxRank = f[6].Get<uint8>();
-                n.requiredLevel = f[7].Get<uint8>();
-                n.replaces = f[8].Get<uint32>();
-                n.gate = f[9].Get<uint8>();
+                n.maxRank = f[4].Get<uint8>();
+                n.requiredLevel = f[5].Get<uint8>();
+                n.replaces = f[6].Get<uint32>();
+                n.gate = f[7].Get<uint8>();
+                n.parent = f[8].Get<uint32>();
+                n.group = f[9].Get<uint8>();
                 nodes[n.id] = n;
             } while (r->NextRow());
         }
@@ -1351,22 +1339,6 @@ namespace Emberfall::Talents
                     problems.push_back("node " + std::to_string(node) + ": spell " + std::to_string(spell) + " does not exist");
             } while (r->NextRow());
         }
-        if (QueryResult r = WorldDatabase.Query("SELECT `parent`, `child`, `min_rank` FROM `ef_talent_edge` ORDER BY `child`, `parent`"))
-        {
-            do
-            {
-                Field* f = r->Fetch();
-                uint32 const parent = f[0].Get<uint32>(), child = f[1].Get<uint32>();
-                auto it = nodes.find(child);
-                if (it == nodes.end() || !nodes.count(parent))
-                    problems.push_back("ef_talent_edge: " + std::to_string(parent) + " -> " + std::to_string(child) + " names an unknown node");
-                else
-                {
-                    it->second.parents.push_back(parent);
-                    it->second.parentRanks.push_back(f[2].Get<uint8>());
-                }
-            } while (r->NextRow());
-        }
         // granted nodes (T6, talents.md §8 Decision 6): rank k at `at` points spent in the tree
         if (QueryResult r = WorldDatabase.Query("SELECT `node`, `rank`, `at` FROM `ef_talent_auto` ORDER BY `node`, `rank`"))
         {
@@ -1381,67 +1353,31 @@ namespace Emberfall::Talents
                     it->second.autoAt.push_back(f[2].Get<uint8>());
             } while (r->NextRow());
         }
-        if (QueryResult r = WorldDatabase.Query("SELECT `node`, `spec` FROM `ef_talent_free`"))
+        // pick groups (Emberfall's talents.md §1.3 rule 7): each tree's slot thresholds (a pick node names its group)
+        if (QueryResult r = WorldDatabase.Query("SELECT `tree`, `grp`, `slot`, `points`, `earned` FROM `ef_talent_slot` ORDER BY `tree`, `grp`, `slot`"))
         {
             do
             {
                 Field* f = r->Fetch();
-                uint32 const node = f[0].Get<uint32>();
-                auto it = nodes.find(node);
-                if (it == nodes.end())
-                    problems.push_back("ef_talent_free: unknown node " + std::to_string(node));
+                uint32 const tree = f[0].Get<uint16>(), group = f[1].Get<uint8>(), slot = f[2].Get<uint8>();
+                auto it = data->trees.find(tree);
+                if (it == data->trees.end() || group < 1 || group > it->second.groups.size() + 1)
+                {
+                    problems.push_back("ef_talent_slot: tree " + std::to_string(tree) + " group " + std::to_string(group) + " unknown or out of order");
+                    continue;
+                }
+                if (group > it->second.groups.size())
+                    it->second.groups.emplace_back();
+                if (slot != it->second.groups[group - 1].slots.size() + 1)
+                    problems.push_back("ef_talent_slot: tree " + std::to_string(tree) + " group " + std::to_string(group) + " slot " +
+                                       std::to_string(slot) + " out of order");
                 else
-                    it->second.freeSpecs.push_back(f[1].Get<uint16>());
+                {
+                    it->second.groups[group - 1].slots.push_back(f[3].Get<uint16>());
+                    it->second.groups[group - 1].earned = f[4].Get<uint8>() != 0;
+                }
             } while (r->NextRow());
         }
-        // pick groups (2026-10-26, Emberfall's talents.md §1.3 rule 7: the Wrathbringer's row abilities): each tree's slot
-        // thresholds and the picks' groups; optional, so a world from before the tables keeps working without them
-        uint32 pickTables = 0;
-        if (QueryResult r = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND "
-            "TABLE_NAME IN ('ef_talent_pick', 'ef_talent_slot')"))
-            pickTables = static_cast<uint32>(r->Fetch()[0].Get<uint64>());
-        if (pickTables == 2)
-        {
-            if (QueryResult r = WorldDatabase.Query("SELECT `tree`, `grp`, `slot`, `points`, `earned` FROM `ef_talent_slot` ORDER BY `tree`, `grp`, `slot`"))
-            {
-                do
-                {
-                    Field* f = r->Fetch();
-                    uint32 const tree = f[0].Get<uint16>(), group = f[1].Get<uint8>(), slot = f[2].Get<uint8>();
-                    auto it = data->trees.find(tree);
-                    if (it == data->trees.end() || group < 1 || group > it->second.groups.size() + 1)
-                    {
-                        problems.push_back("ef_talent_slot: tree " + std::to_string(tree) + " group " + std::to_string(group) + " unknown or out of order");
-                        continue;
-                    }
-                    if (group > it->second.groups.size())
-                        it->second.groups.emplace_back();
-                    if (slot != it->second.groups[group - 1].slots.size() + 1)
-                        problems.push_back("ef_talent_slot: tree " + std::to_string(tree) + " group " + std::to_string(group) + " slot " +
-                                           std::to_string(slot) + " out of order");
-                    else
-                    {
-                        it->second.groups[group - 1].slots.push_back(f[3].Get<uint16>());
-                        it->second.groups[group - 1].earned = f[4].Get<uint8>() != 0;
-                    }
-                } while (r->NextRow());
-            }
-            if (QueryResult r = WorldDatabase.Query("SELECT `node`, `grp` FROM `ef_talent_pick`"))
-            {
-                do
-                {
-                    Field* f = r->Fetch();
-                    uint32 const node = f[0].Get<uint32>();
-                    auto it = nodes.find(node);
-                    if (it == nodes.end())
-                        problems.push_back("ef_talent_pick: unknown node " + std::to_string(node));
-                    else
-                        it->second.group = f[1].Get<uint8>();
-                } while (r->NextRow());
-            }
-        }
-        else if (pickTables)
-            problems.push_back("ef_talent_pick and ef_talent_slot come together; only one exists");
         for (auto& [id, n] : nodes)
         {
             auto it = data->trees.find(n.tree);
@@ -1493,8 +1429,8 @@ namespace Emberfall::Talents
                 specs += fmt::format("{}{} {} (tree {}, {} nodes, {} baseline)", specs.empty() ? "" : ", ", s, spec->key, spec->treeId,
                     st ? st->nodes.size() : 0, spec->baseline.size());
             }
-            LOG_INFO("server.loading", ">> Emberfall talents: class {}: class tree {} ({} nodes, {} gates); specs {}", classId, cls.classTree,
-                ct ? ct->nodes.size() : 0, ct ? ct->gates.size() : 0, specs);
+            LOG_INFO("server.loading", ">> Emberfall talents: class {}: class tree {} ({} nodes); specs {}", classId, cls.classTree,
+                ct ? ct->nodes.size() : 0, specs);
         }
         LOG_INFO("server.loading", ">> Emberfall talents: {} classes, {} specs, {} trees, {} nodes, data hash {}; spec level {}",
             data->classes.size(), data->specs.size(), data->trees.size(), data->nodeIndex.size(), data->dataHash, data->specLevel);

@@ -87,14 +87,13 @@ namespace ef::prof
             {
                 talents::RuleNode r;
                 r.id = n.id;
-                r.row = n.row;
                 r.kind = talents::NodeKind::Passive;
                 r.maxRank = static_cast<uint8_t>(std::min<uint32_t>(n.maxRank, kMaxRank));
                 r.gate = n.gate;
-                for (size_t k = 0; k < n.parents.size() && k < talents::kMaxParents; ++k)
+                if (!n.parents.empty()) // at most one (Validate checks): the talent rules' single parent
                 {
-                    auto const it = ords.find(n.parents[k]);
-                    r.parents[k] = it == ords.end() ? -1 : it->second;
+                    auto const it = ords.find(n.parents[0]);
+                    r.parent = it == ords.end() ? -1 : it->second;
                 }
                 out.nodes.push_back(r);
             }
@@ -282,7 +281,7 @@ namespace ef::prof
                             return {"RANK", t->nodes[i].id};
                         values[i].rank = static_cast<uint8_t>(it->second);
                     }
-                talents::RuleResult const r = talents::checkTree(rules, values, 0xFFFFFFFFu, 0);
+                talents::RuleResult const r = talents::checkTree(rules, values, 0xFFFFFFFFu); // no level, no pick groups
                 if (!r.ok())
                     return {talents::errorCode(r.code), r.detail};
             }
@@ -405,8 +404,8 @@ namespace ef::prof
                     for (uint32_t p : n.parents)
                         if (Tree const* pt = TreeOfNode(p); !pt || pt->id != id)
                             out.push_back("node " + std::to_string(n.id) + ": parent " + std::to_string(p) + " is not in its tree");
-                    if (n.parents.size() > talents::kMaxParents)
-                        out.push_back("node " + std::to_string(n.id) + ": more than 4 parents");
+                    if (n.parents.size() > 1)
+                        out.push_back("node " + std::to_string(n.id) + ": more than one parent");
                 }
             return out;
         }

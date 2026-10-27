@@ -8,39 +8,42 @@
 // This one file is shared: the client uses it for previews (client/src/data/), and the server module
 // mod-emberfall carries a verbatim copy for its authoritative validation (Apache-2.0 code may be included in the
 // AGPL-3.0 module; never the other way round, SPEC §2.3). Both run the same JSON test vectors
-// (tools/py/tests/data/talent_rules/*.json, written by `python -m emberfall_content.talents vectors`, whose Python
-// twin is tools/py/emberfall_content/talents/rules.py), so preview and server cannot drift. Change all three
+// (tools/py/tests/data/talent_rules/example.json, written by `python -m emberfall_content.talents vectors`, whose
+// Python twin is tools/py/emberfall_content/talents/rules.py), so preview and server cannot drift. Change all three
 // together.
 //
 // Wire form (talents.md §4.3): a tree's rank string has one character per node in `ord` order, `0`-`9` the rank of
 // a normal node, `0` or `a`-`d` the option of a choice node; a loadout is `<classRanks>.<specRanks>`.
 //
-// Points (T6): a node's ranks are **paid** unless the node is free for the spec (freeSpecMask has the spec's bit,
-// `free_for_specs`) or granted (autoCount > 0: rank k once the tree's paid points reach autoAt[k-1]). Budgets,
-// gates ("points spent in this tree first") and granted ranks all count paid points. A granted node with a required
-// level is granted from that level on (the points the character has *earned*, not spent: the Wrathbringer's row
-// abilities until 2026-10-26); below it its rank is 0, so the nodes it opens stay shut.
+// The trees (talents.md §5.3): every class tree in the class layout, every spec tree in rows. A node has at most one
+// parent, the node before it in its row (the compiler derives it from the layout), and the parent opens it once full.
+// (Free nodes per spec, several parents per node and edges that opened with part of a parent's points went with the
+// grid layout, 2026-10-27.)
+//
+// Points (T6): a node's ranks are **paid** unless the node is granted (autoCount > 0: rank k once the tree's paid points
+// reach autoAt[k-1]). Budgets, gates ("points spent in this tree first") and granted ranks all count paid points. A
+// granted node with a required level is granted from that level on (the points the character has *earned*, not spent);
+// below it its rank is 0, so the node it opens stays shut.
 //
 // Pick groups (2026-10-26, the Wrathbringer's row abilities; talents.md §1.3 rule 7): a node with a `group` (1-based into
-// the tree's `groups`) is a **pick**: rank 0 or 1, paid like any other rank (1 point, since 2026-10-26 evening; they were
-// free before), and a player holds only as many picks of a group as its slots are open, slot k opening once the group's
-// k-th threshold is reached: by the
-// points the character has **earned** for the tree (its budget at the level; an `earned` group, the Wrathbringer's) or
-// by the tree's **paid** points (a `spent` group). A final state is valid when some order of its picks reaches it: each
-// pick made while its group has a free open slot, counting (for a spent group) only the paid points of the picks made and
-// of the nodes that do not hang on a later pick (Slot; detail: the first pick in `ord` order the largest set of picks reached, the first found
+// the tree's `groups`) is a **pick**: rank 0 or 1, paid like any other rank (1 point), and a player holds only as many
+// picks of a group as its slots are open, slot k opening once the group's k-th threshold is reached: by the points the
+// character has **earned** for the tree (its budget at the level; an `earned` group) or by the tree's **paid** points (a
+// `spent` group). A final state is valid when some order of its picks reaches it: each pick made while its group has a
+// free open slot, counting (for a spent group) only the paid points of the picks made and of the nodes that do not hang
+// on a later pick (Slot; detail: the first pick in `ord` order the largest set of picks reached, the first found
 // depth-first, lacks). An earned group's slots do not depend on the picks: for it this is a plain count.
 //
 // Checks, the first failure wins: Decode (length, characters, a letter on a normal node); then per node of the class
 // tree and then of the spec tree, in `ord` order, for each invested paid node: Rank (above its max), Level (its
-// required level), Path (it has parents and none is open: parent k opens it with parentRanks[k] points, 0 = when
-// full), Gate (the paid points of the nodes with a lower gate are fewer than its gate; detail: the gate), Choice (a
-// digit above 0 or an unknown option on a choice node); after each tree's nodes its Slot check; finally BudgetClass,
-// BudgetSpec. Details are node IDs except for Gate. Picks get the per-node checks too (Rank: above 1).
+// required level), Path (its parent is not full), Gate (the paid points of the nodes with a lower gate are fewer than
+// its gate; detail: the gate), Choice (a digit above 0 or an unknown option on a choice node); after each tree's nodes
+// its Slot check; finally BudgetClass, BudgetSpec. Details are node IDs except for Gate. Picks get the per-node checks
+// too (Rank: above 1).
 //
-// Free and granted nodes skip the per-node checks whatever the string says. A node's gate only counts nodes with a
-// lower gate and edges never form a cycle (the compiler checks), so a final state is valid iff every invested node
-// passes on its own: some purchase order reaches it (talents.md §1.3).
+// Granted nodes skip the per-node checks whatever the string says. A node's gate only counts nodes with a lower gate and
+// a parent stands before its child in `ord` order, so a final state is valid iff every invested node passes on its own:
+// some purchase order reaches it (talents.md §1.3).
 
 #pragma once
 
@@ -94,32 +97,22 @@ namespace ef::talents
         return "?";
     }
 
-    constexpr size_t kMaxParents = 4;
     constexpr uint8_t kMaxWireRank = 9;
-    constexpr uint8_t kMaxOptions = 4; // a-d on the wire (the Wrathbringer's capstone row: one of four)
+    constexpr uint8_t kMaxOptions = 4; // a-d on the wire (a capstone row: one of four)
     constexpr size_t kMaxPicks = 16;   // pick nodes a Slot check orders (the compiler allows no more per tree)
 
     struct RuleNode
     {
         uint32_t id = 0;
-        uint32_t row = 0;
         NodeKind kind = NodeKind::Passive;
-        uint8_t maxRank = 1;      // 1 for a choice node
-        uint8_t numOptions = 0;   // choice nodes: 2-4
-        uint32_t requiredLevel = 0; // a paid node: bought from this level; a granted node: granted from this level
-        uint32_t freeSpecMask = 0;
-        uint32_t gate = 0;        // points spent in the tree first (its own or its row gate, the higher)
-        std::array<int32_t, kMaxParents> parents{-1, -1, -1, -1}; // `ord` indices into the same tree, -1 = none
-        std::array<uint8_t, kMaxParents> parentRanks{};           // the points parent k needs, 0 = full
-        uint8_t autoCount = 0;                                    // a granted node's ranks (0: bought with points)
-        std::array<uint32_t, kMaxWireRank> autoAt{};              // rank k at autoAt[k-1] paid points in the tree
-        uint8_t group = 0;                                        // a pick node's group, 1-based into RuleTree::groups
-    };
-
-    struct RuleGate
-    {
-        uint32_t row = 0;
-        uint32_t points = 0;
+        uint8_t maxRank = 1;                         // 1 for a choice node
+        uint8_t numOptions = 0;                      // choice nodes: 2-4
+        uint32_t requiredLevel = 0;                  // a paid node: bought from this level; a granted node: granted from it
+        uint32_t gate = 0;                           // points spent in the tree first (its own or its row gate, the higher)
+        int32_t parent = -1;                         // the `ord` index of the node that opens it when full, -1 = none
+        uint8_t autoCount = 0;                       // a granted node's ranks (0: bought with points)
+        std::array<uint32_t, kMaxWireRank> autoAt{}; // rank k at autoAt[k-1] paid points in the tree
+        uint8_t group = 0;                           // a pick node's group, 1-based into RuleTree::groups
     };
 
     // A pick group: its slot thresholds, counted in points earned for the tree or spent in it.
@@ -132,8 +125,7 @@ namespace ef::talents
 
     struct RuleTree
     {
-        std::vector<RuleNode> nodes; // in `ord` order
-        std::vector<RuleGate> gates; // the row gates (already folded into each node's `gate`; kept for the UI)
+        std::vector<RuleNode> nodes;   // in `ord` order
         std::vector<RuleGroup> groups; // pick groups, 1-based by RuleNode::group
     };
 
@@ -188,14 +180,8 @@ namespace ef::talents
     // A pick node (of a pick group): bought for 1 point, as the group's open slots allow.
     inline bool isPick(const RuleNode& node) { return node.group != 0; }
 
-    // Bought with points by this spec: not free for it, not granted (a pick is paid too).
-    inline bool isPaid(const RuleNode& node, uint32_t specBit)
-    {
-        return (node.freeSpecMask & specBit) == 0 && node.autoCount == 0;
-    }
-
-    // What a loadout stores for this spec: paid nodes (picks among them).
-    inline bool isStored(const RuleNode& node, uint32_t specBit) { return isPaid(node, specBit) || isPick(node); }
+    // Bought with points (a pick too): every node but a granted one. What a loadout stores.
+    inline bool isPaid(const RuleNode& node) { return node.autoCount == 0; }
 
     // How many picks group `group` (1-based) allows at `paid` points spent in the tree and `earned` points earned for it
     // (the tree's budget at the character's level).
@@ -220,21 +206,21 @@ namespace ef::talents
     }
 
     // Points paid in a tree.
-    inline uint32_t spentPoints(const RuleTree& tree, std::span<const NodeValue> values, uint32_t specBit)
+    inline uint32_t spentPoints(const RuleTree& tree, std::span<const NodeValue> values)
     {
         uint32_t sum = 0;
         for (size_t i = 0; i < tree.nodes.size() && i < values.size(); ++i)
-            if (isPaid(tree.nodes[i], specBit))
+            if (isPaid(tree.nodes[i]))
                 sum += boughtRank(tree.nodes[i], values[i]);
         return sum;
     }
 
     // Points paid in a tree on nodes whose gate is below `gate` (what a node with that gate can follow).
-    inline uint32_t paidBefore(const RuleTree& tree, std::span<const NodeValue> values, uint32_t gate, uint32_t specBit)
+    inline uint32_t paidBefore(const RuleTree& tree, std::span<const NodeValue> values, uint32_t gate)
     {
         uint32_t sum = 0;
         for (size_t i = 0; i < tree.nodes.size() && i < values.size(); ++i)
-            if (isPaid(tree.nodes[i], specBit) && tree.nodes[i].gate < gate)
+            if (isPaid(tree.nodes[i]) && tree.nodes[i].gate < gate)
                 sum += boughtRank(tree.nodes[i], values[i]);
         return sum;
     }
@@ -251,52 +237,41 @@ namespace ef::talents
         return rank;
     }
 
-    // The rank a node counts with: a free node its max rank, a granted node by the tree's paid points (`paid`) and
-    // the character's level, a choice node 1 when anything is picked.
-    inline uint32_t effectiveRank(const RuleNode& node, NodeValue value, uint32_t specBit, uint32_t paid, uint32_t level)
+    // The rank a node counts with: a granted node by the tree's paid points (`paid`) and the character's level, a choice
+    // node 1 when anything is picked.
+    inline uint32_t effectiveRank(const RuleNode& node, NodeValue value, uint32_t paid, uint32_t level)
     {
-        if ((node.freeSpecMask & specBit) != 0)
-            return node.maxRank;
         if (node.autoCount != 0)
             return grantedRank(node, paid, level);
         return boughtRank(node, value);
     }
 
+    // Whether a node at this rank is full (and so opens its child).
     inline bool isFull(const RuleNode& node, uint32_t effective) { return effective > 0 && effective >= node.maxRank; }
 
-    // Whether parent k (`ord` index p) opens a node: with the points the edge asks for, else when full.
-    inline bool opens(const RuleNode& parent, uint8_t need, uint32_t effective)
+    // The `ord` index of a node's parent, or nothing.
+    inline std::optional<size_t> parentOf(const RuleTree& tree, const RuleNode& node)
     {
-        return effective > 0 && effective >= (need != 0 ? need : parent.maxRank);
+        if (node.parent < 0 || static_cast<size_t>(node.parent) >= tree.nodes.size())
+            return std::nullopt;
+        return static_cast<size_t>(node.parent);
     }
 
     // The per-node rules for one invested node (`index` in `ord` order).
-    inline RuleResult checkNode(const RuleTree& tree, std::span<const NodeValue> values, size_t index, uint32_t level,
-                                uint32_t specBit)
+    inline RuleResult checkNode(const RuleTree& tree, std::span<const NodeValue> values, size_t index, uint32_t level)
     {
         const RuleNode& node = tree.nodes[index];
         const NodeValue value = values[index];
-        if (!isStored(node, specBit) || (value.rank == 0 && value.option == 0))
+        if (!isPaid(node) || (value.rank == 0 && value.option == 0))
             return {};
         if (node.kind != NodeKind::Choice && value.rank > node.maxRank)
             return {RuleError::Rank, node.id};
         if (node.requiredLevel > level)
             return {RuleError::Level, node.id};
-        const uint32_t paid = spentPoints(tree, values, specBit);
-        bool hasParent = false, parentOpen = false;
-        for (size_t k = 0; k < kMaxParents; ++k)
-        {
-            const int32_t p = node.parents[k];
-            if (p < 0 || static_cast<size_t>(p) >= tree.nodes.size() || static_cast<size_t>(p) >= values.size())
-                continue;
-            hasParent = true;
-            const size_t pi = static_cast<size_t>(p);
-            if (opens(tree.nodes[pi], node.parentRanks[k], effectiveRank(tree.nodes[pi], values[pi], specBit, paid, level)))
-                parentOpen = true;
-        }
-        if (hasParent && !parentOpen)
+        if (const auto p = parentOf(tree, node);
+            p && *p < values.size() && !isFull(tree.nodes[*p], effectiveRank(tree.nodes[*p], values[*p], spentPoints(tree, values), level)))
             return {RuleError::Path, node.id};
-        if (paidBefore(tree, values, node.gate, specBit) < node.gate)
+        if (paidBefore(tree, values, node.gate) < node.gate)
             return {RuleError::Gate, node.gate};
         if (node.kind == NodeKind::Choice && (value.option == 0 || value.option > node.numOptions))
             return {RuleError::Choice, node.id};
@@ -306,14 +281,14 @@ namespace ef::talents
     namespace detail
     {
         // A state where of the picks only those in `have` (one flag per node, `ord` order) are made: which invested paid
-        // nodes count (a pick only when made; their level, path through counted nodes, made picks, free and granted nodes,
-        // and gate by the counted nodes with a lower gate hold) and their paid points. The closure is unique: every condition only grows
-        // with the counted set.
+        // nodes count (a pick only when made; their level, path through counted nodes, made picks and granted nodes, and
+        // gate by the counted nodes with a lower gate hold) and their paid points. The closure is unique: every condition
+        // only grows with the counted set.
         struct Restricted
         {
             const RuleTree& tree;
             std::span<const NodeValue> values;
-            uint32_t specBit, level;
+            uint32_t level;
             const std::vector<bool>& have;
             std::vector<bool> counted;
             uint32_t total = 0;
@@ -323,8 +298,6 @@ namespace ef::talents
                 const RuleNode& n = tree.nodes[j];
                 if (isPick(n))
                     return have[j] ? boughtRank(n, values[j]) : 0u;
-                if ((n.freeSpecMask & specBit) != 0)
-                    return n.maxRank;
                 if (n.autoCount != 0)
                     return grantedRank(n, total, level);
                 return counted[j] ? boughtRank(n, values[j]) : 0u;
@@ -336,21 +309,11 @@ namespace ef::talents
                 const RuleNode& n = tree.nodes[i];
                 if (n.requiredLevel > level)
                     return false;
-                bool hasParent = false, parentOpen = false;
-                for (size_t k = 0; k < kMaxParents; ++k)
-                {
-                    const int32_t p = n.parents[k];
-                    if (p < 0 || static_cast<size_t>(p) >= tree.nodes.size())
-                        continue;
-                    hasParent = true;
-                    if (opens(tree.nodes[static_cast<size_t>(p)], n.parentRanks[k], rank(static_cast<size_t>(p))))
-                        parentOpen = true;
-                }
-                if (hasParent && !parentOpen)
+                if (const auto p = parentOf(tree, n); p && !isFull(tree.nodes[*p], rank(*p)))
                     return false;
                 uint32_t before = 0;
                 for (size_t j = 0; j < tree.nodes.size(); ++j)
-                    if (counted[j] && isPaid(tree.nodes[j], specBit) && tree.nodes[j].gate < n.gate)
+                    if (counted[j] && isPaid(tree.nodes[j]) && tree.nodes[j].gate < n.gate)
                         before += boughtRank(tree.nodes[j], values[j]);
                 return before >= n.gate;
             }
@@ -365,7 +328,7 @@ namespace ef::talents
                     for (size_t i = 0; i < tree.nodes.size(); ++i)
                     {
                         const RuleNode& n = tree.nodes[i];
-                        if (counted[i] || !isPaid(n, specBit) || (isPick(n) && !have[i]) || boughtRank(n, values[i]) == 0 || !holds(i))
+                        if (counted[i] || !isPaid(n) || (isPick(n) && !have[i]) || boughtRank(n, values[i]) == 0 || !holds(i))
                             continue;
                         counted[i] = true;
                         total += boughtRank(n, values[i]);
@@ -378,8 +341,7 @@ namespace ef::talents
 
     // Slot: some order makes every pick the state holds, each while its group has a free open slot (depth-first over the
     // sets of picks made, in `ord` order; rules.py check_slots step for step).
-    inline RuleResult checkSlots(const RuleTree& tree, std::span<const NodeValue> values, uint32_t level, uint32_t specBit,
-                                 uint32_t earned)
+    inline RuleResult checkSlots(const RuleTree& tree, std::span<const NodeValue> values, uint32_t level, uint32_t earned)
     {
         std::vector<size_t> picks;
         for (size_t i = 0; i < tree.nodes.size() && i < values.size(); ++i)
@@ -410,7 +372,7 @@ namespace ef::talents
             for (size_t b = 0; b < picks.size(); ++b)
                 if ((mask >> b) & 1u)
                     have[picks[b]] = true;
-            detail::Restricted state{tree, values, specBit, level, have, {}, 0};
+            detail::Restricted state{tree, values, level, have, {}, 0};
             state.close();
             for (size_t b = 0; b < picks.size(); ++b)
             {
@@ -437,21 +399,20 @@ namespace ef::talents
 
     // Every node rule of one tree, in `ord` order, then its Slot check (no budget; `earned`: the tree's budget at the level,
     // what earned pick groups count).
-    inline RuleResult checkTree(const RuleTree& tree, std::span<const NodeValue> values, uint32_t level, uint32_t specBit,
-                                uint32_t earned = 0)
+    inline RuleResult checkTree(const RuleTree& tree, std::span<const NodeValue> values, uint32_t level, uint32_t earned = 0)
     {
         if (values.size() != tree.nodes.size())
             return {RuleError::Decode, 0};
         for (size_t i = 0; i < tree.nodes.size(); ++i)
-            if (const RuleResult r = checkNode(tree, values, i, level, specBit); !r.ok())
+            if (const RuleResult r = checkNode(tree, values, i, level); !r.ok())
                 return r;
-        return checkSlots(tree, values, level, specBit, earned);
+        return checkSlots(tree, values, level, earned);
     }
 
-    // A whole loadout `<classRanks>.<specRanks>` for a character of `level` in the spec with `specBit`
-    // (1 << (EfSpec sort - 1); 0 before a spec is chosen, with an empty spec tree) and the budgets of that level.
+    // A whole loadout `<classRanks>.<specRanks>` for a character of `level` (before a spec is chosen: with an empty spec
+    // tree) and the budgets of that level.
     inline RuleResult validateLoadout(const RuleTree& classTree, const RuleTree& specTree, std::string_view loadout, uint32_t level,
-                                      uint32_t classBudget, uint32_t specBudget, uint32_t specBit)
+                                      uint32_t classBudget, uint32_t specBudget)
     {
         const size_t dot = loadout.find('.');
         if (dot == std::string_view::npos || loadout.find('.', dot + 1) != std::string_view::npos)
@@ -460,13 +421,13 @@ namespace ef::talents
         const auto specValues = decodeRanks(specTree, loadout.substr(dot + 1));
         if (!classValues || !specValues)
             return {RuleError::Decode, 0};
-        if (const RuleResult r = checkTree(classTree, *classValues, level, specBit, classBudget); !r.ok())
+        if (const RuleResult r = checkTree(classTree, *classValues, level, classBudget); !r.ok())
             return r;
-        if (const RuleResult r = checkTree(specTree, *specValues, level, specBit, specBudget); !r.ok())
+        if (const RuleResult r = checkTree(specTree, *specValues, level, specBudget); !r.ok())
             return r;
-        if (spentPoints(classTree, *classValues, specBit) > classBudget)
+        if (spentPoints(classTree, *classValues) > classBudget)
             return {RuleError::BudgetClass, 0};
-        if (spentPoints(specTree, *specValues, specBit) > specBudget)
+        if (spentPoints(specTree, *specValues) > specBudget)
             return {RuleError::BudgetSpec, 0};
         return {};
     }
