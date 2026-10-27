@@ -16,9 +16,11 @@
 // a normal node, `0` or `a`-`d` the option of a choice node; a loadout is `<classRanks>.<specRanks>`.
 //
 // The trees (talents.md §5.3): every class tree in the class layout, every spec tree in rows. A node has at most one
-// parent, the node before it in its row (the compiler derives it from the layout), and the parent opens it once full.
-// (Free nodes per spec, several parents per node and edges that opened with part of a parent's points went with the
-// grid layout, 2026-10-27.)
+// parent, the node before it in its row (the compiler derives it from the layout), and the parent opens it once full;
+// in a branch row (2026-10-27) a branch's first node hangs on the row's root, or on the node its head names (a node of
+// another row, `opens_with`), and `ord` keeps every parent before its child (the compiler's order: row, branch, column,
+// each node after its parent). A choice node may end any row, not only the capstone's. (Free nodes per spec, several
+// parents per node and edges that opened with part of a parent's points went with the grid layout, 2026-10-27.)
 //
 // Points (T6): a node's ranks are **paid** unless the node is granted (autoCount > 0: rank k once the tree's paid points
 // reach autoAt[k-1]). Budgets, gates ("points spent in this tree first") and granted ranks all count paid points. A

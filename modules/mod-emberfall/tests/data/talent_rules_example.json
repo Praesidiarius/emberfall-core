@@ -575,6 +575,122 @@
      ]
     }
    ]
+  },
+  {
+   "id": 840,
+   "nodes": [
+    {
+     "id": 8401,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [
+      0
+     ],
+     "parent": -1,
+     "group": 0
+    },
+    {
+     "id": 8402,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": 0,
+     "group": 0
+    },
+    {
+     "id": 8403,
+     "kind": 3,
+     "maxRank": 1,
+     "numOptions": 2,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": 1,
+     "group": 0
+    },
+    {
+     "id": 8404,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [
+      0
+     ],
+     "parent": -1,
+     "group": 0
+    },
+    {
+     "id": 8405,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": 3,
+     "group": 0
+    },
+    {
+     "id": 8406,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": 4,
+     "group": 0
+    },
+    {
+     "id": 8409,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": -1,
+     "group": 1
+    },
+    {
+     "id": 8407,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": 6,
+     "group": 0
+    },
+    {
+     "id": 8408,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": 7,
+     "group": 0
+    }
+   ],
+   "groups": [
+    {
+     "earned": 1,
+     "slots": [
+      1
+     ]
+    }
+   ]
   }
  ],
  "cases": [
@@ -1215,6 +1331,105 @@
    "loadout": "000000000.00101010000",
    "code": "SLOT",
    "detail": 8307
+  },
+  {
+   "name": "branch row: the root opens a branch",
+   "classTree": 810,
+   "specTree": 840,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000.000010000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "branch row: a branch left to right",
+   "classTree": 810,
+   "specTree": 840,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000.000012000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "branch row: a branch talent needs the one before it",
+   "classTree": 810,
+   "specTree": 840,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000.000001000",
+   "code": "PATH",
+   "detail": 8406
+  },
+  {
+   "name": "branch row: a head opening with a later row's pick is shut without it",
+   "classTree": 810,
+   "specTree": 840,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000.000000010",
+   "code": "PATH",
+   "detail": 8407
+  },
+  {
+   "name": "branch row: the pick opens that branch",
+   "classTree": 810,
+   "specTree": 840,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000.000000111",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "a choice ending a row needs the node before it",
+   "classTree": 810,
+   "specTree": 840,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000.00a000000",
+   "code": "PATH",
+   "detail": 8403
+  },
+  {
+   "name": "a choice ending a row: an option after the node before it",
+   "classTree": 810,
+   "specTree": 840,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000.01b000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "a choice ending a row takes an option, not a digit",
+   "classTree": 810,
+   "specTree": 840,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 99,
+   "loadout": "000000000.011000000",
+   "code": "CHOICE",
+   "detail": 8403
+  },
+  {
+   "name": "a choice ending a row costs its point",
+   "classTree": 810,
+   "specTree": 840,
+   "level": 60,
+   "classBudget": 23,
+   "specBudget": 1,
+   "loadout": "000000000.01a000000",
+   "code": "BUDGET_S",
+   "detail": 0
   }
  ]
 }
