@@ -409,6 +409,17 @@ int main()
         check(ExtraCritChance(100.0f, 25.0f) == 0.0f && ExtraCritChance(50.0f, 0.0f) == 0.0f, "nothing to add");
         // a pull that lands short
         check(HookTravel(20.0f, 5.0f) == 15.0f && HookTravel(4.0f, 5.0f) == 0.0f, "the haul");
+        // v2.0 (ankarna 2026-10-27): Deep Wounds one at a time, Open Wounds six of their own
+        check(PoolInstances(1, 0) == 1 && PoolInstances(1, 6) == 6 && PoolInstances(0, 0) == 1 && PoolInstances(1, 20) == 8,
+              "the pool: the dummy's own, a passive's count, 1..8");
+        check(StackBonusPct(20, 2) == 40 && StackBonusPct(0, 2) == 0 && WithPct(100, 40) == 140 && WithPct(100, 0) == 100,
+              "Crimson Undertow: 2 % a stack, 40 % at 20");
+        check(PctOf(100, 50) == 50 && PctOf(1, 30) == 1 && PctOf(0, 30) == 0, "Relentless Strike's half, at least 1");
+        check(CountAmount(3, 1, 10) == 3 && CountAmount(14, 1, 10) == 10 && CountAmount(0, 1, 10) == 0,
+              "Evasive Sweep: 1 % an enemy, at most 10");
+        check(!RhythmChanged(0, 91207) && !RhythmChanged(91207, 91207) && RhythmChanged(91206, 91207),
+              "Perfect Rhythm: the first starts the tracking, a repeat gives nothing, a change does");
+        check(BarrageDelay(0, 200) == 0 && BarrageDelay(4, 200) == 800, "Cutlass Barrage: the first at once, 0.2 s apart");
     }
     // the Damnator's curses (EfSealLogic.h, EfClassKitLogic.h ExtendCapped)
     {

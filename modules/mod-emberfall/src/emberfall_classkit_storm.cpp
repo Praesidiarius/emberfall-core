@@ -28,6 +28,8 @@
 //                                 longer (Thunderhead lengthens every Stormbrand)
 //   spell_ef_kit_cast_while_moving an aura: while it holds, its owner casts spells with a cast time while moving (the core
 //                                 asks, EmberfallCastWhileMoving.h, PATCHES.md #25; Windborne's buff while Windstride holds)
+//                                 and keeps a channel going on the move; with a class mask on its first aura effect
+//                                 (`affects:`) only the spells it names (the Corsair's Mobile Tempest: Whirlwind Assault)
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
@@ -105,19 +107,36 @@ namespace
 
     // ---- casting on the move ----------------------------------------------------------------------------------------------
 
+    // The holds of the owner's auras: `holds` for every spell (Windborne), `masked` for the spells of a class mask only (the
+    // Corsair's Mobile Tempest: Whirlwind Assault), one entry per aura.
     struct MovingCasts : public DataMap::Base
     {
+        struct Masked
+        {
+            uint32 family = 0;
+            flag96 mask;
+        };
         uint32 holds = 0;
+        std::vector<Masked> masked;
     };
 
     constexpr char const* kMovingKey = "ef_cast_while_moving";
 
-    bool CanCastMoving(Unit const* caster, SpellInfo const* /*spell*/)
+    bool CanCastMoving(Unit const* caster, SpellInfo const* spell)
     {
         if (!caster)
             return false;
         MovingCasts const* m = caster->CustomData.Get<MovingCasts>(kMovingKey);
-        return m && m->holds > 0;
+        if (!m)
+            return false;
+        if (m->holds > 0)
+            return true;
+        if (!spell)
+            return false;
+        for (MovingCasts::Masked const& entry : m->masked)
+            if (spell->SpellFamilyName == entry.family && (spell->SpellFamilyFlags & entry.mask))
+                return true;
+        return false;
     }
 }
 
@@ -210,17 +229,39 @@ class spell_ef_kit_cast_while_moving : public AuraScript
 {
     PrepareAuraScript(spell_ef_kit_cast_while_moving);
 
-    void Apply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    // the effect's class mask (`affects:`) limits it to those spells (Mobile Tempest); none: every spell (Windborne)
+    void Apply(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
     {
-        if (Unit* owner = GetUnitOwner())
-            ++owner->CustomData.GetDefault<MovingCasts>(kMovingKey)->holds;
+        Unit* owner = GetUnitOwner();
+        if (!owner)
+            return;
+        MovingCasts* m = owner->CustomData.GetDefault<MovingCasts>(kMovingKey);
+        SpellEffectInfo const& eff = GetSpellInfo()->Effects[aurEff->GetEffIndex()];
+        if (eff.SpellClassMask)
+            m->masked.push_back({ GetSpellInfo()->SpellFamilyName, eff.SpellClassMask });
+        else
+            ++m->holds;
     }
 
-    void Remove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    void Remove(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
     {
-        if (Unit* owner = GetUnitOwner())
-            if (MovingCasts* m = owner->CustomData.Get<MovingCasts>(kMovingKey); m && m->holds > 0)
-                --m->holds;
+        Unit* owner = GetUnitOwner();
+        MovingCasts* m = owner ? owner->CustomData.Get<MovingCasts>(kMovingKey) : nullptr;
+        if (!m)
+            return;
+        SpellEffectInfo const& eff = GetSpellInfo()->Effects[aurEff->GetEffIndex()];
+        if (eff.SpellClassMask)
+        {
+            uint32 const family = GetSpellInfo()->SpellFamilyName;
+            auto it = std::find_if(m->masked.begin(), m->masked.end(), [&](MovingCasts::Masked const& e)
+            {
+                return e.family == family && e.mask == eff.SpellClassMask;
+            });
+            if (it != m->masked.end())
+                m->masked.erase(it);
+        }
+        else if (m->holds > 0)
+            --m->holds;
     }
 
     void Register() override

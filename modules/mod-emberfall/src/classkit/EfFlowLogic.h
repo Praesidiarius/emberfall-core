@@ -101,4 +101,53 @@ namespace Emberfall::ClassKit::Flow
     {
         return dist > stopShort ? dist - stopShort : 0.0f;
     }
+
+    // ---- v2.0 (ankarna's Corsair Talent Tree v2.0, 2026-10-27; warrior-corsair.md §16) ----------------------------------
+
+    // The instances of a split damage over time's pool: the dummy's own (misc B; Deep Wounds 1: a new one replaces the
+    // old), or a passive's count while it holds (Open Wounds: 6, every application its own); 1..8.
+    constexpr int32_t PoolInstances(int32_t own, int32_t overrideCount)
+    {
+        return std::clamp<int32_t>(overrideCount > 0 ? overrideCount : own, 1, 8);
+    }
+
+    // Percent more for `stacks` stacks at `perStack` percent each (Crimson Undertow: 2 % a stack, 20 stacks: 40 %).
+    constexpr int32_t StackBonusPct(int32_t stacks, int32_t perStack)
+    {
+        return stacks > 0 && perStack > 0 ? stacks * perStack : 0;
+    }
+
+    // `amount` raised by `pct` percent (0: as it is).
+    constexpr int32_t WithPct(int32_t amount, int32_t pct)
+    {
+        return pct > 0 ? int32_t(int64_t(amount) * (100 + pct) / 100) : amount;
+    }
+
+    // `pct` percent of `amount`, at least 1 while both are above 0 (Relentless Strike's 50 %, Vicious Follow-Through's 30 %).
+    constexpr int32_t PctOf(int32_t amount, int32_t pct)
+    {
+        if (amount <= 0 || pct <= 0)
+            return 0;
+        return int32_t(std::max<int64_t>(1, int64_t(amount) * pct / 100));
+    }
+
+    // A buff by the enemies struck (Evasive Sweep): `per` for each, at most `cap` (0: no cap).
+    constexpr int32_t CountAmount(uint32_t struck, int32_t per, int32_t cap)
+    {
+        int64_t const total = int64_t(struck) * std::max<int32_t>(0, per);
+        return int32_t(cap > 0 ? std::min<int64_t>(total, cap) : total);
+    }
+
+    // Perfect Rhythm: whether a landed finisher `current` differs from the last landed one `previous` (0: none yet, it
+    // only starts the tracking).
+    constexpr bool RhythmChanged(uint32_t previous, uint32_t current)
+    {
+        return previous != 0 && current != 0 && previous != current;
+    }
+
+    // Cutlass Barrage: when strike `index` (0-based) of a barrage lands, `intervalMs` apart, the first at once.
+    constexpr int32_t BarrageDelay(int32_t index, int32_t intervalMs)
+    {
+        return index <= 0 ? 0 : index * std::max<int32_t>(0, intervalMs);
+    }
 }

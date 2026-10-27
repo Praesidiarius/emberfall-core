@@ -51,7 +51,21 @@
 //                                                             _hit_heal (struck: trigger heals value % of max health),
 //                                                             _cooldown_cut (struck: -value ms off trigger's cooldown),
 //                                                             _delayed_area (trigger at the spot misc B yd ahead after value
-//                                                             ms)
+//                                                             ms); the Corsair v2.0's (warrior-corsair.md §16):
+//                                                             _crit_cooldown_cut (any crit: -value ms off trigger's cooldown:
+//                                                             Ruthless Barrage), _lone_echo (exactly one enemy struck: trigger
+//                                                             at it with value % of the damage done to it, before armour:
+//                                                             Relentless Strike), _count_buff (trigger, a self aura, with
+//                                                             value x the enemies struck, at most misc B; the old one goes
+//                                                             first, none struck: none: Evasive Sweep), _follow_through (while
+//                                                             the caster holds the trigger's CasterAuraSpell: trigger at the
+//                                                             primary enemy struck with value % of the damage done to it:
+//                                                             Vicious Follow-Through in No Quarter), _rhythm (a cast that
+//                                                             struck spends the trigger, a self buff; one that differs from
+//                                                             the last that struck gives value points of the spec power and the
+//                                                             trigger anew; the rule passive's other effect's trigger is the
+//                                                             tracking marker, a fight marker whose amount is that last spell:
+//                                                             Perfect Rhythm)
 //                           The build rules (_build_low_health, _build_count, _build_floor) are spell_ef_kit_build_power's;
 //                           _kill_cut with no ability named (Opportunistic Throw: any killing blow) the kill hook's below.
 //   spell_ef_kit_rule_*     the rules' own aura scripts: markers (nothing happens in them)
@@ -60,6 +74,7 @@
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
+#include "EfFlowLogic.h"
 
 #include "CellImpl.h"
 #include "Creature.h"
@@ -82,6 +97,7 @@
 #include <algorithm>
 #include <cmath>
 #include <list>
+#include <utility>
 #include <vector>
 
 namespace
@@ -213,6 +229,7 @@ class spell_ef_kit_rules : public SpellScript
     uint32 _hits = 0;                  // enemies struck (AfterHit runs only for a hit)
     bool _crit = false;                // an enemy struck critically
     std::vector<uint32> _lowCrits;     // the triggers of _crit_low_health rules a crit earned (cast once, after the cast)
+    std::vector<std::pair<ObjectGuid, int32>> _struck;  // each enemy struck and the damage done to it (before armour)
 
     // the enemies this cast strikes (no miss, dodge or parry), known before the first hit lands
     uint32 EnemiesStruck()
@@ -254,6 +271,7 @@ class spell_ef_kit_rules : public SpellScript
             pct += Logic::SingleTargetPct(struck, eff->GetAmount());
         if (pct > 0 && GetHitDamage() > 0)
             SetHitDamage(Logic::DamageWithPct(GetHitDamage(), pct));
+        _struck.emplace_back(target->GetGUID(), GetHitDamage());
         if (!CritOn(target))
             return;
         _crit = true;
@@ -345,6 +363,7 @@ class spell_ef_kit_rules : public SpellScript
                 if (uint32 const trigger = TriggerOf(eff); trigger && eff->GetAmount() < 0)
                     ShortenCooldown(caster, trigger, -eff->GetAmount());
         }
+        CorsairRules(caster, id);
         // Aftershock: at the spot misc B yards ahead of where the caster stood, value ms later, whatever was struck
         for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_delayed_area", id))
         {
@@ -361,6 +380,99 @@ class spell_ef_kit_rules : public SpellScript
                 if (caster->IsInWorld())
                     caster->CastSpell(x, y, z, trigger, true);
             }, Milliseconds(std::max(0, eff->GetAmount())));
+        }
+    }
+
+    // The primary enemy struck: the cast's own target, else (a spin round the caster: Stormwake) the caster's selected enemy
+    // or victim when it was struck, else the first struck; the damage done to it.
+    std::pair<Unit*, int32> Primary(Unit* caster)
+    {
+        if (_struck.empty())
+            return { nullptr, 0 };
+        auto find = [this](Unit const* unit) -> std::pair<ObjectGuid, int32> const*
+        {
+            for (auto const& s : _struck)
+                if (unit && s.first == unit->GetGUID())
+                    return &s;
+            return nullptr;
+        };
+        Unit* choice = GetExplTargetUnit();
+        if (!choice || choice == caster || !find(choice))
+        {
+            Player* player = caster->ToPlayer();
+            choice = player ? player->GetSelectedUnit() : nullptr;
+            if (!find(choice))
+                choice = caster->GetVictim();
+        }
+        std::pair<ObjectGuid, int32> const* hit = find(choice);
+        if (!hit)
+            hit = &_struck.front();
+        return { ObjectAccessor::GetUnit(*caster, hit->first), hit->second };
+    }
+
+    // the Corsair v2.0's rules (the module doc above), once the cast is done
+    void CorsairRules(Unit* caster, uint32 id)
+    {
+        using namespace Emberfall::ClassKit;
+        // Ruthless Barrage: a crit takes value ms off the trigger's cooldown
+        if (_crit)
+            for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_crit_cooldown_cut", id))
+                if (uint32 const trigger = TriggerOf(eff); trigger && eff->GetAmount() < 0)
+                    ShortenCooldown(caster, trigger, -eff->GetAmount());
+        // Evasive Sweep: the old buff goes, the new one counts the enemies struck
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_count_buff", id))
+        {
+            uint32 const trigger = TriggerOf(eff);
+            if (!trigger)
+                continue;
+            caster->RemoveAurasDueToSpell(trigger);
+            if (int32 const amount = Flow::CountAmount(_hits, eff->GetAmount(), eff->GetMiscValueB()); amount > 0)
+                caster->CastCustomSpell(caster, trigger, &amount, nullptr, nullptr, true);
+        }
+        if (_struck.empty())
+            return;
+        auto [primary, damage] = Primary(caster);
+        // Relentless Strike: exactly one enemy struck, it is struck again
+        if (_struck.size() == 1 && primary && primary->IsAlive())
+            for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_lone_echo", id))
+                if (uint32 const trigger = TriggerOf(eff))
+                    if (int32 const echo = Flow::PctOf(damage, eff->GetAmount()); echo > 0)
+                        caster->CastCustomSpell(primary, trigger, &echo, nullptr, nullptr, true);
+        // Vicious Follow-Through: while the trigger's caster aura holds (No Quarter)
+        if (primary && primary->IsAlive())
+            for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_follow_through", id))
+            {
+                uint32 const trigger = TriggerOf(eff);
+                SpellInfo const* info = trigger ? sSpellMgr->GetSpellInfo(trigger) : nullptr;
+                if (!info || (info->CasterAuraSpell && !caster->HasAura(info->CasterAuraSpell)))
+                    continue;
+                if (int32 const extra = Flow::PctOf(damage, eff->GetAmount()); extra > 0)
+                    caster->CastCustomSpell(primary, trigger, &extra, nullptr, nullptr, true);
+            }
+        // Perfect Rhythm: a landed finisher spends the buff; one that differs from the last landed gives it anew
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_rhythm", id))
+        {
+            uint32 const buff = TriggerOf(eff);
+            uint32 track = 0;
+            for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+                if (i != eff->GetEffIndex() && eff->GetSpellInfo()->Effects[i].TriggerSpell)
+                    track = eff->GetSpellInfo()->Effects[i].TriggerSpell;
+            if (!buff || !track)
+                continue;
+            AuraEffect const* last = caster->GetAuraEffect(track, EFFECT_0, caster->GetGUID());
+            uint32 const previous = last ? uint32(last->GetAmount()) : 0;
+            caster->RemoveAurasDueToSpell(buff);
+            if (Flow::RhythmChanged(previous, id))
+            {
+                GainSpecPower(caster, eff->GetAmount(), id);
+                caster->CastSpell(caster, buff, true);
+            }
+            if (previous != id)
+            {
+                int32 const mark = int32(id);
+                caster->RemoveAurasDueToSpell(track);
+                caster->CastCustomSpell(caster, track, &mark, nullptr, nullptr, true);
+            }
         }
     }
 
@@ -436,7 +548,11 @@ void AddEmberfallClassKitExecScripts()
                               "spell_ef_kit_rule_crit_extend", "spell_ef_kit_rule_crit_low_health", "spell_ef_kit_rule_kill_cut",
                               "spell_ef_kit_rule_cooldown_cut", "spell_ef_kit_rule_low_health_damage",
                               "spell_ef_kit_rule_count_damage", "spell_ef_kit_rule_single_damage",
-                              "spell_ef_kit_rule_count_trigger", "spell_ef_kit_rule_hit_heal", "spell_ef_kit_rule_delayed_area" })
+                              "spell_ef_kit_rule_count_trigger", "spell_ef_kit_rule_hit_heal", "spell_ef_kit_rule_delayed_area",
+                              // the Corsair v2.0's (here and in src/emberfall_classkit_flow.cpp)
+                              "spell_ef_kit_rule_crit_cooldown_cut", "spell_ef_kit_rule_lone_echo",
+                              "spell_ef_kit_rule_count_buff", "spell_ef_kit_rule_follow_through", "spell_ef_kit_rule_rhythm",
+                              "spell_ef_kit_rule_stack_bonus", "spell_ef_kit_rule_hook_arrival", "spell_ef_kit_rule_hook_rush" })
         RegisterSpellScriptWithArgs(spell_ef_kit_rule, name);
     new emberfall_classkit_exec_kills();
 }

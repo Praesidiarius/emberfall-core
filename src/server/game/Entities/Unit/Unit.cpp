@@ -18,6 +18,7 @@
 #include "Unit.h"
 #include "EmberfallCombatLog.h"
 #include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
+#include "EmberfallCastWhileMoving.h" // EMBERFALL: casting on the move (PATCHES.md #25)
 #include "AbstractFollower.h"
 #include "AreaDefines.h"
 #include "ArenaSpectator.h"
@@ -5279,7 +5280,13 @@ void Unit::RemoveAurasWithInterruptFlags(uint32 flag, uint32 except, bool isAuto
     // interrupt channeled spell
     if (Spell* spell = m_currentSpells[CURRENT_CHANNELED_SPELL])
     {
-        if (spell->getState() == SPELL_STATE_CASTING && (spell->m_spellInfo->ChannelInterruptFlags & flag) && spell->m_spellInfo->Id != except)
+        // EMBERFALL: casting on the move (PATCHES.md #25): a channel a module's check lets this caster hold while moving
+        // keeps going when it moves or turns (the Corsair's Mobile Tempest: Whirlwind Assault)
+        uint32 channelFlag = flag;
+        if ((channelFlag & (AURA_INTERRUPT_FLAG_MOVE | AURA_INTERRUPT_FLAG_TURNING))
+            && Emberfall::CastWhileMoving::Allowed(this, spell->m_spellInfo))
+            channelFlag &= ~uint32(AURA_INTERRUPT_FLAG_MOVE | AURA_INTERRUPT_FLAG_TURNING);
+        if (spell->getState() == SPELL_STATE_CASTING && (spell->m_spellInfo->ChannelInterruptFlags & channelFlag) && spell->m_spellInfo->Id != except)
         {
             // Do not interrupt if auto shot
             if (!(isAutoshot && spell->m_spellInfo->HasAttribute(SPELL_ATTR2_DO_NOT_RESET_COMBAT_TIMERS)))
