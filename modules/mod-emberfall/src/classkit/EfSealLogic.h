@@ -17,9 +17,10 @@
 
 #pragma once
 
-// The arithmetic of the Damnator's scripts (Emberfall docs/design/classes/warlock-damnator.md;
+// The arithmetic of the Damnator's scripts (Emberfall docs/design/classes/warlock-damnator.md, v3.0 since 2026-10-28;
 // src/emberfall_classkit_seal.cpp), free of the core so tests/classkit_tests.cpp can run it: a curse's tick bonus, the
-// tick multiplied, the ticks left, Crimson Collapse's burst, Sanguine Torrent's extension, Blood Tide's picks and Seals.
+// tick multiplied, the ticks left, Crimson Collapse's burst, Sanguine Torrent's points, extension and healing, Blood
+// Tide's picks, Seals and copy cap, the tick counters (Blood Harvest, Crimson Flow) and Lingering Ruin's ticks.
 
 #include <algorithm>
 #include <cstddef>
@@ -59,24 +60,15 @@ namespace Emberfall::ClassKit::Seal
         return int64_t(TicksLeft(leftMs, amplitudeMs)) * std::max<int64_t>(0, tickNow);
     }
 
-    // Crimson Collapse's hit on one enemy: `pct` percent (125; Hungry Deep 135/145) of everything left (the window's
-    // +50 % already in each tick: 10,000 left -> 12,500, in Crimson Flood 18,750). Capped at what an int32 base point holds.
+    // Crimson Collapse's hit on one enemy: `pct` percent (100; Devastating Collapse 110/120) of everything left (the
+    // window's +20 % already in each tick: 10,000 left -> 10,000, in Crimson Flood 12,000). Capped at an int32.
     constexpr int32_t CollapseHit(int64_t remaining, int32_t pct)
     {
         int64_t const hit = std::max<int64_t>(0, remaining) * std::max<int32_t>(0, pct) / 100;
         return int32_t(std::min<int64_t>(hit, 0x7FFFFFFF));
     }
 
-    // The time a curse that Crimson Collapse detonates but leaves (Unbroken Vow: Drowning Vow) keeps: its time left is
-    // what the Collapse just dealt, so it is consumed and the curse goes on as freshly sworn, its own duration
-    // (`freshMs`, 18 s) from now (feedback #81: it kept the time it had, so every Collapse dealt the same Vow again
-    // and Sanguine Torrent's extensions piled up on a Vow that never went).
-    constexpr int32_t KeptAfterCollapse(int32_t freshMs)
-    {
-        return std::max<int32_t>(0, freshMs);
-    }
-
-    // Sanguine Torrent: `seals` spent, `msPerSeal` (1000; Rising Water 1250/1500) added to each curse, past every cap.
+    // Sanguine Torrent: `seals` spent, `msPerSeal` (1000; Eternal Torrent 2000) added to each curse, past every cap.
     constexpr int32_t TorrentExtension(int32_t seals, int32_t msPerSeal)
     {
         return std::max<int32_t>(0, seals) * std::max<int32_t>(0, msPerSeal);
@@ -129,9 +121,63 @@ namespace Emberfall::ClassKit::Seal
         return targetLeftMs > 0 && targetLeftMs > std::max<int32_t>(0, ownLeftMs);
     }
 
-    // Drink Deep: `pct` percent of a tick's damage as healing (rounded down).
+    // `pct` percent of an amount, rounded down (Drink Deep's share of a tick; Lingering Ruin's share of a detonation).
     constexpr int32_t ShareOf(int64_t damage, int32_t pct)
     {
         return int32_t(std::min<int64_t>(std::max<int64_t>(0, damage) * std::max<int32_t>(0, pct) / 100, 0x7FFFFFFF));
+    }
+
+    // Sanguine Torrent's points: with the free aura (Freeflow Ritual) `freePoints` and none taken, else every point held;
+    // 0 (refused) below `minimum` without it (5 Seals).
+    struct TorrentSpend
+    {
+        int32_t points = 0;     // what it counts as spent (the extension)
+        bool takesPower = false; // the power held is emptied
+    };
+    constexpr TorrentSpend TorrentPoints(int32_t held, int32_t minimum, bool freeAura, int32_t freePoints)
+    {
+        if (freeAura)
+            return { std::max<int32_t>(0, freePoints), false };
+        if (held < std::max<int32_t>(1, minimum))
+            return { 0, false };
+        return { held, true };
+    }
+
+    // Sanguine Leech: `perMille` of the caster's `maxHealth` for each of `ticks` extra ticks (2.5 % = 25), rounded down.
+    constexpr int32_t LeechHeal(int64_t maxHealth, int32_t perMille, int32_t ticks)
+    {
+        int64_t const heal = std::max<int64_t>(0, maxHealth) * std::max<int32_t>(0, perMille) * std::max<int32_t>(0, ticks) / 1000;
+        return int32_t(std::min<int64_t>(heal, 0x7FFFFFFF));
+    }
+
+    // Blood Tide's copy under Eternal Torrent: never more than the curse's base duration (18 s; its duration talents not
+    // counted), never more than the target has left (40 s left -> 18 s, 6 s left -> 6 s). `baseMs` <= 0: no cap.
+    constexpr int32_t CopyCapped(int32_t leftMs, int32_t baseMs)
+    {
+        return baseMs > 0 ? std::min(leftMs, baseMs) : leftMs;
+    }
+
+    // Blood Harvest: whether tick number `tick` (1, 2, ...) of one curse is an `every`-th one (every 5th).
+    constexpr bool EveryNth(uint32_t tick, int32_t every)
+    {
+        return every > 0 && tick > 0 && tick % uint32_t(every) == 0;
+    }
+
+    // Crimson Flow's chance in percent after `fails` unsuccessful ticks: `step` more for each (3, 6, 9 ...), at most 100.
+    constexpr int32_t RampChance(int32_t fails, int32_t step)
+    {
+        return int32_t(std::min<int64_t>(100, int64_t(std::max<int32_t>(0, fails) + 1) * std::max<int32_t>(0, step)));
+    }
+
+    // Lingering Ruin: `pct` percent of the damage a detonation dealt, over `ticks` ticks: one tick's amount (at least 1
+    // while anything is left).
+    constexpr int32_t EchoTick(int64_t dealt, int32_t pct, int32_t ticks)
+    {
+        if (ticks <= 0)
+            return 0;
+        int64_t const total = std::max<int64_t>(0, dealt) * std::max<int32_t>(0, pct) / 100;
+        if (total <= 0)
+            return 0;
+        return int32_t(std::min<int64_t>(std::max<int64_t>(1, total / ticks), 0x7FFFFFFF));
     }
 }

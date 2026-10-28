@@ -16,51 +16,67 @@
  */
 
 // Emberfall class kits: the Warlock's Damnator (Emberfall docs/design/classes/warlock-damnator.md, ankarna's "Blood &
-// Water Ritualist" v1.0): curses whose ticks make Blood Seals under one shared cooldown, a ritual that spends every Seal
+// Water Ritualist" v3.0 since 2026-10-28): curses read their bonuses at each tick, a ritual that spends the Blood Seals
 // to lengthen and flare every curse, the detonation of what the curses still had to deal, curses copied round the
 // target. Generic scripts, their numbers in the spells' own effects (Emberfall's classkit/scripts_seal.py checks the
 // contracts); the arithmetic is classkit/EfSealLogic.h (tests/classkit_tests.cpp).
 //
 //   spell_ef_kit_seal_dot      a curse (a spell and aura script under one name). Effect 1 periodic damage at the enemy.
-//                              Effect 2 a dummy on the caster: value = spec power points a generating tick gives (spell
-//                              mods in: Drowned Tithe), trigger = the shared cooldown aura (a self helper: while the caster
-//                              has it no tick of any curse gives power; cast at each generating tick for its own duration,
-//                              or the window's effect 2 in ms while the window holds), misc = the window aura (Crimson
-//                              Flood: its effect 1 the percent more tick damage), misc B = enemies at a time (0: any;
-//                              Drowning Vow 1: a new target takes it off the old one). Effect 3 a dummy on the caster:
-//                              value = the cap of a recast (spell_ef_kit_capped_extend), misc = the caster's partner aura
-//                              beside which the ticks deal misc B percent more (Bloodbinding beside Crimson Brine), or a
-//                              number 1-100: the health percent below which they do (Drowning Vow below 35 %). The
-//                              caster's dummy auras naming the curse (misc): without a trigger they add their value to
-//                              that bonus (Salt in the Wound, Last Breath); with a trigger and misc B 0 their value in
-//                              percent more while the target lacks the caster's trigger aura (Cursed Shoals); with a
-//                              trigger and misc B 1 the trigger is cast on the caster with their value in percent of the
-//                              tick (Drink Deep). The multiplier is applied in the periodic damage hook (before
-//                              mitigation, after the snapshot of spell power and spell mods), so Torrent's flares and the
-//                              window count for curses cast before it. Every curse of a caster on any enemy is kept in a
-//                              list on the caster (Torrent, Collapse: "regardless of distance", on the caster's map).
-//   spell_ef_kit_torrent       a channel spending all of the spec power: effect 1 a periodic dummy on the caster (the
-//                              flares), effect 2 a dummy at the enemy it starts at, value = ms added to every curse of
-//                              the caster per point spent (Rising Water), past every cap; effect 3 a dummy on the caster,
-//                              value = percent more damage of the flares (Red Wake). At the channel's start the power is
-//                              taken and the cursed enemies are fixed; each period every curse of the caster still on them
-//                              ticks once more (its own tick: the cooldown, the bonuses). Refused below 1 point.
+//                              Effect 2 a dummy on the caster: misc = the window aura (Crimson Flood: its effect 1 the
+//                              percent more tick damage), misc B = enemies at a time (0: any; Drowning Vow 1: a new target
+//                              takes it off the oldest); optionally value = spec power points a generating tick gives and
+//                              trigger = a shared cooldown aura (a self helper: while the caster has it no tick of any
+//                              curse gives power; the window's effect 2 in ms while it holds); v3.0's curses give none.
+//                              Effect 3 a dummy on the caster: value = the cap of a recast (spell_ef_kit_capped_extend),
+//                              misc = the caster's partner aura beside which the ticks deal misc B percent more
+//                              (Bloodbinding beside Crimson Brine), or a number 1-100: the health percent below which
+//                              they do (Drowning Vow below 35 %); misc B may be 0 (only the talents' percent). The
+//                              caster's dummy auras naming the curse (misc):
+//                                no trigger, misc B 0: their value adds to that bonus (Crimson Bond, Executioner's Vow);
+//                                no trigger, misc B 1: their value more enemies at a time (Twin Vows);
+//                                trigger, misc B 0: their value in percent more while the target lacks the caster's
+//                                  trigger aura;
+//                                trigger, misc B 1: the trigger cast on the caster with their value in percent of the tick;
+//                                trigger, misc B 2: every value-th tick of the curse casts the trigger on the caster
+//                                  (Blood Harvest: a Blood Seal);
+//                                trigger, misc B 3: each tick a chance of value percent, value more after each tick that
+//                                  missed, kept per caster (through recasts) until it hits: the trigger on the caster
+//                                  (Crimson Flow);
+//                                trigger, misc B 4: the trigger at the enemy while the curse holds there (Binding Grasp).
+//                              The multiplier is applied in the periodic damage hook (before mitigation, after the
+//                              snapshot of spell power and spell mods), so Torrent's flares and the window count for
+//                              curses cast before it. A Torrent's flare is a tick too (the counters, the chance). Every
+//                              curse of a caster on any enemy is kept in a list on the caster (Torrent, Collapse:
+//                              "regardless of distance", on the caster's map).
+//   spell_ef_kit_torrent       a channel spending the spec power: effect 1 a periodic dummy on the caster (the flares),
+//                              effect 2 a dummy at the enemy it starts at, value = ms added to every curse of the caster
+//                              per point spent (Eternal Torrent), past every cap, misc B = the least points it needs (5);
+//                              effect 3 a dummy on the caster, value = percent more damage of the flares (Violent Torrent),
+//                              misc = an aura of the caster's that makes it free (Freeflow Ritual: taken by the cast, no
+//                              point taken, no least), misc B = the points it counts as then (10). At the channel's start
+//                              the power is taken and the cursed enemies are fixed; each period every curse of the caster
+//                              still on them ticks once more (its own tick: the bonuses). The caster's dummy auras naming
+//                              it: with a trigger, after each flare the trigger healing the caster for value per mille of
+//                              its maximum health for each curse that ticked (Sanguine Leech); without one, only the
+//                              enemy it starts at is fixed (Eternal Torrent).
 //   spell_ef_kit_collapse      effect 1 a dummy on the caster: value = percent of what the curses still had to deal
-//                              (Hungry Deep), trigger = the hit cast at each cursed enemy with that amount; effect 2: misc
-//                              = a talent, trigger = a curse detonated but left (Unbroken Vow: Drowning Vow; its time
-//                              left is consumed, it goes on with its own duration from the Collapse); effect 3:
-//                              misc = a talent, value = seconds: the curses without a target limit come back with that
-//                              much left (Second Wave). Remaining = the ticks left (rounded up) x the tick as it would
-//                              land now. Refused when no curse of the caster is up.
-//   spell_ef_kit_spread_dots   effect 1 a dummy at the enemy: value = how many more enemies (Spreading Stain), its radius
-//                              round the target (Far Reach); effects 2 and 3 name the curses it copies (misc); effect 2's
-//                              value = power per newly affected enemy, misc B = at most that many pay. The enemies lacking
-//                              the most of the target's curses first, then the closest; each copy gets the target's time
-//                              left and tick phase, never shortening a longer one. Refused without one of them on the
-//                              target.
+//                              (Devastating Collapse), trigger = the hit cast at each cursed enemy with that amount; the
+//                              curses go. Remaining = the ticks left (rounded up) x the tick as it would land now. Then the
+//                              caster's dummy auras naming it with a trigger cast that on the caster (Ritual Aftershock).
+//                              Refused when no curse of the caster is up. Its other effects are free (charges).
+//   spell_ef_kit_spread_dots   effect 1 a dummy at the enemy: value = how many more enemies (Rising Tide), its radius
+//                              round the target (Expanding Tide), misc = a talent with which a copy carries at most the
+//                              curse's base duration (Eternal Torrent); effects 2 and 3 name the curses it copies (misc);
+//                              effect 2's value = power per newly affected enemy (v3.0: 0), misc B = at most that many
+//                              pay. The enemies lacking the most of the target's curses first, then the closest; each copy
+//                              gets the target's time left and tick phase, never shortening a longer one. Refused without
+//                              one of them on the target.
+//   spell_ef_kit_damage_echo   a damage spell: the caster's dummy auras naming it with a trigger (a periodic damage aura)
+//                              cast that at the enemy struck with value percent of the damage dealt, over its ticks
+//                              (Lingering Ruin on Crimson Collapse's hit).
 //   spell_ef_kit_marked_bonus  a dummy at the enemy names an aura of the caster's: on an enemy carrying it, the caster's
 //                              dummy auras naming this spell without a trigger add their value in percent to its damage
-//                              (Marked for the Deep on Bloodcurrent).
+//                              (unused since v3.0).
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
@@ -70,6 +86,7 @@
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
 #include "ObjectAccessor.h"
+#include "Random.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -101,6 +118,8 @@ namespace
 
     char const* const kCursedKey = "ef_seal_cursed";
     char const* const kLimitKey = "ef_seal_limited";
+    char const* const kRampKey = "ef_seal_ramps";
+    char const* const kTorrentKey = "ef_seal_torrent";
 
     // Every curse of the caster on an enemy: (enemy, curse spell).
     struct Cursed : public DataMap::Base
@@ -111,6 +130,18 @@ namespace
     struct Limited : public DataMap::Base
     {
         std::map<uint32, std::deque<ObjectGuid>> bySpell;
+    };
+
+    // Crimson Flow's chances: per trigger, the ticks that missed since the last hit (kept through recasts).
+    struct Ramps : public DataMap::Base
+    {
+        std::map<uint32, int32> fails;
+    };
+
+    // The enemy the caster's last Sanguine Torrent started at (Eternal Torrent fixes only it).
+    struct TorrentTarget : public DataMap::Base
+    {
+        ObjectGuid target;
     };
 
     struct Held
@@ -142,9 +173,37 @@ namespace
         return out;
     }
 
+    uint32 TriggerOf(AuraEffect const* eff)
+    {
+        return eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
+    }
+
     bool HasTrigger(AuraEffect const* eff)
     {
-        return eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell != 0;
+        return TriggerOf(eff) != 0;
+    }
+
+    // The caster's dummy auras naming `spell` (misc) with a trigger and misc B `kind`: (trigger, value) each.
+    std::vector<std::pair<uint32, int32>> Named(Unit* caster, uint32 spell, int32 kind)
+    {
+        std::vector<std::pair<uint32, int32>> out;
+        if (!caster)
+            return out;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (uint32(eff->GetMiscValue()) == spell && eff->GetMiscValueB() == kind && HasTrigger(eff))
+                out.push_back({ TriggerOf(eff), eff->GetAmount() });
+        return out;
+    }
+
+    // Whether the caster has a dummy aura naming `spell` without a trigger and with misc B `kind`.
+    bool NamedPlain(Unit* caster, uint32 spell, int32 kind)
+    {
+        if (!caster)
+            return false;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (uint32(eff->GetMiscValue()) == spell && eff->GetMiscValueB() == kind && !HasTrigger(eff))
+                return true;
+        return false;
     }
 
     // The percent more a curse's tick deals on `target` now (without a flare's).
@@ -161,7 +220,7 @@ namespace
             if (uint32(eff->GetMiscValue()) != info->Id)
                 continue;
             uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
-            if (!trigger)
+            if (!trigger && eff->GetMiscValueB() == 0)
                 conditional += eff->GetAmount();
             else if (eff->GetMiscValueB() == 0 && !target->HasAura(trigger, caster->GetGUID()))
                 lacking += eff->GetAmount();
@@ -208,9 +267,13 @@ class spell_ef_kit_seal_dot : public SpellScript
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
         uint32 const spell = GetSpellInfo()->Id;
-        int32 const limit = GetSpellInfo()->Effects[EFFECT_1].MiscValueB;
-        if (!caster || !target || target == caster || limit <= 0 || !target->HasAura(spell, caster->GetGUID()))
+        int32 const base = GetSpellInfo()->Effects[EFFECT_1].MiscValueB;
+        if (!caster || !target || target == caster || base <= 0 || !target->HasAura(spell, caster->GetGUID()))
             return;
+        int32 limit = base;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (uint32(eff->GetMiscValue()) == spell && eff->GetMiscValueB() == 1 && !HasTrigger(eff))
+                limit += eff->GetAmount();     // Twin Vows
         std::deque<ObjectGuid>& held = caster->CustomData.GetDefault<Limited>(kLimitKey)->bySpell[spell];
         held.erase(std::remove(held.begin(), held.end(), target->GetGUID()), held.end());
         held.erase(std::remove_if(held.begin(), held.end(), [caster, spell](ObjectGuid const& guid)
@@ -243,17 +306,33 @@ class aura_ef_kit_seal_dot : public AuraScript
         return true;
     }
 
+    uint32 _ticks = 0;    // this curse's ticks so far, a Torrent's flares included (Blood Harvest)
+
+    // the curse lands: on the caster's list; its companions at the enemy (misc B 4: Binding Grasp's slow)
     void Applied(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
-        Track(GetCaster(), GetTarget(), GetId(), true);
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        Track(caster, target, GetId(), true);
+        if (!caster || !target || !target->IsAlive())
+            return;
+        for (auto const& [trigger, value] : Named(caster, GetId(), 4))
+            caster->CastSpell(target, trigger, true);
     }
 
+    // the curse goes: off the list, its companions with it
     void Removed(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
-        Track(GetCaster(), GetTarget(), GetId(), false);
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        Track(caster, target, GetId(), false);
+        if (caster && target)
+            for (auto const& [trigger, value] : Named(caster, GetId(), 4))
+                target->RemoveAurasDueToSpell(trigger, GetCasterGUID());
     }
 
-    // inside AuraEffect::PeriodicTick, before the damage (a Torrent's flare too): the Seals and Drink Deep
+    // inside AuraEffect::PeriodicTick, before the damage (a Torrent's flare too): Seals under a shared cooldown (none in
+    // v3.0), Blood Harvest, Crimson Flow, Drink Deep
     void Tick(AuraEffect const* aurEff)
     {
         Unit* caster = GetCaster();
@@ -275,11 +354,25 @@ class aura_ef_kit_seal_dot : public AuraScript
                             cd->SetDuration(eff->GetAmount());
                         }
         }
-        // Drink Deep: the caster's dummies naming this curse with a trigger and misc B 1
-        std::vector<std::pair<uint32, int32>> heals;
-        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
-            if (uint32(eff->GetMiscValue()) == GetId() && eff->GetMiscValueB() == 1 && HasTrigger(eff))
-                heals.push_back({ eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell, eff->GetAmount() });
+        // Blood Harvest (misc B 2): every value-th tick of this curse casts the trigger on the caster
+        ++_ticks;
+        for (auto const& [trigger, every] : Named(caster, GetId(), 2))
+            if (Seal::EveryNth(_ticks, every))
+                caster->CastSpell(caster, trigger, true);
+        // Crimson Flow (misc B 3): a chance that grows with every tick that missed, per caster, until it hits
+        for (auto const& [trigger, step] : Named(caster, GetId(), 3))
+        {
+            int32& fails = caster->CustomData.GetDefault<Ramps>(kRampKey)->fails[trigger];
+            if (roll_chance_i(Seal::RampChance(fails, step)))
+            {
+                fails = 0;
+                caster->CastSpell(caster, trigger, true);
+            }
+            else
+                ++fails;
+        }
+        // Drink Deep (misc B 1): the trigger with a share of the tick
+        std::vector<std::pair<uint32, int32>> const heals = Named(caster, GetId(), 1);
         if (heals.empty())
             return;
         int64 const tick = TickNow(caster, target, aurEff, t_flarePct);
@@ -323,12 +416,27 @@ class spell_ef_kit_torrent : public SpellScript
 
     SpellCastResult CheckCast()
     {
-        return Emberfall::ClassKit::SpecPowerPoints(GetCaster()) >= 1 ? SPELL_CAST_OK : SPELL_FAILED_NO_POWER;
+        Unit* caster = GetCaster();
+        SpellInfo const* info = GetSpellInfo();
+        uint32 const freeAura = uint32(std::max(0, info->Effects[EFFECT_2].MiscValue));
+        Seal::TorrentSpend const spend = Seal::TorrentPoints(Emberfall::ClassKit::SpecPowerPoints(caster),
+            info->Effects[EFFECT_1].MiscValueB, freeAura && caster && caster->HasAura(freeAura), info->Effects[EFFECT_2].MiscValueB);
+        return spend.points > 0 ? SPELL_CAST_OK : SPELL_FAILED_NO_POWER;
+    }
+
+    // the enemy it starts at (Eternal Torrent fixes only it)
+    void Record()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (caster)
+            caster->CustomData.GetDefault<TorrentTarget>(kTorrentKey)->target = target ? target->GetGUID() : ObjectGuid::Empty;
     }
 
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_ef_kit_torrent::CheckCast);
+        BeforeCast += SpellCastFn(spell_ef_kit_torrent::Record);
     }
 };
 
@@ -338,18 +446,32 @@ class aura_ef_kit_torrent : public AuraScript
 
     std::vector<std::pair<ObjectGuid, uint32>> _fixed;
 
-    // the channel starts: every point spent, the cursed enemies fixed, each curse on them lengthened past its cap
+    // the channel starts: the points spent (or the free aura's), the cursed enemies fixed (Eternal Torrent: only the one
+    // it started at), each curse on them lengthened past its cap
     void Started(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
         Unit* caster = GetCaster();
         if (!caster)
             return;
-        int32 const seals = Emberfall::ClassKit::SpecPowerPoints(caster);
-        Emberfall::ClassKit::SetSpecPowerPoints(caster, 0);
-        int32 const ext = Seal::TorrentExtension(seals, GetSpellInfo()->Effects[EFFECT_1].CalcValue(caster));
+        SpellInfo const* info = GetSpellInfo();
+        uint32 const freeAura = uint32(std::max(0, info->Effects[EFFECT_2].MiscValue));
+        bool const isFree = freeAura && caster->HasAura(freeAura);
+        Seal::TorrentSpend const spend = Seal::TorrentPoints(Emberfall::ClassKit::SpecPowerPoints(caster),
+            info->Effects[EFFECT_1].MiscValueB, isFree, info->Effects[EFFECT_2].MiscValueB);
+        if (isFree)
+            caster->RemoveAurasDueToSpell(freeAura);
+        else if (spend.takesPower)
+            Emberfall::ClassKit::SetSpecPowerPoints(caster, 0);
+        int32 const ext = Seal::TorrentExtension(spend.points, info->Effects[EFFECT_1].CalcValue(caster));
+        ObjectGuid only;
+        if (NamedPlain(caster, GetId(), 0))
+            if (TorrentTarget const* t = caster->CustomData.Get<TorrentTarget>(kTorrentKey))
+                only = t->target;
         _fixed.clear();
         for (Held const& h : CursesOf(caster))
         {
+            if (!only.IsEmpty() && h.target->GetGUID() != only)
+                continue;
             _fixed.push_back({ h.target->GetGUID(), h.aura->GetId() });
             if (ext <= 0)
                 continue;
@@ -367,6 +489,7 @@ class aura_ef_kit_torrent : public AuraScript
             return;
         int32 const flare = GetSpellInfo()->Effects[EFFECT_2].CalcValue(caster);
         std::vector<std::pair<ObjectGuid, uint32>> const fixed = _fixed;   // a tick may kill and change nothing here
+        int32 ticked = 0;
         for (auto const& [guid, spell] : fixed)
         {
             Unit* target = ObjectAccessor::GetUnit(*caster, guid);
@@ -379,6 +502,16 @@ class aura_ef_kit_torrent : public AuraScript
             t_flarePct = flare;
             eff->PeriodicTick(app, caster);
             t_flarePct = 0;
+            ++ticked;
+        }
+        // Sanguine Leech: per mille of the caster's maximum health for each extra tick (one heal a flare)
+        if (!ticked || !caster->IsAlive())
+            return;
+        for (auto const& [trigger, perMille] : Named(caster, GetId(), 0))
+        {
+            int32 const amount = Seal::LeechHeal(caster->GetMaxHealth(), perMille, ticked);
+            if (amount > 0)
+                caster->CastCustomSpell(caster, trigger, &amount, nullptr, nullptr, true);
         }
     }
 
@@ -408,11 +541,6 @@ class spell_ef_kit_collapse : public SpellScript
         SpellInfo const* info = GetSpellInfo();
         int32 const pct = info->Effects[EFFECT_0].CalcValue(caster);
         uint32 const hit = info->Effects[EFFECT_0].TriggerSpell;
-        uint32 const keepTalent = uint32(std::max(0, info->Effects[EFFECT_1].MiscValue));
-        uint32 const kept = keepTalent && caster->HasAura(keepTalent) ? info->Effects[EFFECT_1].TriggerSpell : 0;
-        uint32 const waveTalent = uint32(std::max(0, info->Effects[EFFECT_2].MiscValue));
-        int32 const waveMs = waveTalent && caster->HasAura(waveTalent)
-            ? info->Effects[EFFECT_2].CalcValue(caster) * IN_MILLISECONDS : 0;
 
         struct Burst
         {
@@ -429,9 +557,9 @@ class spell_ef_kit_collapse : public SpellScript
             Burst& b = bursts[h.target->GetGUID()];
             b.target = h.target->GetGUID();
             b.remaining += Seal::Remaining(h.aura->GetDuration(), eff->GetAmplitude(), TickNow(caster, h.target, eff, 0));
-            if (h.aura->GetId() != kept)
-                b.removed.push_back(h.aura->GetId());
+            b.removed.push_back(h.aura->GetId());
         }
+        // every curse goes, then each enemy takes its hit (Lingering Ruin rides on the hit: spell_ef_kit_damage_echo)
         for (auto& [guid, b] : bursts)
         {
             Unit* target = ObjectAccessor::GetUnit(*caster, guid);
@@ -442,26 +570,11 @@ class spell_ef_kit_collapse : public SpellScript
             int32 const amount = Seal::CollapseHit(b.remaining, pct);
             if (hit && amount > 0)
                 caster->CastCustomSpell(target, hit, &amount, nullptr, nullptr, true);
-            // Unbroken Vow: the curse stays, but what it had left was just dealt: it goes on with its own duration
-            if (kept && target->IsAlive())
-                if (Aura* aura = target->GetAura(kept, caster->GetGUID()))
-                {
-                    int32 const fresh = Seal::KeptAfterCollapse(aura->CalcMaxDuration(caster));
-                    aura->SetMaxDuration(fresh);
-                    aura->SetDuration(fresh);
-                }
-            // Second Wave: the curses without a target limit back with its time
-            if (waveMs <= 0 || !target->IsAlive())
-                continue;
-            for (uint32 spell : b.removed)
-            {
-                SpellInfo const* curse = sSpellMgr->GetSpellInfo(spell);
-                if (!curse || curse->Effects[EFFECT_1].MiscValueB > 0)
-                    continue;
-                if (Aura* aura = caster->AddAura(spell, target))
-                    aura->SetDuration(waveMs);
-            }
         }
+        // Ritual Aftershock: the caster's dummies naming the Collapse with a trigger, after it consumed a curse
+        if (!bursts.empty())
+            for (auto const& [trigger, value] : Named(caster, info->Id, 0))
+                caster->CastSpell(caster, trigger, true);
     }
 
     void Register() override
@@ -534,6 +647,9 @@ class spell_ef_kit_spread_dots : public SpellScript
             candidates.push_back({ units.size(), lacking, target->GetExactDist2dSq(unit) });
             units.push_back(unit);
         }
+        // Eternal Torrent (effect 1's misc, a talent): a copy carries at most the curse's base duration
+        uint32 const capTalent = uint32(std::max(0, reach.MiscValue));
+        bool const capped = capTalent && caster->HasAura(capTalent);
         int32 newly = 0;
         for (std::size_t i : Seal::PickSpread(candidates, count))
         {
@@ -541,7 +657,7 @@ class spell_ef_kit_spread_dots : public SpellScript
             bool gained = false;
             for (auto const& [spell, from] : source)
             {
-                int32 const left = from->GetDuration();
+                int32 const left = Seal::CopyCapped(from->GetDuration(), capped ? from->GetSpellInfo()->GetMaxDuration() : 0);
                 Aura* own = unit->GetAura(spell, caster->GetGUID());
                 if (!Seal::CopyLengthens(left, own ? own->GetDuration() : -1))
                     continue;
@@ -604,6 +720,39 @@ class spell_ef_kit_marked_bonus : public SpellScript
     }
 };
 
+// ---- Lingering Ruin -----------------------------------------------------------------------------------------------
+
+class spell_ef_kit_damage_echo : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_damage_echo);
+
+    // after the hit: the damage dealt (crit, mitigation and absorbs in), a share of it over the trigger's ticks
+    void AfterHitTarget()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        int32 const dealt = GetHitDamage();
+        if (!caster || !target || target == caster || dealt <= 0 || !target->IsAlive())
+            return;
+        for (auto const& [trigger, pct] : Named(caster, GetSpellInfo()->Id, 0))
+        {
+            SpellInfo const* dot = sSpellMgr->GetSpellInfo(trigger);
+            if (!dot)
+                continue;
+            int32 const period = int32(dot->Effects[EFFECT_0].Amplitude);
+            int32 const ticks = period > 0 ? dot->GetMaxDuration() / period : 0;
+            int32 const amount = Seal::EchoTick(dealt, pct, ticks);
+            if (amount > 0)
+                caster->CastCustomSpell(target, trigger, &amount, nullptr, nullptr, true);
+        }
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_ef_kit_damage_echo::AfterHitTarget);
+    }
+};
+
 void AddEmberfallClassKitSealScripts()
 {
     RegisterSpellAndAuraScriptPair(spell_ef_kit_seal_dot, aura_ef_kit_seal_dot);
@@ -611,5 +760,6 @@ void AddEmberfallClassKitSealScripts()
     RegisterSpellScript(spell_ef_kit_collapse);
     RegisterSpellScript(spell_ef_kit_spread_dots);
     RegisterSpellScript(spell_ef_kit_marked_bonus);
+    RegisterSpellScript(spell_ef_kit_damage_echo);
     new EmberfallSealUnitScript();
 }
