@@ -901,6 +901,7 @@ void AddEmberfallClassKitFlowScripts();
 void AddEmberfallClassKitSealScripts();
 void AddEmberfallClassKitStormScripts();
 void AddEmberfallClassKitLustScripts();
+void AddEmberfallClassKitEarthScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -939,4 +940,5 @@ void AddEmberfallClassKitScripts()
     AddEmberfallClassKitSealScripts();  // the Warlock's Damnator: src/emberfall_classkit_seal.cpp
     AddEmberfallClassKitStormScripts(); // the Druid Stormbringer's storm loop: src/emberfall_classkit_storm.cpp
     AddEmberfallClassKitLustScripts();  // the Warrior's Barbarian: src/emberfall_classkit_lust.cpp
+    AddEmberfallClassKitEarthScripts(); // the Druid's Earthwarden: src/emberfall_classkit_earth.cpp
 }

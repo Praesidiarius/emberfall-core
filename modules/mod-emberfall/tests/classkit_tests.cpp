@@ -23,6 +23,7 @@
 #include "EfClassKitLogic.h"
 #include "EfFlowLogic.h"
 #include "EfSealLogic.h"
+#include "EfEarthLogic.h"
 
 #include <iostream>
 #include <string>
@@ -481,6 +482,50 @@ int main()
         check(SpreadSeals(3, 1, 2) == 2 && SpreadSeals(1, 1, 2) == 1 && SpreadSeals(0, 1, 2) == 0, "at most 2 Seals");
         check(CopyLengthens(9000, 4000) && !CopyLengthens(9000, 12000) && CopyLengthens(9000, -1), "never shortening");
         check(ShareOf(200, 3) == 6 && ShareOf(-5, 6) == 0, "Drink Deep's share");
+    }
+
+    // the Earthwarden's (EfEarthLogic.h)
+    {
+        using namespace Emberfall::ClassKit::Earth;
+        // the strike's heal, percent x 100: 5 %, Deep Restoration below 50 %, Relentless Fury +50 %
+        check(HealPct(5, 80.0f, 50, 10, 0) == 500, "5 % above half health");
+        check(HealPct(5, 40.0f, 50, 5, 0) == 1000 && HealPct(5, 40.0f, 50, 10, 0) == 1500, "Deep Restoration 10 / 15 %");
+        check(HealPct(5, 80.0f, 50, 10, 50) == 750, "Relentless Fury: 7.5 %");
+        check(HealPct(5, 30.0f, 50, 10, 50) == 2250, "both: 15 % x 1.5");
+        check(HealPct(5, 40.0f, 0, 10, 0) == 500, "no rank: no low-health bonus");
+        check(HealAmount(10000, 750) == 750 && HealAmount(0, 750) == 0 && HealAmount(10000, 0) == 0, "the amount");
+        // Overflowing Stone: into the shell up to 80 %
+        check(Overflow(1000, 500, 8000) == 1500 && Overflow(7800, 500, 8000) == 8000 && Overflow(8000, 500, 8000) == 8000,
+              "up to the cap");
+        check(Overflow(9000, 500, 8000) == 9000, "never less than it had");
+        // the growth: one stage a point, at most 3
+        check(GrowthStage(0, 3) == 0 && GrowthStage(2, 3) == 2 && GrowthStage(5, 3) == 3 && GrowthStage(-1, 3) == 0, "stages");
+        // the roll: 150 % (+50), +10 every 5 yd, 30 yd (Long Roll 40)
+        check(RollSpeed(50, 4.9f, 10, 5) == 50 && RollSpeed(50, 5.0f, 10, 5) == 60 && RollSpeed(50, 37.0f, 10, 5) == 120,
+              "Gathering Momentum: 150 % to 220 %");
+        check(RollSpeed(50, 37.0f, 0, 5) == 50, "no momentum");
+        check(!RollDone(29.9f, 30) && RollDone(30.0f, 30) && !RollDone(35.0f, 40) && RollDone(40.5f, 40), "the reach");
+        // Titan's Retribution: every third strike
+        {
+            Count c{};
+            c = EveryNth(c.count, 3);
+            bool const first = c.fires;
+            c = EveryNth(c.count, 3);
+            bool const second = c.fires;
+            c = EveryNth(c.count, 3);
+            check(!first && !second && c.fires && c.count == 0, "the third fires and the count starts over");
+            check(!EveryNth(0, 0).fires, "no n: never");
+        }
+        // Reflective Stone 10 %, Reflective Fury 20 %
+        check(Reflected(1000, 10) == 100 && Reflected(1000, 20) == 200 && Reflected(0, 20) == 0, "the reflected share");
+        // the channel times ankarna's v1.2 table asks for: (2000 + flat) x (100 + pct)
+        check(ChannelMs(2000, 0, 0) == 2000, "2.0 s");
+        check(ChannelMs(2000, -500, 0) == 1500, "Brutal Follow-Up: 1.5 s");
+        check(ChannelMs(2000, 0, -50) == 1000, "Tectonic Fury: 1.0 s");
+        check(ChannelMs(2000, -500, -50) == 750, "both: 0.75 s");
+        // the pull: at most the step, never closer than the keep
+        check(PullStep(10.0f, 2.0f, 1.5f) == 2.0f && PullStep(2.5f, 2.0f, 1.5f) == 1.0f && PullStep(1.0f, 2.0f, 1.5f) == 0.0f,
+              "the pull");
     }
 
     std::cout << "classkit tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
