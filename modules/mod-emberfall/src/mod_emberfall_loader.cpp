@@ -37,6 +37,7 @@ void AddEmberfallMeterScripts();
 void AddEmberfallAccountFriendsScripts();
 void AddEmberfallProfessionsScripts();
 void AddEmberfallLeashScripts();
+void AddEmberfallHomebindScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -59,4 +60,5 @@ void Addmod_emberfallScripts()
     AddEmberfallAccountFriendsScripts();
     AddEmberfallProfessionsScripts();
     AddEmberfallLeashScripts();
+    AddEmberfallHomebindScripts();
 }

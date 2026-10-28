@@ -454,3 +454,15 @@ HELLO answers `ERR OFF`.
 
 Presence is this worldserver's (a friend on another realm shows as offline).
 
+## Start hearths (Emberfall `docs/design/stoneborn.md` §2.4)
+
+The core binds a new character's hearth to its start (`playercreateinfo`). A race with a row in `ef_start_homebind`
+(race, map, area, position; written by Emberfall's compiler from `player.yaml` `start.<race>.hearth`) gets its hearth
+there at the character's first login instead: the stoneborn start at the Stonereach's sledge foot with their hearth at
+the Banked Fire in Deepholm Stair. Races without a row keep the core's bind.
+
+| File | What |
+|---|---|
+| `src/emberfall_homebind.cpp` | `emberfall_homebind_world` (`OnStartup`: reads the rows), `emberfall_homebind_player` (`OnPlayerFirstLogin`: `Player::SetHomebind` and `SMSG_BINDPOINTUPDATE`, as an innkeeper's bind) |
+| `data/sql/db-world/mod_emberfall_2026_10_28_00_start_homebind.sql` | `ef_start_homebind` |
+
