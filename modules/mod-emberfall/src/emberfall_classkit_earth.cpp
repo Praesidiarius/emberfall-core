@@ -30,7 +30,12 @@
 //   spell_ef_kit_strike_channel a channel that strikes at its end (Mountainbreaker): effect 1 a dummy aura at the enemy
 //                              whose trigger is the strike; when that aura runs out (the channel completed: not when the
 //                              target died, left the channel's reach or the channel was broken) the strike is cast at the
-//                              enemy if it is alive and within the spell's range
+//                              enemy if it is alive and within the spell's range. Effect 2 a trigger_spell on the caster:
+//                              the channel's mark (a positive aura the spec's other abilities exclude), taken off when the
+//                              channel ends however it ends. Never exclude the channel spell itself: it is negative (its
+//                              aura at the enemy), and the core casts a negative ExcludeCasterAuraSpell on the targets of
+//                              every family spell that names it (Spell::PrepareTriggersExecutedOnHit, Forbearance's
+//                              rule): feedback #125, Stomp and Rockslide set off a Mountainbreaker on what they hit
 //   spell_ef_kit_strike        the strike (Mountainbreaker's hit): a dummy on the caster with a trigger heals the caster
 //                              its value in percent of max health (the trigger a heal cast with the amount; misc = the
 //                              shell for Overflowing Stone); the rules naming the strike: _heal_low (value percentage
@@ -56,7 +61,11 @@
 //                              dummy (misc = the talent that gives charges, trigger = the charge aura, value = charges).
 //                              Every enemy within reach is struck once a roll; the rules _momentum (value % faster each
 //                              misc B yards: Gathering Momentum) and _end_wave (the trigger cast as the roll ends: Seismic
-//                              Impact). A cast while rolling stops it; the cooldown counts from the start
+//                              Impact). A cast while rolling stops it; the cooldown counts from the start. Effect 3's
+//                              misc B: a creature whose display the roller shows while it rolls (the boulder), the look
+//                              of before (the form's growth stage) back when it ends
+//   spell_ef_kit_rule_self_heal a rider aura (dummy, value = percent): every heal its owner casts on itself is raised by it
+//                              (Earthen Regeneration while the form holds; the unit hook ModifyHealReceived)
 //   spell_ef_kit_rule_*        the rules' own aura scripts (markers; src/emberfall_classkit_exec.cpp's pattern)
 
 #include "EfClassKit.h"
@@ -128,6 +137,17 @@ namespace
             if (uint32(eff->GetMiscValue()) == spell && eff->GetBase()->IsPassive())
                 out.push_back(eff);
         return out;
+    }
+
+    // The owner's self-heal rules (Earthen Regeneration's ward while the form holds): their values in percent, added
+    // to every heal the owner casts on itself (EmberfallEarthUnitScript::ModifyHealReceived).
+    int32 SelfHealPct(Unit* owner)
+    {
+        int32 pct = 0;
+        for (AuraEffect const* eff : owner->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (eff->GetBase()->GetScriptByName("spell_ef_kit_rule_self_heal"))
+                pct += eff->GetAmount();
+        return pct;
     }
 
     // ---- the form ---------------------------------------------------------------------------------------------------------
@@ -268,10 +288,15 @@ class spell_ef_kit_strike_channel : public AuraScript
 
     void RanOut(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
     {
+        Unit* caster = GetCaster();
+        // the channel's mark on the caster (effect 2, a trigger_spell on the caster: what the spec's other abilities
+        // exclude while it channels) goes with the channel, however it ends
+        if (SpellEffectInfo const& mark = GetSpellInfo()->Effects[EFFECT_1];
+            caster && mark.Effect == SPELL_EFFECT_TRIGGER_SPELL && mark.TriggerSpell)
+            caster->RemoveAurasDueToSpell(mark.TriggerSpell, caster->GetGUID());
         // only a channel that ran its full time strikes: death, leaving the reach and a broken channel end it otherwise
         if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_EXPIRE)
             return;
-        Unit* caster = GetCaster();
         Unit* target = GetTarget();
         uint32 const strike = GetSpellInfo()->Effects[aurEff->GetEffIndex()].TriggerSpell;
         if (!caster || !target || !strike || !caster->IsAlive() || !target->IsAlive() || target == caster)
@@ -388,8 +413,9 @@ class spell_ef_kit_strike : public SpellScript
             {
                 SpellEffectInfo const& rule = shell->GetSpellInfo()->Effects[EFFECT_1];
                 int64 const cap = int64(caster->CountPctFromMaxHealth(rule.CalcValue(caster)));
-                // the healing-done auras (Earthen Regeneration) count as for the heal
-                int64 const add = int64(float(amount) * caster->GetTotalAuraMultiplier(SPELL_AURA_MOD_HEALING_DONE_PERCENT));
+                // the healing-done auras and the self-heal rules (Earthen Regeneration) count as for the heal
+                int64 const add = int64(float(amount) * caster->GetTotalAuraMultiplier(SPELL_AURA_MOD_HEALING_DONE_PERCENT)
+                                        * float(100 + SelfHealPct(caster)) / 100.0f);
                 pool->ChangeAmount(int32(Earth::Overflow(pool->GetAmount(), add, cap)));
                 return;
             }
@@ -600,6 +626,7 @@ class spell_ef_kit_roll_aura : public AuraScript
     float _x = 0.0f, _y = 0.0f;
     float _travelled = 0.0f;
     std::set<ObjectGuid> _struck;
+    uint32 _formDisplay = 0;   // the look before the roll (the form's growth stage), back when it ends
 
     void Apply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
@@ -607,6 +634,12 @@ class spell_ef_kit_roll_aura : public AuraScript
         {
             _x = owner->GetPositionX();
             _y = owner->GetPositionY();
+            // the roller's look (effect 3's misc B: a creature whose display it takes while it rolls, the boulder)
+            if (int32 const look = GetSpellInfo()->Effects[EFFECT_2].MiscValueB; look > 0)
+            {
+                _formDisplay = owner->GetDisplayId();
+                ShowStage(owner, look, 0);
+            }
         }
         _travelled = 0.0f;
         _struck.clear();
@@ -664,6 +697,15 @@ class spell_ef_kit_roll_aura : public AuraScript
             for (AuraEffect const* eff : Rules(owner, "spell_ef_kit_rule_end_wave", GetId()))
                 if (uint32 const wave = TriggerOf(eff))
                     owner->CastSpell(owner, wave, true);
+        // the look of before (the form's, at its growth stage); without a form any more the unit's own
+        if (_formDisplay)
+        {
+            if (owner->GetTransformSpell())
+                owner->SetDisplayId(_formDisplay);
+            else
+                owner->RestoreDisplayId();
+            _formDisplay = 0;
+        }
         if (Player* player = owner->ToPlayer())
         {
             RollStart const* start = player->CustomData.Get<RollStart>(kRollKey);
@@ -692,7 +734,17 @@ class spell_ef_kit_earth_rule : public AuraScript
 class EmberfallEarthUnitScript : public UnitScript
 {
 public:
-    EmberfallEarthUnitScript() : UnitScript("EmberfallEarthUnitScript", true, { UNITHOOK_ON_DAMAGE }) { }
+    EmberfallEarthUnitScript() : UnitScript("EmberfallEarthUnitScript", true, { UNITHOOK_ON_DAMAGE, UNITHOOK_MODIFY_HEAL_RECEIVED }) { }
+
+    // Earthen Regeneration: the owner's heals on itself (the core passes the healer first: Unit::HealBySpell) are raised
+    // by its self-heal rules; a heal from anyone else, or the owner's on an ally, is not
+    void ModifyHealReceived(Unit* healer, Unit* target, uint32& heal, SpellInfo const* /*spellInfo*/) override
+    {
+        if (!healer || healer != target || !heal || !healer->IsPlayer())
+            return;
+        if (int32 const pct = SelfHealPct(healer); pct > 0)
+            heal = uint32(int64(heal) * (100 + pct) / 100);
+    }
 
     void OnDamage(Unit* attacker, Unit* victim, uint32& damage) override
     {
@@ -720,7 +772,8 @@ void AddEmberfallClassKitEarthScripts()
     RegisterSpellAndAuraScriptPair(spell_ef_kit_roll, spell_ef_kit_roll_aura);
     for (char const* name : { "spell_ef_kit_rule_heal_low", "spell_ef_kit_rule_heal_during", "spell_ef_kit_rule_overflow",
                               "spell_ef_kit_rule_vengeance", "spell_ef_kit_rule_quake_during", "spell_ef_kit_rule_every_nth",
-                              "spell_ef_kit_rule_reflect", "spell_ef_kit_rule_momentum", "spell_ef_kit_rule_end_wave" })
+                              "spell_ef_kit_rule_reflect", "spell_ef_kit_rule_momentum", "spell_ef_kit_rule_end_wave",
+                              "spell_ef_kit_rule_self_heal" })
         RegisterSpellScriptWithArgs(spell_ef_kit_earth_rule, name);
     new EmberfallEarthUnitScript();
 }
