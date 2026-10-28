@@ -59,15 +59,36 @@ int main()
     check(ColourOf(120, 76, 116, 156, 196) == Colour::Yellow, "recipe +44: yellow");
     check(ColourOf(160, 76, 116, 156, 196) == Colour::Green, "recipe +84: green");
 
+    // the formula itself at rate 1 (the numbers before 2026-10-28)
     XpRules r;
-    check(XpFor(r, Colour::Orange, 1) == 70, "Apprentice orange: 70");
-    check(XpFor(r, Colour::Yellow, 105) == 76, "iron yellow: 76");
-    check(XpFor(r, Colour::Orange, 175) == 81, "requirement 175: 81");
-    check(XpFor(r, Colour::Orange, 325) == 90, "requirement 325: 90");
-    check(XpFor(r, Colour::Orange, 500) == 100, "requirement 500: 100");
-    check(XpFor(r, Colour::Green, 105) == 38, "iron green: half of 76");
+    r.rate = 1.0;
+    check(XpFor(r, Colour::Orange, 1) == 70, "rate 1, Apprentice orange: 70");
+    check(XpFor(r, Colour::Yellow, 105) == 76, "rate 1, iron yellow: 76");
+    check(XpFor(r, Colour::Orange, 175) == 81, "rate 1, requirement 175: 81");
+    check(XpFor(r, Colour::Orange, 325) == 90, "rate 1, requirement 325: 90");
+    check(XpFor(r, Colour::Orange, 500) == 100, "rate 1, requirement 500: 100");
+    check(XpFor(r, Colour::Green, 105) == 38, "rate 1, iron green: half of 76");
     check(XpFor(r, Colour::Grey, 105) == 0, "grey: nothing");
     check(XpFor(r, Colour::Locked, 105) == 0, "locked: nothing");
+
+    // the default rate 0.1 (2026-10-28: profession XP is cosmetic): a tenth of the above
+    XpRules d;
+    check(d.rate == 0.1, "default rate 0.1");
+    check(XpFor(d, Colour::Orange, 1) == 7, "default, Apprentice orange: 7");
+    check(XpFor(d, Colour::Orange, 70) == 7, "default, tin orange: 7 (was 74)");
+    check(XpFor(d, Colour::Yellow, 105) == 8, "default, iron yellow: 8");
+    check(XpFor(d, Colour::Orange, 175) == 8, "default, requirement 175: 8");
+    check(XpFor(d, Colour::Orange, 325) == 9, "default, requirement 325: 9");
+    check(XpFor(d, Colour::Orange, 500) == 10, "default, requirement 500: 10");
+    check(XpFor(d, Colour::Green, 1) == 4, "default, copper green: 4");
+    check(XpFor(d, Colour::Green, 105) == 4, "default, iron green: 4");
+    check(XpFor(d, Colour::Green, 500) == 5, "default, requirement 500 green: 5");
+    check(XpFor(d, Colour::Grey, 500) == 0, "default, grey: nothing");
+    XpRules zero;
+    zero.rate = 0;
+    check(XpFor(zero, Colour::Orange, 500) == 0, "rate 0: nothing");
+    zero.rate = -1;
+    check(XpFor(zero, Colour::Orange, 500) == 0, "negative rate: nothing");
     XpRules off;
     off.base = 0;
     off.perSkill = 0;

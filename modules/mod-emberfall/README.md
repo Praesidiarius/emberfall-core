@@ -165,8 +165,9 @@ curve: every gather (a node, a skinned corpse) and every craft gives XP by its c
 |---|---|---|
 | `Emberfall.Professions.Xp.Enable` | 1 | the switch |
 | `Emberfall.Professions.Xp.Base` | 70 | XP of an orange or yellow action of requirement 0 |
-| `Emberfall.Professions.Xp.PerSkill` | 0.06 | plus this per point of the action's requirement (175: 81, 325: 90, 500: 100) |
+| `Emberfall.Professions.Xp.PerSkill` | 0.06 | plus this per point of the action's requirement (before the rate: 175: 81, 325: 90, 500: 100) |
 | `Emberfall.Professions.Xp.GreenPercent` | 50 | a green action's share; grey gives nothing |
+| `Emberfall.Professions.Xp.Rate` | 0.1 | the one multiplier on all of the above (2026-10-28: profession XP is cosmetic; 7-10 XP an orange action, green 4-5) |
 
 | File | What |
 |---|---|
@@ -453,4 +454,16 @@ HELLO answers `ERR OFF`.
 | `emberfall_accountfriends_player` | `OnPlayerLogin`, `OnPlayerLogout`, `OnPlayerCanUseChat` (whisper) | `on` to the friends in the world; last seen and the offline clock; consumes every `EFF\t` addon whisper and answers the player's own |
 
 Presence is this worldserver's (a friend on another realm shows as offline).
+
+## Start hearths (Emberfall `docs/design/stoneborn.md` §2.4)
+
+The core binds a new character's hearth to its start (`playercreateinfo`). A race with a row in `ef_start_homebind`
+(race, map, area, position; written by Emberfall's compiler from `player.yaml` `start.<race>.hearth`) gets its hearth
+there at the character's first login instead: the stoneborn start at the Stonereach's sledge foot with their hearth at
+the Banked Fire in Deepholm Stair. Races without a row keep the core's bind.
+
+| File | What |
+|---|---|
+| `src/emberfall_homebind.cpp` | `emberfall_homebind_world` (`OnStartup`: reads the rows), `emberfall_homebind_player` (`OnPlayerFirstLogin`: `Player::SetHomebind` and `SMSG_BINDPOINTUPDATE`, as an innkeeper's bind) |
+| `data/sql/db-world/mod_emberfall_2026_10_28_00_start_homebind.sql` | `ef_start_homebind` |
 
