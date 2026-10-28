@@ -34,6 +34,11 @@ namespace Emberfall::TestZone
     // health and mana.
     void SetLevel(Player* player, uint8 level);
 
+    // Every weapon skill the character has (the class's, all given at creation) and Defence at the level's maximum
+    // (Emberfall feedback #130): GiveLevel only raises their cap, so a character lifted from 10 to 40 kept its level-10
+    // skill and missed. SetLevel does it; so does the Warden's level 60.
+    void MaxCombatSkills(Player* player);
+
     // `.eftest zone list`: the zones in route order with their levels.
     bool List(ChatHandler* handler);
 
