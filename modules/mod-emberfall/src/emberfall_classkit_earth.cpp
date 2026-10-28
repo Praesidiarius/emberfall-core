@@ -654,7 +654,13 @@ class spell_ef_kit_roll_aura : public AuraScript
         float const dy = owner->GetPositionY() - _y;
         _x = owner->GetPositionX();
         _y = owner->GetPositionY();
-        _travelled += std::sqrt(dx * dx + dy * dy);
+        // the server hears a player's position only with its movement heartbeats (half a second apart), so at the roll's
+        // top speed (220 %, 15 yd a second) the reach ran 7 yd long: while the roller moves the distance is its speed
+        // times the tick, the positions only when it does not (pushed, pulled)
+        if (owner->isMoving())
+            _travelled += owner->GetSpeed(MOVE_RUN) * float(aurEff->GetAmplitude()) / 1000.0f;
+        else
+            _travelled += std::sqrt(dx * dx + dy * dy);
         // Gathering Momentum: faster every misc B yards
         if (AuraEffect* speed = GetAura()->GetEffect(EFFECT_0))
         {
