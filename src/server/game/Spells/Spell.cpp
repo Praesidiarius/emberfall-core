@@ -5585,6 +5585,11 @@ void Spell::TakePower()
 
     if (hit)
         unitCaster->ModifyPower(PowerType, -m_powerCost);
+    // EMBERFALL: own data (PATCHES.md #26): the runic power slot holds a spec's whole points (the Earthwarden's Seismic
+    // Charges, the Executioner's Openings: 10 units a point); a miss kept up to a quarter of the cost at random, a
+    // fraction of a point. A spender that misses takes nothing there
+    else if (Emberfall::OwnData() && PowerType == POWER_RUNIC_POWER)
+        return;
     else
         unitCaster->ModifyPower(PowerType, -irand(0, m_powerCost / 4));
 
