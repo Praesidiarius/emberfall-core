@@ -48,6 +48,7 @@
 #include "World.h"
 
 #include "EfDungeonLogic.h"
+#include "testzone/EfTestZone.h"
 
 #include <algorithm>
 #include <sstream>
@@ -254,6 +255,7 @@ namespace
                         player->GiveLevel(level);
                         player->InitTalentForLevel();
                     }
+                    Emberfall::TestZone::MaxCombatSkills(player); // the weapon skills too (feedback #130)
                     player->SetUInt32Value(PLAYER_XP, 0);
                     player->SetFullHealth();
                     player->SetPower(POWER_MANA, player->GetMaxPower(POWER_MANA));

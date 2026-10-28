@@ -214,6 +214,21 @@ namespace Emberfall::TestZone
         }
     }
 
+    void MaxCombatSkills(Player* player)
+    {
+        uint16 const max = player->GetMaxSkillValueForLevel();
+        for (uint32 i = 0; i < sSkillLineStore.GetNumRows(); ++i)
+        {
+            SkillLineEntry const* line = sSkillLineStore.LookupEntry(i);
+            if (!line || (line->categoryId != SKILL_CATEGORY_WEAPON && line->id != SKILL_DEFENSE) || !player->HasSkill(line->id))
+                continue;
+            if (player->GetPureMaxSkillValue(line->id) <= 1)
+                continue; // dual wield: had or not, no value
+            player->SetSkill(uint16(line->id), player->GetSkillStep(uint16(line->id)), max, max);
+        }
+        player->UpdateDefenseBonusesMod();
+    }
+
     void SetLevel(Player* player, uint8 level)
     {
         if (player->GetLevel() != level)
@@ -221,6 +236,7 @@ namespace Emberfall::TestZone
             player->GiveLevel(level);
             player->InitTalentForLevel();
         }
+        MaxCombatSkills(player);
         player->SetUInt32Value(PLAYER_XP, 0);
         player->SetFullHealth();
         player->SetPower(POWER_MANA, player->GetMaxPower(POWER_MANA));

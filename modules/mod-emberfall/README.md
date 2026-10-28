@@ -58,7 +58,11 @@ Protocol (`EFT\t<ver>;<seq>;<cmd>;...`, talents.md §4; the answers per request 
 spell: `SWITCH`, and at the cast's end `STATE`, `LOADOUT`, `OK` or `ERR COMBAT`/`STATE`); `APPLY` (chunked,
 validated with `TalentRules.h` after the protocol, hash and player-state checks, then saved and reconciled:
 `STATE`, `LOADOUT`, `OK`); `RESET` (class/spec/both trees of the active loadout); `SAVE` (validated, stored;
-`LIMIT` past 5 per spec), `LOAD` (an apply for the active spec, a mark for another), `DEL` (`GONE`). Limits: 20
+`LIMIT` past 5 per spec), `LOAD` (an apply for the active spec, a mark for another), `DEL` (`GONE`). The strip stays
+once learned (Emberfall 2026-10-28, talents.md §1.3 rule 8; `EfTalentModel::Kept`/`CheckKept`/`WithKept`, the rule
+`TalentRules.h isPermanent`): `APPLY` and `SAVE` to the live loadout without a strip slot the live loadout holds get
+`ERR PERMANENT;node`, `RESET c` keeps it, `LOAD`, `SAVE` to another loadout and a spec switch put it in; only
+`.ef talents reset` and the login's DATA/LEVEL resets clear it. Limits: 20
 requests per 10 s (one `THROTTLE` answer per window), `SPEC` once per 2 s, one reassembly of at most 8 x 251
 bytes.
 
@@ -183,7 +187,7 @@ templates of Emberfall's data; 0 turns that command off). Every command acts on 
 
 | Command | What |
 |---|---|
-| `.eftest level N` | own level 1 .. MaxPlayerLevel, XP 0, full health and mana (the talent system's level hook gives the points) |
+| `.eftest level N` | own level 1 .. MaxPlayerLevel, XP 0, full health and mana (the talent system's level hook gives the points), every weapon skill and Defence at the level's maximum (`TestZone::MaxCombatSkills`; `.eftest zone` and the Warden's level 60 too) |
 | `.eftest zone Z [L]` | the player as one arriving at zone Z: its entry level (or L), the quests of the zones before it on the race's route rewarded without XP, money or items (its breadcrumbs put in the log, the quests after them left alone, Z's own untouched), the item pools' greens for class and level worn, the flight nodes so far, a purse of L x L silver, saved, at Z's main hub; `.eftest zone list`: the zones in route order (`src/emberfall_testzone.cpp`, `src/testzone/`) |
 | `.eftest foe [L] [N] [idle] [hpF]` | 1-5 foes of level L (default the player's) 10 yd ahead that attack (`idle`: at the player's feet until engaged; `hp1.6`: health x 1.6, as a template's HealthModifier); 5 min or until dead |
 | `.eftest dummy [L]` | a dummy of level L: rooted, passive, no health regeneration, 200 x its health, keeps 1 health (`UnitScript::OnDamage`); 10 min |

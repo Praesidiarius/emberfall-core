@@ -695,6 +695,15 @@ namespace Emberfall::Talents
             return st.loadouts.back();
         }
 
+        // The strip the character holds (talents.md §1.3 rule 8, 2026-10-28): the permanent nodes of the live loadout (the
+        // active spec's active one; before the choice the pre-spec loadout's). It only grows: APPLY and SAVE to the live
+        // loadout may not lower it, everything else that changes the live loadout keeps it (EfTalentModel::WithKept).
+        eft::Pairs LiveKept(PlayerState& st, EfTalentModel const& data)
+        {
+            Loadout const* live = st.Active(st.activeSpec);
+            return live ? data.Kept(live->pairs) : eft::Pairs{};
+        }
+
         // Makes `spec` the active spec: the first choice, the end of a switch cast, or a GM's instant switch (§1.6,
         // §3.6). The old spec's bars go to ef_character_actions; the spells are reconciled (the old spec's baseline
         // and node spells go, the new spec's come); then the new spec's stored bars are loaded, or, the first time
@@ -714,8 +723,10 @@ namespace Emberfall::Talents
             player->SendActionButtons(2);
             // A spec entered for the first time starts with the class tree as it is now (the pre-spec choices at the
             // first spec choice, T6; the old spec's at a first switch), when that is valid for it.
+            // The strip stays (2026-10-28): the new spec's loadout gets it, an old one of a spec entered before too.
             eft::Pairs seed;
             EfSpec const* target = data.Spec(spec);
+            eft::Pairs const kept = LiveKept(st, data);
             if (Loadout const* from = st.Active(old); from && target && !st.Active(spec))
             {
                 EfClass const* cls = data.Class(target->classId);
@@ -723,11 +734,14 @@ namespace Emberfall::Talents
                     if (EfNode const* n = data.Node(node); n && cls && n->tree == cls->classTree)
                         seed[node] = pair;
                 if (!data.Validate(*target, data.LoadoutString(*target, seed), player->GetLevel()).ok())
-                    seed.clear();
+                    seed = data.WithKept(*target, {}, kept, player->GetLevel()).value_or(eft::Pairs{});
             }
             st.activeSpec = spec;
             st.dataHash = data.dataHash;
             Loadout& l = ActiveLoadout(st, spec, &seed);
+            if (target && !data.CheckKept(kept, l.pairs).ok())
+                if (std::optional<eft::Pairs> with = data.WithKept(*target, l.pairs, kept, player->GetLevel()))
+                    l.pairs = std::move(*with);
             l.hash = data.dataHash;
             l.updated = static_cast<uint32>(std::time(nullptr));
             SaveSpecRow(trans, guid, st);
@@ -975,6 +989,15 @@ namespace Emberfall::Talents
             std::optional<eft::Pairs> pairs = data.PairsOf(*spec, loadout);
             if (!pairs)
                 return SendErr(player, req.seq, "DECODE");
+            // The strip stays (2026-10-28): the live loadout's may not go down; another loadout gets it (it must fit).
+            eft::Pairs const kept = LiveKept(st, data);
+            if (RuleResult const k = data.CheckKept(kept, *pairs); !k.ok())
+            {
+                eft::Pairs with = data.Overlay(*pairs, kept);
+                if (live || !data.Validate(*spec, data.LoadoutString(*spec, with), level).ok())
+                    return SendErr(player, req.seq, errorCode(k.code), std::to_string(k.detail));
+                pairs = std::move(with);
+            }
             if (!target)
             {
                 std::set<uint32> used;
@@ -1038,6 +1061,15 @@ namespace Emberfall::Talents
             {
                 if (char const* code = StateError(player, st))
                     return SendErr(player, req.seq, code);
+                // the strip stays (2026-10-28): a saved loadout without it gets it (another spec's on its switch, EnterSpec)
+                eft::Pairs const kept = LiveKept(st, data);
+                if (RuleResult const k = data.CheckKept(kept, target->pairs); !k.ok())
+                {
+                    std::optional<eft::Pairs> with = data.WithKept(*spec, target->pairs, kept, level);
+                    if (!with)
+                        return SendErr(player, req.seq, errorCode(k.code), std::to_string(k.detail));
+                    target->pairs = std::move(*with);
+                }
                 RuleResult const result = data.Validate(*spec, data.LoadoutString(*spec, target->pairs), level);
                 if (!result.ok())
                     return SendErr(player, req.seq, errorCode(result.code), std::to_string(result.detail));
@@ -1088,7 +1120,8 @@ namespace Emberfall::Talents
             SendOk(player, req.seq);
         }
 
-        // APPLY;specId;part/total;ranks and RESET;specId;c|s|cs.
+        // APPLY;specId;part/total;ranks and RESET;specId;c|s|cs (a class tree reset keeps the strip; an APPLY that lowers
+        // it is refused: ERR PERMANENT;node, talents.md §1.3 rule 8).
         void HandleApply(Player* player, PlayerState& st, EfTalentModel const& data, eft::Request const& req, bool reset)
         {
             std::string loadout;
@@ -1149,7 +1182,9 @@ namespace Emberfall::Talents
                 {
                     EfNode const* n = data.Node(it->first);
                     bool const inClass = n && cls && n->tree == cls->classTree;
-                    bool const drop = !n || (inClass ? which.find('c') != std::string::npos : which.find('s') != std::string::npos);
+                    // the strip stays (2026-10-28): a class tree reset keeps the permanent nodes
+                    bool const drop = !n || (inClass ? which.find('c') != std::string::npos && !data.Permanent(*n)
+                                                     : which.find('s') != std::string::npos);
                     it = drop ? pairs.erase(it) : std::next(it);
                 }
                 loadout = data.LoadoutString(*spec, pairs);
@@ -1161,6 +1196,9 @@ namespace Emberfall::Talents
             std::optional<eft::Pairs> pairs = data.PairsOf(*spec, loadout);
             if (!pairs)
                 return SendErr(player, req.seq, "DECODE");
+            // the strip stays (2026-10-28): no APPLY takes a held strip slot away (PERMANENT, detail: the node)
+            if (RuleResult const k = data.CheckKept(LiveKept(st, data), *pairs); !k.ok())
+                return SendErr(player, req.seq, errorCode(k.code), std::to_string(k.detail));
             ApplyPairs(player, st, data, std::move(*pairs), !reset);
             SendState(player, &st, &data);
             if (Loadout const* l = st.Active(specId))
