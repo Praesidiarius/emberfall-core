@@ -21,6 +21,8 @@
 // half, grey nothing. On with Emberfall.OwnData = 1 and Emberfall.Professions.Xp.Enable (default 1). The colours are
 // the thresholds the core hands the hooks: gathering's are PATCHES.md #14's (+40/+80/+120 under own data), a recipe's
 // its SkillLineAbility row (yellow TrivialSkillLineRankLow, green the midpoint, grey TrivialSkillLineRankHigh).
+// Emberfall.Professions.Xp.Rate (default 0.1, 2026-10-28) scales every action's XP in one place: profession XP is
+// cosmetic.
 
 #include "Config.h"
 #include "DBCStores.h"
@@ -69,9 +71,11 @@ namespace
             s_rules.base = sConfigMgr->GetOption<float>("Emberfall.Professions.Xp.Base", 70.0f, false);
             s_rules.perSkill = sConfigMgr->GetOption<float>("Emberfall.Professions.Xp.PerSkill", 0.06f, false);
             s_rules.greenPercent = sConfigMgr->GetOption<uint32>("Emberfall.Professions.Xp.GreenPercent", 50, false);
+            s_rules.rate = sConfigMgr->GetOption<float>("Emberfall.Professions.Xp.Rate", 0.1f, false);
             if (Emberfall::OwnData())
-                LOG_INFO("server.loading", ">> Emberfall profession XP: {} (base {}, {} per requirement point, green {}%)",
-                         s_enable ? "on" : "off", s_rules.base, s_rules.perSkill, s_rules.greenPercent);
+                LOG_INFO("server.loading",
+                         ">> Emberfall profession XP: {} (base {}, {} per requirement point, green {}%, rate {})",
+                         s_enable ? "on" : "off", s_rules.base, s_rules.perSkill, s_rules.greenPercent, s_rules.rate);
         }
     };
 

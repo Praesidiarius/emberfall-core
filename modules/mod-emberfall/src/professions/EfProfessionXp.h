@@ -34,6 +34,10 @@ namespace Emberfall::Professions
         double base = 70.0;          // Emberfall.Professions.Xp.Base
         double perSkill = 0.06;      // Emberfall.Professions.Xp.PerSkill: per point of the action's requirement
         uint32_t greenPercent = 50;  // Emberfall.Professions.Xp.GreenPercent
+        // Emberfall.Professions.Xp.Rate: the one multiplier on every profession action's XP. 0.1 since 2026-10-28
+        // (Nathanael: profession XP "is only meant to be cosmetic"; a player with two professions ran ~2 levels ahead
+        // of his group): 7-10 XP an orange action instead of 70-100.
+        double rate = 0.1;
     };
 
     // The colour of an action of requirement `required` (yellow/green/grey: the skill values the colours start at)
@@ -51,18 +55,19 @@ namespace Emberfall::Professions
         return Colour::Orange;
     }
 
-    // The XP an action of requirement `required` and colour `c` gives: base + perSkill x requirement, rounded, in
-    // full for orange and yellow, greenPercent of it for green, nothing for grey (or locked).
+    // The XP an action of requirement `required` and colour `c` gives: (base + perSkill x requirement) x rate,
+    // rounded, in full for orange and yellow, greenPercent of it for green, nothing for grey (or locked).
     inline uint32_t XpFor(XpRules const& r, Colour c, uint32_t required)
     {
-        double const full = std::floor(r.base + r.perSkill * double(required) + 0.5);
+        double const scaled = (r.base + r.perSkill * double(required)) * (r.rate > 0 ? r.rate : 0.0);
+        double const full = std::floor(scaled + 0.5);
         switch (c)
         {
             case Colour::Orange:
             case Colour::Yellow:
                 return full > 0 ? uint32_t(full) : 0;
             case Colour::Green:
-                return full > 0 ? uint32_t(std::floor(full * r.greenPercent / 100.0 + 0.5)) : 0;
+                return scaled > 0 ? uint32_t(std::floor(scaled * r.greenPercent / 100.0 + 0.5)) : 0;
             default:
                 return 0;
         }

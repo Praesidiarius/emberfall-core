@@ -165,8 +165,9 @@ curve: every gather (a node, a skinned corpse) and every craft gives XP by its c
 |---|---|---|
 | `Emberfall.Professions.Xp.Enable` | 1 | the switch |
 | `Emberfall.Professions.Xp.Base` | 70 | XP of an orange or yellow action of requirement 0 |
-| `Emberfall.Professions.Xp.PerSkill` | 0.06 | plus this per point of the action's requirement (175: 81, 325: 90, 500: 100) |
+| `Emberfall.Professions.Xp.PerSkill` | 0.06 | plus this per point of the action's requirement (before the rate: 175: 81, 325: 90, 500: 100) |
 | `Emberfall.Professions.Xp.GreenPercent` | 50 | a green action's share; grey gives nothing |
+| `Emberfall.Professions.Xp.Rate` | 0.1 | the one multiplier on all of the above (2026-10-28: profession XP is cosmetic; 7-10 XP an orange action, green 4-5) |
 
 | File | What |
 |---|---|
