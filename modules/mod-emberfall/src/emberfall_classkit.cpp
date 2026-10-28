@@ -668,13 +668,16 @@ class spell_ef_kit_stack_freeze : public SpellScript
 // A builder of self stacks (the Paladin's Sunblades): every dummy effect on the caster with a trigger raises stacks of
 // that self aura once the cast is done: its value (misc B above 0: one per enemy struck, at most misc B, plus value - 1);
 // nothing when the spell's enemy effects struck nobody. The caster's hit bonuses for this spell run on every enemy
-// struck (Twin Brand).
+// struck (Twin Brand). A missile (Spell.dbc speed: the Marksman's shots, feedback #131) strikes after the cast is done:
+// its stacks come as each enemy is struck, the same total.
 class spell_ef_kit_self_stacks : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_self_stacks);
 
     uint32 _hits = 0;
     bool _first = true;
+    bool _cast = false;                                 // AfterCast ran: a later hit is a missile's
+    int32 _granted[MAX_SPELL_EFFECTS] = {};             // the stacks given so far, per effect
 
     bool NeedsHit()
     {
@@ -705,11 +708,13 @@ class spell_ef_kit_self_stacks : public SpellScript
             return;
         Emberfall::ClassKit::HitBonuses(caster, target, GetSpellInfo()->Id, 0, _first);
         _first = false;
+        if (_cast)
+            Grant(GetCaster());
     }
 
-    void Finish()
+    // the stacks earned by the hits so far, less those already given
+    void Grant(Unit* caster)
     {
-        Unit* caster = GetCaster();
         if (!caster)
             return;
         bool const needsHit = NeedsHit();
@@ -719,9 +724,16 @@ class spell_ef_kit_self_stacks : public SpellScript
             if (eff.Effect != SPELL_EFFECT_DUMMY || !eff.TriggerSpell || eff.TargetA.GetTarget() != TARGET_UNIT_CASTER)
                 continue;
             int32 const gain = Emberfall::ClassKit::Logic::BuilderGain(eff.CalcValue(caster), eff.MiscValueB, _hits, needsHit);
-            if (gain > 0)
-                Emberfall::ClassKit::AddSelfStacks(caster, eff.TriggerSpell, gain);
+            if (gain > _granted[i])
+                Emberfall::ClassKit::AddSelfStacks(caster, eff.TriggerSpell, gain - _granted[i]);
+            _granted[i] = std::max(_granted[i], gain);
         }
+    }
+
+    void Finish()
+    {
+        _cast = true;
+        Grant(GetCaster());
     }
 
     void Register() override

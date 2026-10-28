@@ -108,6 +108,9 @@ class spell_ef_kit_spend_self_stacks : public SpellScript
     bool _first = true;
     int32 _firstDamage = 0;
     ObjectGuid _firstTarget;
+    bool _cast = false;          // AfterCast ran: a later hit is the missile's (Spell.dbc speed, feedback #131)
+    bool _bonusesDone = false;
+    std::vector<std::pair<uint32, int32>> _bonuses;   // the spend bonuses' triggers and percents, read at the cast
 
     uint32 StackSpell() { return uint32(GetSpellInfo()->Effects[EFFECT_1].MiscValue); }
 
@@ -149,6 +152,25 @@ class spell_ef_kit_spend_self_stacks : public SpellScript
         // the hit bonuses with no stack need (Broadhead's bleed); the spend bonuses below need their stacks
         Emberfall::ClassKit::HitBonuses(caster, target, GetSpellInfo()->Id, 0, _first);
         _first = false;
+        if (_cast)
+            CastBonuses(caster);
+    }
+
+    // the spend bonuses with a trigger, at the first enemy struck with their percent of the damage dealt there: after
+    // the cast for an instant hit, as the arrow strikes for a missile
+    void CastBonuses(Unit* caster)
+    {
+        if (_bonusesDone || _firstTarget.IsEmpty())
+            return;
+        _bonusesDone = true;
+        Unit* target = ObjectAccessor::GetUnit(*caster, _firstTarget);
+        for (auto const& [trigger, pct] : _bonuses)
+        {
+            int32 amount = Emberfall::ClassKit::Logic::PctOf(_firstDamage, pct);
+            if (amount <= 0 || !target || !target->IsAlive())
+                continue;
+            caster->CastCustomSpell(target, trigger, &amount, nullptr, nullptr, true);
+        }
     }
 
     void Finish()
@@ -168,12 +190,6 @@ class spell_ef_kit_spend_self_stacks : public SpellScript
         if (!_spent)
             return;
         // spend bonuses: passive dummies naming this spell, misc B = the stacks needed
-        struct Bonus
-        {
-            uint32 trigger;
-            int32 amount;
-        };
-        std::vector<Bonus> bonuses;
         int32 keep = 0;
         for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
         {
@@ -184,20 +200,14 @@ class spell_ef_kit_spend_self_stacks : public SpellScript
                 continue;
             uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
             if (trigger)
-                bonuses.push_back({ trigger, eff->GetAmount() });
+                _bonuses.emplace_back(trigger, eff->GetAmount());
             else
                 keep = std::max(keep, eff->GetAmount());
         }
         if (keep > 0)
             Emberfall::ClassKit::AddSelfStacks(caster, StackSpell(), keep);
-        Unit* target = _firstTarget.IsEmpty() ? nullptr : ObjectAccessor::GetUnit(*caster, _firstTarget);
-        for (Bonus const& b : bonuses)
-        {
-            int32 amount = Emberfall::ClassKit::Logic::PctOf(_firstDamage, b.amount);
-            if (amount <= 0 || !target || !target->IsAlive())
-                continue;
-            caster->CastCustomSpell(target, b.trigger, &amount, nullptr, nullptr, true);
-        }
+        _cast = true;
+        CastBonuses(caster);
     }
 
     void Register() override
