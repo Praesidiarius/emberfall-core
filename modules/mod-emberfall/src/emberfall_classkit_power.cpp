@@ -31,7 +31,9 @@
 //                                 Rules (the Executioner's Talent Tree v1.0, not for a missile): spell_ef_kit_rule_build_
 //                                 low_health / _count give more (an enemy struck at or below misc B % health; at least
 //                                 misc B enemies struck), spell_ef_kit_rule_build_floor at least its value while the caster
-//                                 carries its trigger's aura (EfClassKit.h Rules).
+//                                 carries its trigger's aura (EfClassKit.h Rules); spell_ef_kit_rule_build_pct (the
+//                                 Barbarian's Primal Fury, src/emberfall_classkit_lust.cpp) value percent more, a missile's
+//                                 build too.
 //   spell_ef_kit_power_spender    a spender of the spec power (its Spell.dbc cost; damage, or since the Warlock healing:
 //                                 Bequest and Dole, whose overspend and echo heal and which may target the caster): a dummy on the caster with misc = a
 //                                 talent the caster knows (or = the spell itself: always, the Warlock's Spoil) spends up to
@@ -63,6 +65,7 @@
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
+#include "EfLustLogic.h"
 
 #include "DataMap.h"
 #include "ObjectAccessor.h"
@@ -116,6 +119,16 @@ namespace
                 return int8(i);
         }
         return -1;
+    }
+
+    // The caster's spell_ef_kit_rule_build_pct rules naming the builder (the Barbarian's Primal Fury: +50 % while it
+    // holds) raise `gain` by their percent.
+    int32 BuildPct(Unit* caster, uint32 spellId, int32 gain)
+    {
+        int32 pct = 0;
+        for (AuraEffect const* eff : Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_build_pct", spellId))
+            pct += eff->GetAmount();
+        return pct ? Emberfall::ClassKit::LustLogic::BuildPct(gain, pct) : gain;
     }
 
     bool NeedsHit(SpellInfo const* info)
@@ -184,7 +197,7 @@ class spell_ef_kit_build_power : public SpellScript
         SpellEffectInfo const& eff = GetSpellInfo()->Effects[index];
         if ((eff.MiscValueB > 0 && _hits > uint32(eff.MiscValueB)) || (eff.MiscValueB <= 0 && _hits > 1))
             return;
-        int32 const gain = eff.CalcValue(caster);
+        int32 const gain = BuildPct(caster, GetSpellInfo()->Id, eff.CalcValue(caster));
         if (gain > 0)
             Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id);
     }
@@ -198,8 +211,9 @@ class spell_ef_kit_build_power : public SpellScript
         SpellEffectInfo const& eff = GetSpellInfo()->Effects[index];
         bool const first = eff.MiscValue && eff.TriggerSpell && caster->HasAura(uint32(eff.MiscValue))
                            && !caster->HasAura(eff.TriggerSpell);
-        int32 const gain = WithRules(caster, Emberfall::ClassKit::Logic::PowerGain(eff.CalcValue(caster), eff.MiscValueB,
-                                                                                _hits, NeedsHit(GetSpellInfo()), first));
+        int32 const gain = BuildPct(caster, GetSpellInfo()->Id,
+                                    WithRules(caster, Emberfall::ClassKit::Logic::PowerGain(eff.CalcValue(caster), eff.MiscValueB,
+                                                                                         _hits, NeedsHit(GetSpellInfo()), first)));
         if (gain <= 0)
             return;
         if (Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id) > 0 && first)
