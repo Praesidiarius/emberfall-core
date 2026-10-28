@@ -37,6 +37,12 @@
 //                                   below, no companion out, none waiting); when the channel's aura runs its full time
 //                                   the hunter casts effect 1's trigger at the beast (TAME_CREATURE, the class quest's
 //                                   credit)
+//   spell_ef_kit_dash               a dash ahead along the caster's facing (Verdant Dash): the engine's CHARGE_DEST to
+//                                   TARGET_DEST_CASTER_FRONT_LEAP (the blink's destination, stepped along the ground and
+//                                   stopped short of walls and solid terrain; MoveCharge at its own speed, so slows change
+//                                   neither speed nor distance); this script refuses it while rooted (the engine checks
+//                                   roots for charges and jumps but not for CHARGE_DEST) and when not on the ground
+//                                   (falling or jumping, flying, swimming)
 //   spell_ef_pet_owner_scaling      the companion's share of its hunter (spells/pets.yaml, a family passive on every
 //                                   companion): attack power (effect value: percent of the hunter's ranged attack power),
 //                                   stamina and armour (percent of the hunter's), recomputed every 2 s
@@ -240,6 +246,29 @@ class spell_ef_kit_pet_strike : public SpellScript
     }
 };
 
+class spell_ef_kit_dash : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_dash);
+
+    SpellCastResult Check()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return SPELL_FAILED_BAD_TARGETS;
+        if (caster->HasUnitState(UNIT_STATE_ROOT))
+            return SPELL_FAILED_ROOTED;
+        if (caster->IsFalling() || caster->IsFlying() || caster->IsInWater()
+            || caster->HasUnitMovementFlag(MOVEMENTFLAG_SWIMMING))
+            return SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+        return SPELL_CAST_OK;
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_ef_kit_dash::Check);
+    }
+};
+
 class spell_ef_kit_gentling : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_gentling);
@@ -421,6 +450,7 @@ void AddEmberfallClassKitHuntScripts()
 {
     RegisterSpellScript(spell_ef_kit_spend_self_stacks);
     RegisterSpellScript(spell_ef_kit_pet_strike);
+    RegisterSpellScript(spell_ef_kit_dash);
     RegisterSpellAndAuraScriptPair(spell_ef_kit_gentling, spell_ef_kit_gentling_aura);
     RegisterSpellScript(spell_ef_pet_owner_scaling);
     new emberfall_classkit_hunt_pet();
