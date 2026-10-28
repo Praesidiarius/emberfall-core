@@ -723,6 +723,84 @@ namespace
               "new abilities: a switched option");
         check(m.NewAbilities({{12, {1, 0}}}, {}, passive).empty(), "new abilities: a refund gives none");
     }
+
+    // The strip stays once learned (Emberfall 2026-10-28, Nathanael; talents.md §1.3 rule 8): a class tree's paid node below
+    // the spec level is permanent (TalentRules.h isPermanent); EfTalentModel::Kept / CheckKept / Overlay / WithKept are what
+    // APPLY, SAVE, LOAD, RESET and a spec switch go by (EfTalents.cpp).
+    void permanentTests()
+    {
+        using namespace ef::talents;
+        EfTalentModel m;
+        m.specLevel = 10;
+        m.points[0] = {{1, {0, 0}}, {2, {1, 0}}, {3, {2, 0}}, {4, {3, 0}}, {10, {4, 1}}, {12, {5, 2}}};
+        auto node = [](uint32_t id, uint32_t tree, uint32_t ord, NodeKind kind, uint32_t parent, uint32_t level) {
+            EfNode n;
+            n.id = id;
+            n.tree = tree;
+            n.ord = ord;
+            n.kind = kind;
+            n.requiredLevel = level;
+            n.parent = parent;
+            if (kind == NodeKind::Choice)
+                n.options = {{id * 10 + 1}, {id * 10 + 2}};
+            else
+                n.ranks.push_back({id * 10 + 1});
+            return n;
+        };
+        EfTree ct;
+        ct.id = 1;
+        ct.classId = 1;
+        // the strip 11 -> 12 -> 13 (levels 2-4), a row ability 21 (a choice, from 10) and a stat talent 22 (from 10)
+        ct.nodes = {node(11, 1, 0, NodeKind::Passive, 0, 2), node(12, 1, 1, NodeKind::Active, 11, 3),
+                    node(13, 1, 2, NodeKind::Passive, 12, 4), node(21, 1, 3, NodeKind::Choice, 0, 10),
+                    node(22, 1, 4, NodeKind::Passive, 0, 10)};
+        m.trees[1] = ct;
+        for (uint32_t const specId : {91u, 92u})
+        {
+            EfTree st;
+            st.id = specId - 89; // trees 2 and 3
+            st.classId = 1;
+            st.specId = specId;
+            st.nodes = {node(specId * 10, st.id, 0, NodeKind::Passive, 0, 0)}; // 910 / 920 (2 ranks, level 0)
+            st.nodes[0].maxRank = 2;
+            st.nodes[0].ranks.push_back({specId * 100 + 2});
+            m.trees[st.id] = st;
+            EfSpec spec;
+            spec.id = specId;
+            spec.classId = 1;
+            spec.sort = specId - 90;
+            m.specs[specId] = spec;
+        }
+        std::vector<std::string> problems;
+        m.Finish(problems);
+        check(problems.empty(), "permanent: model problems: " + (problems.empty() ? std::string() : problems[0]));
+        check(m.Permanent(*m.Node(11)) && m.Permanent(*m.Node(13)), "permanent: the strip");
+        check(!m.Permanent(*m.Node(21)) && !m.Permanent(*m.Node(22)), "permanent: not the rows below the strip (the spec level)");
+        check(!m.Permanent(*m.Node(910)), "permanent: no spec tree node, whatever its level");
+
+        EfSpec const& a = m.specs[91];
+        eft::Pairs const live = {{11, {1, 0}}, {12, {1, 0}}, {21, {1, 2}}, {910, {1, 0}}};
+        eft::Pairs const kept = m.Kept(live);
+        check(kept == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}}, "Kept: the strip's slots of a loadout");
+        // APPLY / SAVE of the live loadout: no held slot goes
+        RuleResult const lost = m.CheckKept(kept, {{11, {1, 0}}, {910, {2, 0}}});
+        check(lost.code == RuleError::Permanent && lost.detail == 12, "CheckKept: a refunded strip slot (PERMANENT, the node)");
+        check(m.CheckKept(kept, {{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}}).ok(), "CheckKept: a row node may go, a slot be added");
+        check(std::string(errorCode(RuleError::Permanent)) == "PERMANENT", "PERMANENT is the protocol's code");
+        // SAVE to another loadout, LOAD, a spec switch: the strip goes in
+        check(m.Overlay({{22, {1, 0}}}, kept) == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {22, {1, 0}}}, "Overlay");
+        eft::Pairs const strip3 = {{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}};
+        auto with = m.WithKept(a, {{22, {1, 0}}, {910, {1, 0}}}, kept, 12);
+        check(with && *with == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {22, {1, 0}}, {910, {1, 0}}}, "WithKept: room for the strip");
+        // 4 class points at 10: the strip's 3 and two more do not fit
+        with = m.WithKept(a, {{21, {1, 1}}, {22, {1, 0}}, {910, {1, 0}}}, strip3, 10);
+        check(with && *with == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}, {910, {1, 0}}},
+              "WithKept: no room: the strip and the spec tree, the other class nodes go");
+        with = m.WithKept(a, {{910, {2, 0}}}, strip3, 10);
+        check(with && *with == strip3, "WithKept: then the strip alone");
+        check(!m.WithKept(a, {}, strip3, 3), "WithKept: nothing below the strip's levels");
+        check(m.WithKept(m.specs[92], {}, kept, 12) == std::optional<eft::Pairs>(kept), "WithKept: another spec's first loadout gets the strip");
+    }
 }
 
 int main(int argc, char** argv)
@@ -734,6 +812,7 @@ int main(int argc, char** argv)
         protocolTests();
         loadoutTests();
         stripTests();
+        permanentTests();
         fuzz();
     }
     catch (std::exception const& e)

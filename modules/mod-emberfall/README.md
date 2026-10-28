@@ -58,7 +58,11 @@ Protocol (`EFT\t<ver>;<seq>;<cmd>;...`, talents.md §4; the answers per request 
 spell: `SWITCH`, and at the cast's end `STATE`, `LOADOUT`, `OK` or `ERR COMBAT`/`STATE`); `APPLY` (chunked,
 validated with `TalentRules.h` after the protocol, hash and player-state checks, then saved and reconciled:
 `STATE`, `LOADOUT`, `OK`); `RESET` (class/spec/both trees of the active loadout); `SAVE` (validated, stored;
-`LIMIT` past 5 per spec), `LOAD` (an apply for the active spec, a mark for another), `DEL` (`GONE`). Limits: 20
+`LIMIT` past 5 per spec), `LOAD` (an apply for the active spec, a mark for another), `DEL` (`GONE`). The strip stays
+once learned (Emberfall 2026-10-28, talents.md §1.3 rule 8; `EfTalentModel::Kept`/`CheckKept`/`WithKept`, the rule
+`TalentRules.h isPermanent`): `APPLY` and `SAVE` to the live loadout without a strip slot the live loadout holds get
+`ERR PERMANENT;node`, `RESET c` keeps it, `LOAD`, `SAVE` to another loadout and a spec switch put it in; only
+`.ef talents reset` and the login's DATA/LEVEL resets clear it. Limits: 20
 requests per 10 s (one `THROTTLE` answer per window), `SPEC` once per 2 s, one reassembly of at most 8 x 251
 bytes.
 
