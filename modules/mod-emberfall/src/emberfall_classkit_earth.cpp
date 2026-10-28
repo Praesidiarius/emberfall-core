@@ -700,7 +700,7 @@ class spell_ef_kit_roll_aura : public AuraScript
         // the look of before (the form's, at its growth stage); without a form any more the unit's own
         if (_formDisplay)
         {
-            if (owner->GetTransformSpell())
+            if (owner->HasAuraType(SPELL_AURA_TRANSFORM))
                 owner->SetDisplayId(_formDisplay);
             else
                 owner->RestoreDisplayId();
