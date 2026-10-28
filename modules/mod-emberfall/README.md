@@ -415,6 +415,21 @@ The world tables `ef_editor_zone`, `ef_editor_spawn`, `ef_editor_entry` come fro
 (`python -m emberfall_content.editor.realmdata`), loaded after `world.sql` only where the editor runs. Config:
 `Emberfall.Editor.Mode` `realm` (default) or `local` (a maintainer's server: every account a maintainer, Submit accepts).
 
+## Leash (Emberfall `docs/design/leash-and-social-aggro.md`, feedback #93)
+
+The open world's leash as in Classic: upstream renews a creature's leash timer (`Creature::GetLeashTimer`, 11 s to level
+29, 15 s at 60) when it is hit, attacked or engaged; the module renews it also when the creature lands a melee or direct
+spell hit (not damage over time) on its victim. A mob that keeps hitting you, or that you keep hitting, never leashes; it
+goes home once its timer ran out with its victim more than `CreatureLeashRadius` (30 yd, 2D) from its home, or after the
+core's 10 s evade timer when it cannot reach its victim. Dungeons never leash by distance (upstream), so nothing changes
+there. On with `Emberfall.OwnData = 1` and `Emberfall.Leash.MobHitsRenew` (default 1, `AC_EMBERFALL_LEASH_MOB_HITS_RENEW`).
+Social aggro is the core's `CallAssistance` on Emberfall's faction data (no module code).
+
+| File | What |
+|---|---|
+| `src/leash/EfLeashLogic.h` | pure: which landed hit renews the attacker's leash, the timer per level (`tests/leash_tests.cpp`) |
+| `src/emberfall_leash.cpp` | `emberfall_leash_world` (`OnAfterConfigLoad`: the switch, boot line `>> Emberfall leash: ...`), `emberfall_leash_unit` (`UnitScript::DealDamage`, observes only: `Creature::UpdateLeashExtensionTime` for a renewing hit) |
+
 ## Account friends (Emberfall `docs/design/account-friends.md`)
 
 Friends by account next to the stock character friends (`character_social`, untouched): a request goes to a character's

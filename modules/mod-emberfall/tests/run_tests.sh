@@ -17,7 +17,8 @@
 # and the meter tests (tests/meter_tests.cpp: src/meter/EfMeterLogic.h, the damage meter's fights, attribution, maths, EFM)
 # and the account friend tests (tests/accountfriends_tests.cpp: src/accountfriends/EfAccountFriendsLogic.h, EFF, ADD, limits)
 # and the profession XP tests (tests/professionxp_tests.cpp: src/professions/EfProfessionXp.h, colours and XP)
-# and the periodic crit tests (tests/periodiccrit_tests.cpp: the core's src/server/game/Spells/Auras/EmberfallPeriodicCrit.h).
+# and the periodic crit tests (tests/periodiccrit_tests.cpp: the core's src/server/game/Spells/Auras/EmberfallPeriodicCrit.h)
+# and the leash tests (tests/leash_tests.cpp: src/leash/EfLeashLogic.h, which landed hit renews a mob's leash).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -73,7 +74,8 @@ testzone ../src/testzone testzone_tests.cpp
 meter ../src/meter meter_tests.cpp
 accountfriends ../src/accountfriends accountfriends_tests.cpp
 professionxp ../src/professions professionxp_tests.cpp
-periodiccrit ../../../src/server/game/Spells/Auras periodiccrit_tests.cpp"
+periodiccrit ../../../src/server/game/Spells/Auras periodiccrit_tests.cpp
+leash ../src/leash leash_tests.cpp"
 
 if ! printf '%s\n' "$TESTS" | xargs -P "$JOBS" -n 3 sh "$HERE/run_tests.sh" --compile; then
     echo "run_tests.sh: a test program did not compile" >&2

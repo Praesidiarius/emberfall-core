@@ -36,6 +36,7 @@ void AddEmberfallQuestLootScripts();
 void AddEmberfallMeterScripts();
 void AddEmberfallAccountFriendsScripts();
 void AddEmberfallProfessionsScripts();
+void AddEmberfallLeashScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -57,4 +58,5 @@ void Addmod_emberfallScripts()
     AddEmberfallMeterScripts();
     AddEmberfallAccountFriendsScripts();
     AddEmberfallProfessionsScripts();
+    AddEmberfallLeashScripts();
 }
