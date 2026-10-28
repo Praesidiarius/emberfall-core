@@ -43,6 +43,13 @@
 // its Slot check; finally BudgetClass, BudgetSpec. Details are node IDs except for Gate. Picks get the per-node checks
 // too (Rank: above 1).
 //
+// Permanent nodes (2026-10-28, Nathanael: "the first 9 talent points (level 2-9) in the class tree must not be unlearned;
+// once selected they are set"; talents.md §1.3 rule 8): a class tree's paid node whose required level is below the spec
+// level, which is the class layout's strip (the compiler opens every node below the strip at the spec level). Once a
+// character holds it, no refund, class tree reset, loadout or spec takes it away: checkKept (PERMANENT, detail: the node)
+// and keepPermanent are the client's preview and the server's rule; only a GM reset or a data change that resets a
+// loadout clears it. Validation (validateLoadout) does not look at it: it needs the character's state.
+//
 // Granted nodes skip the per-node checks whatever the string says. A node's gate only counts nodes with a lower gate and
 // a parent stands before its child in `ord` order, so a final state is valid iff every invested node passes on its own:
 // some purchase order reaches it (talents.md §1.3).
@@ -78,6 +85,7 @@ namespace ef::talents
         BudgetClass,
         BudgetSpec,
         Slot,
+        Permanent,
     };
 
     // The protocol's error codes (talents.md §4.5).
@@ -95,6 +103,7 @@ namespace ef::talents
         case RuleError::BudgetClass: return "BUDGET_C";
         case RuleError::BudgetSpec: return "BUDGET_S";
         case RuleError::Slot: return "SLOT";
+        case RuleError::Permanent: return "PERMANENT";
         }
         return "?";
     }
@@ -184,6 +193,12 @@ namespace ef::talents
 
     // Bought with points (a pick too): every node but a granted one. What a loadout stores.
     inline bool isPaid(const RuleNode& node) { return node.autoCount == 0; }
+
+    // A permanent node (the class layout's strip): a paid node of the class tree below the spec level (`specLevel`).
+    inline bool isPermanent(const RuleNode& node, bool classTree, uint32_t specLevel)
+    {
+        return classTree && isPaid(node) && node.requiredLevel < specLevel;
+    }
 
     // How many picks group `group` (1-based) allows at `paid` points spent in the tree and `earned` points earned for it
     // (the tree's budget at the character's level).
@@ -397,6 +412,30 @@ namespace ef::talents
             if (!((best >> b) & 1u))
                 return {RuleError::Slot, tree.nodes[picks[b]].id};
         return {};
+    }
+
+    // PERMANENT: the first permanent node of a class tree (`ord` order) that `after` holds at a lower rank than `kept` (the
+    // character's ranks, e.g. its live loadout's); both in `ord` order, a shorter span reads as rank 0.
+    inline RuleResult checkKept(const RuleTree& classTree, std::span<const NodeValue> kept, std::span<const NodeValue> after,
+                                uint32_t specLevel)
+    {
+        for (size_t i = 0; i < classTree.nodes.size() && i < kept.size(); ++i)
+        {
+            const RuleNode& node = classTree.nodes[i];
+            if (isPermanent(node, true, specLevel) &&
+                boughtRank(node, i < after.size() ? after[i] : NodeValue{}) < boughtRank(node, kept[i]))
+                return {RuleError::Permanent, node.id};
+        }
+        return {};
+    }
+
+    // `values` (a class tree's, `ord` order) with every permanent node raised to its value in `kept`.
+    inline void keepPermanent(const RuleTree& classTree, std::span<const NodeValue> kept, std::span<NodeValue> values,
+                              uint32_t specLevel)
+    {
+        for (size_t i = 0; i < classTree.nodes.size() && i < kept.size() && i < values.size(); ++i)
+            if (isPermanent(classTree.nodes[i], true, specLevel) && boughtRank(classTree.nodes[i], values[i]) < boughtRank(classTree.nodes[i], kept[i]))
+                values[i] = kept[i];
     }
 
     // Every node rule of one tree, in `ord` order, then its Slot check (no budget; `earned`: the tree's budget at the level,

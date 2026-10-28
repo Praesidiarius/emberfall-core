@@ -251,6 +251,82 @@ namespace ef::talents
             return validateLoadout(ct->rules, st ? st->rules : emptyTree, loadout, level, classBudget, specBudget);
         }
 
+        // ---- the strip stays (Emberfall 2026-10-28, Nathanael: "the first 9 talent points (level 2-9) in the class tree must
+        // not be unlearned; once selected they are set"; talents.md §1.3 rule 8) ----
+        // A permanent node is a class tree's paid node below the spec level (TalentRules.h isPermanent: the class layout's
+        // strip). The character's strip is its live loadout's (the active spec's active one); APPLY and SAVE to the live
+        // loadout refuse to lower it (CheckKept: PERMANENT), RESET of the class tree, LOAD, SAVE to another loadout and a
+        // spec switch keep it (WithKept). Only a GM reset (.ef talents reset) and a data change that resets a loadout (§3.7,
+        // Revalidate) clear it.
+
+        // Whether a node is permanent.
+        bool Permanent(const EfNode& n) const
+        {
+            const EfTree* t = Tree(n.tree);
+            return t && n.ord < t->rules.nodes.size() && isPermanent(t->rules.nodes[n.ord], t->specId == 0, specLevel);
+        }
+
+        // The permanent nodes' pairs in `pairs` (the strip a loadout holds).
+        eft::Pairs Kept(const eft::Pairs& pairs) const
+        {
+            eft::Pairs out;
+            for (const auto& [id, p] : pairs)
+                if (const EfNode* n = Node(id); n && Permanent(*n) && (p.rank != 0 || p.option != 0))
+                    out[id] = p;
+            return out;
+        }
+
+        // PERMANENT (detail: the node) when `next` holds a node of `kept` at a lower rank, the first by node ID.
+        RuleResult CheckKept(const eft::Pairs& kept, const eft::Pairs& next) const
+        {
+            for (const auto& [id, p] : kept)
+            {
+                const EfNode* n = Node(id);
+                const EfTree* t = n ? Tree(n->tree) : nullptr;
+                if (!t || !Permanent(*n))
+                    continue;
+                const auto it = next.find(id);
+                const eft::Pair q = it == next.end() ? eft::Pair{} : it->second;
+                const RuleNode& r = t->rules.nodes[n->ord];
+                if (boughtRank(r, NodeValue{q.rank, q.option}) < boughtRank(r, NodeValue{p.rank, p.option}))
+                    return {RuleError::Permanent, id};
+            }
+            return {};
+        }
+
+        // `pairs` with every permanent node of `kept` raised to its rank there.
+        eft::Pairs Overlay(const eft::Pairs& pairs, const eft::Pairs& kept) const
+        {
+            eft::Pairs out = pairs;
+            for (const auto& [id, p] : kept)
+            {
+                const EfNode* n = Node(id);
+                if (!n || !Permanent(*n))
+                    continue;
+                const RuleNode& r = Tree(n->tree)->rules.nodes[n->ord];
+                const auto it = out.find(id);
+                if (it == out.end() || boughtRank(r, NodeValue{it->second.rank, it->second.option}) < boughtRank(r, NodeValue{p.rank, p.option}))
+                    out[id] = p;
+            }
+            return out;
+        }
+
+        // A spec's pairs with the kept strip in, valid at `level` (a spec switch, LOAD): the pairs with every kept node raised
+        // to its rank; if that breaks the rules (no class point left for the strip), the kept nodes and the spec tree's pairs
+        // (the rest of the class tree goes); then the kept nodes alone; nothing when even they fail (a level below them).
+        std::optional<eft::Pairs> WithKept(const EfSpec& spec, const eft::Pairs& pairs, const eft::Pairs& kept, uint32_t level) const
+        {
+            const EfClass* cls = Class(spec.classId);
+            eft::Pairs specOnly;
+            for (const auto& [id, p] : pairs)
+                if (const EfNode* n = Node(id); n && (!cls || n->tree != cls->classTree))
+                    specOnly[id] = p;
+            for (const eft::Pairs& candidate : {Overlay(pairs, kept), Overlay(specOnly, kept), Overlay({}, kept)})
+                if (Validate(spec, LoadoutString(spec, candidate), level).ok())
+                    return candidate;
+            return std::nullopt;
+        }
+
         // The abilities a change of a loadout's pairs gives (Emberfall 2026-10-26, Nathanael: a bought ability goes to the
         // first empty bar button): each active node's spells at a rank above its rank before, each choice node's option
         // other than before; spells `passive` says are passive left out. In node ID order.
