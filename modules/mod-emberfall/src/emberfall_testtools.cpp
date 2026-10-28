@@ -32,6 +32,8 @@
 //                            health); gone after 10 minutes (creature Emberfall.TestTools.DummyEntry)
 //   .eftest clear            your foes and dummies gone
 //   .eftest refresh          full health and mana, your spell cooldowns ended
+//   .eftest power N          your spec power at N points (0 too), its maximum untouched (`.modify runicpower` sets the
+//                            slot's maximum as well: the Earthwarden's 3 Seismic Charges would be capped at N)
 //
 // Config: Emberfall.TestTools.Enable (0), .Security (0: any account; the commands are registered for players and
 // refuse an account below it), .FoeEntry and .DummyEntry (0: that command is off; Emberfall's own data names its
@@ -54,6 +56,7 @@
 #include "WorldScript.h"
 #include "WorldSession.h"
 #include "testzone/EfTestZone.h"
+#include "classkit/EfClassKit.h"
 
 #include <algorithm>
 #include <cmath>
@@ -185,6 +188,7 @@ namespace
                 { "dummy",   HandleDummy,   SEC_PLAYER, Console::No },
                 { "clear",   HandleClear,   SEC_PLAYER, Console::No },
                 { "refresh", HandleRefresh, SEC_PLAYER, Console::No },
+                { "power",   HandlePower,   SEC_PLAYER, Console::No },
                 { "",        HandleList,    SEC_PLAYER, Console::No },
             };
             static ChatCommandTable commandTable =
@@ -222,7 +226,7 @@ namespace
         {
             if (!Self(handler))
                 return false;
-            handler->SendSysMessage("Emberfall test tools: .eftest level N | zone <zone> [level] | zone list | foe [level] [count] [idle] [hpF] | dummy [level] | clear | refresh");
+            handler->SendSysMessage("Emberfall test tools: .eftest level N | zone <zone> [level] | zone list | foe [level] [count] [idle] [hpF] | dummy [level] | clear | refresh | power N");
             return true;
         }
 
@@ -390,6 +394,16 @@ namespace
                 ++gone;
             }
             handler->PSendSysMessage("EFTEST clear {}", gone);
+            return true;
+        }
+
+        static bool HandlePower(ChatHandler* handler, uint32 points)
+        {
+            Player* player = Self(handler);
+            if (!player)
+                return false;
+            Emberfall::ClassKit::SetSpecPowerPoints(player, int32(points));
+            handler->PSendSysMessage("EFTEST power {}", Emberfall::ClassKit::SpecPowerPoints(player));
             return true;
         }
 
