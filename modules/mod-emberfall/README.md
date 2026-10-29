@@ -469,3 +469,17 @@ the Banked Fire in Deepholm Stair. Races without a row keep the core's bind.
 | `src/emberfall_homebind.cpp` | `emberfall_homebind_world` (`OnStartup`: reads the rows), `emberfall_homebind_player` (`OnPlayerFirstLogin`: `Player::SetHomebind` and `SMSG_BINDPOINTUPDATE`, as an innkeeper's bind) |
 | `data/sql/db-world/mod_emberfall_2026_10_28_00_start_homebind.sql` | `ef_start_homebind` |
 
+
+## Skills at a level (Emberfall `docs/design/gear/item-pools.md` §15)
+
+There are no class trainers, so a skill Classic's trainer taught at a level comes by itself: a row of `ef_skill_level`
+(class, skill, level, spell; written by Emberfall's compiler from `player.yaml` `skills_at_level`) gives the class that
+skill at that level and not before. Today: the Hunter's Mail (413, proficiency spell 90013) at 40. At every login and
+level change the skill is set when the level is reached (the client hears the armour types again); below it a stored
+skill (a character made before the rule, a GM's level down) goes, and every equipped item needing it comes off into the
+bags, or by mail when they are full.
+
+| File | What |
+|---|---|
+| `src/emberfall_skill_levels.cpp` | `emberfall_skill_levels_world` (`OnStartup`: reads the rows), `emberfall_skill_levels_player` (`OnPlayerLogin`, `OnPlayerLevelChanged`: `Player::SetSkill`, `SendProficiency`, the unequip) |
+| `data/sql/db-world/mod_emberfall_2026_10_29_00_skill_level.sql` | `ef_skill_level` |
