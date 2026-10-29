@@ -519,6 +519,10 @@ int main()
         check(Overflow(9000, 500, 8000) == 9000, "never less than it had");
         // the growth: one stage a point, at most 3
         check(GrowthStage(0, 3) == 0 && GrowthStage(2, 3) == 2 && GrowthStage(5, 3) == 3 && GrowthStage(-1, 3) == 0, "stages");
+        // the look rule (a stoneborn: their own smaller elementals 99165-99168); without one the form's 99160-99163
+        check(FormCreature(99160, 0, 0) == 99160 && FormCreature(99160, 0, 3) == 99163, "the form's own creatures");
+        check(FormCreature(99160, 99165, 0) == 99165 && FormCreature(99160, 99165, 3) == 99168 &&
+              FormCreature(99160, 99165, -1) == 99165, "a look rule's creatures, the same stages");
         // the roll: 150 % (+50), +10 every 5 yd, 30 yd (Long Roll 40)
         check(RollSpeed(50, 4.9f, 10, 5) == 50 && RollSpeed(50, 5.0f, 10, 5) == 60 && RollSpeed(50, 37.0f, 10, 5) == 120,
               "Gathering Momentum: 150 % to 220 %");

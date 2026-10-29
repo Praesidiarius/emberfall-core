@@ -28,7 +28,10 @@
 //                              look: each stage a creature with a larger display). The form's own other effects (effect
 //                              2: the armour) follow the talents' spell mods on every sync (Unyielding Mountain's +50
 //                              points on the armour, one sum with the form's +200 %: never a second percent aura, which
-//                              the core multiplies). The form ends when its spell is no longer known (a spec switch)
+//                              the core multiplies). The form ends when its spell is no longer known (a spec switch).
+//                              The owner's look rule naming the form (spell_ef_kit_rule_form_look, value = another
+//                              stage-0 creature; the stoneborn's racial: smaller elementals) swaps the creatures the
+//                              stages count from: display scales only, the server's reach and size stay the race's
 //   spell_ef_kit_strike_channel a channel that strikes at its end (Mountainbreaker): effect 1 a dummy aura at the enemy
 //                              whose trigger is the strike; when that aura runs out (the channel completed: not when the
 //                              target died, left the channel's reach or the channel was broken) the strike is cast at the
@@ -159,6 +162,7 @@ namespace
     {
         std::vector<uint32> riders;
         int32 stage = 0;
+        int32 look = 0;   // the look rule's stage-0 creature (0: the form's own, the transform's misc)
     };
 
     // What the owner's talents ask of the form now: the rider auras and the growth stage.
@@ -173,6 +177,9 @@ namespace
             points += std::max(0, eff->GetMiscValueB());
         }
         s.stage = Earth::GrowthStage(points, 3);
+        for (AuraEffect const* eff : Rules(owner, "spell_ef_kit_rule_form_look", form))
+            if (eff->GetAmount() > 0)
+                s.look = eff->GetAmount();
         return s;
     }
 
@@ -218,6 +225,7 @@ class spell_ef_kit_form_aura : public AuraScript
 
     std::vector<uint32> _riders;
     int32 _stage = 0;
+    int32 _look = 0;
 
     void Sync(bool force)
     {
@@ -233,11 +241,13 @@ class spell_ef_kit_form_aura : public AuraScript
                 owner->CastSpell(owner, rider, true);
         _riders = want.riders;
         FollowSpellMods(owner);
-        if (force || want.stage != _stage)
+        if (force || want.stage != _stage || want.look != _look)
         {
             _stage = want.stage;
-            if (_stage > 0 || !force)
-                ShowStage(owner, GetSpellInfo()->Effects[EFFECT_0].MiscValue, _stage);
+            _look = want.look;
+            // the transform drew stage 0 of the form's own creatures; a later stage or a look rule's creatures replace it
+            if (_stage > 0 || _look > 0 || !force)
+                ShowStage(owner, Earth::FormCreature(GetSpellInfo()->Effects[EFFECT_0].MiscValue, _look, 0), _stage);
         }
     }
 
@@ -784,7 +794,7 @@ void AddEmberfallClassKitEarthScripts()
     for (char const* name : { "spell_ef_kit_rule_heal_low", "spell_ef_kit_rule_heal_during", "spell_ef_kit_rule_overflow",
                               "spell_ef_kit_rule_heal_stacks", "spell_ef_kit_rule_quake_during", "spell_ef_kit_rule_every_nth",
                               "spell_ef_kit_rule_reflect", "spell_ef_kit_rule_momentum", "spell_ef_kit_rule_end_wave",
-                              "spell_ef_kit_rule_self_heal" })
+                              "spell_ef_kit_rule_self_heal", "spell_ef_kit_rule_form_look" })
         RegisterSpellScriptWithArgs(spell_ef_kit_earth_rule, name);
     new EmberfallEarthUnitScript();
 }
