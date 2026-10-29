@@ -19,9 +19,10 @@
 
 // The arithmetic of the Druid Earthwarden's scripts (Emberfall docs/design/classes/druid-earthwarden.md, ankarna's v1.0-v1.2;
 // src/emberfall_classkit_earth.cpp), free of the core so tests/classkit_tests.cpp can run it: the strike's heal (Deep
-// Restoration, Relentless Fury), the overflow into the shell, the growth stage, the roll's speed and reach (Gathering
-// Momentum, Long Roll), the every-Nth counter (Titan's Retribution), the reflected share (Reflective Stone) and the
-// channel time the spell mods give (Brutal Follow-Up flat, Tectonic Fury percent: (base + flat) x (1 + pct)).
+// Restoration, Mountain's Renewal, Relentless Fury, Earthen Regeneration), the overflow into the shell, the growth stage,
+// the roll's speed and reach (Gathering Momentum, Long Roll), the every-Nth counter (Titan's Retribution), the reflected
+// share (Reflective Stone) and the channel time the spell mods give (Brutal Follow-Up flat, Tectonic Fury percent: (base +
+// flat) x (1 + pct)).
 
 #include <algorithm>
 #include <cstdint>
@@ -29,15 +30,26 @@
 namespace Emberfall::ClassKit::Earth
 {
     // The strike's heal in percent of max health: the base (5), plus the low-health ranks' percentage points while the
-    // owner is below `lowAt` percent health (Deep Restoration: +5 / +10 below 50), times (100 + `duringPct`) / 100 while
-    // the fury holds (Relentless Fury: +50). Healing-done auras (Earthen Regeneration) come on top in the core.
-    constexpr int32_t HealPct(int32_t base, float healthPct, int32_t lowAt, int32_t lowBonus, int32_t duringPct)
+    // owner is below `lowAt` percent health (Deep Restoration: +5 / +10 below 50), times (100 + `stacksPct`) / 100 for
+    // the stacks the strike spends (Mountain's Renewal: +100 a stack, 1 stack 200 %, 2 stacks 300 %), times (100 +
+    // `duringPct`) / 100 while the fury holds (Relentless Fury: +50). The self-heal rules (Earthen Regeneration: SelfHealed)
+    // come on top in the core. No cap (ankarna's defensive rebalancing, 2026-10-29: 15 -> 45 -> 67.5 -> 74.25 %).
+    constexpr int32_t HealPct(int32_t base, float healthPct, int32_t lowAt, int32_t lowBonus, int32_t duringPct,
+                              int32_t stacksPct = 0)
     {
-        int32_t pct = std::max<int32_t>(0, base);
+        int64_t pct = std::max<int32_t>(0, base);
         if (lowAt > 0 && healthPct < float(lowAt))
             pct += std::max<int32_t>(0, lowBonus);
-        // tenths, so 7.5 % stays exact
-        return pct * (100 + std::max<int32_t>(0, duringPct));
+        // percent x 100, so 7.5 % and 67.5 % stay exact
+        return int32_t(pct * (100 + std::max<int32_t>(0, stacksPct)) * (100 + std::max<int32_t>(0, duringPct)) / 100);
+    }
+
+    // A heal the owner casts on itself raised by its self-heal rules (Earthen Regeneration: +10 %).
+    constexpr int64_t SelfHealed(int64_t heal, int32_t pct)
+    {
+        if (heal <= 0 || pct <= 0)
+            return heal;
+        return heal * (100 + pct) / 100;
     }
 
     // HealPct's result (percent x 100) of `maxHealth` as an amount.
