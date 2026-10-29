@@ -368,6 +368,12 @@ int main()
     // an uncapped extension per application
     check(ExtendCapped(0, 8000, 0) == 8000, "the bleed: 8 s");
     check(ExtendCapped(3000, 8000, 0) == 11000, "the bleed: 3 s left, 11 s");
+    // a player's melee auto attack by level (feedback #168)
+    check(ScaleAutoAttack(100, 38.5f) == 39, "level 10: 38.5 % of a 100 swing");
+    check(ScaleAutoAttack(200, 25.0f) == 50, "level 1: a quarter");
+    check(ScaleAutoAttack(1, 25.0f) == 1, "a swing that hit still deals 1");
+    check(ScaleAutoAttack(0, 25.0f) == 0, "nothing stays nothing");
+    check(ScaleAutoAttack(321, 100.0f) == 321 && ScaleAutoAttack(321, -1.0f) == 321, "100 % or no row: as it was");
     // the spec power's own maximum and its keeping
     check(SpecPowerMaxDelta(50, 1000) == -950, "Openings: 50 of the slot's 1000");
     check(SpecPowerMaxDelta(1000, 1000) == 0, "Static, Energy: the slot's");

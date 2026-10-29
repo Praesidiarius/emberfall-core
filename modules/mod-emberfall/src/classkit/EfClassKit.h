@@ -305,6 +305,16 @@ namespace Emberfall::ClassKit
     // core's create power would): the rule's maximum when `power` is its slot, else 0.
     uint32 ClassPowerBase(Player const* player, uint8 power);
 
+    // ---- A player's melee auto attack by level (Emberfall docs/design/classes.md §4.7, feedback #168; EfSpecPower.cpp) ----
+    // ef_class_kit_auto_attack (level, pct; optional table, from formulas.yaml auto_attack): a kit player's white swing
+    // (main and off hand; UnitScript::ModifyMeleeDamage runs only for the auto attack, before armour) deals `pct` percent
+    // of its damage at the player's level. Not the Hunter's Autoshot (a spell), not pets or companions, not weapon-damage
+    // abilities.
+    // Loads ef_class_kit_auto_attack (Load calls it with the spec powers).
+    void LoadAutoAttack();
+    // The percent of its damage a player's white swing deals at `level`, or -1 (no row: as it is).
+    float AutoAttackPct(uint8 level);
+
     // `.efkit` / `.efkit dump`: the kit of the selected player's class and what it knows of it.
     void Dump(Player* player, std::vector<std::string>& lines);
     // `.efkit auras`: the class kit auras on a unit (the selected one), one line each: "EFAURA <spell> <stacks>

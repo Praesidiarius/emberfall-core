@@ -109,6 +109,24 @@ namespace
         }
     };
 
+    // A player's melee auto attack by level (Emberfall docs/design/classes.md §4.7, feedback #168; EfClassKit.h
+    // AutoAttackPct): Unit::CalculateMeleeDamage calls the hook for the white swing only (main and off hand), before
+    // armour and the crit roll; abilities and the Hunter's Autoshot (spells) never pass here, pets and companions are no
+    // players.
+    class emberfall_classkit_auto_attack : public UnitScript
+    {
+    public:
+        emberfall_classkit_auto_attack() : UnitScript("emberfall_classkit_auto_attack", true, { UNITHOOK_MODIFY_MELEE_DAMAGE }) { }
+
+        void ModifyMeleeDamage(Unit* /*target*/, Unit* attacker, uint32& damage) override
+        {
+            Player* player = attacker ? attacker->ToPlayer() : nullptr;
+            if (!player || !Emberfall::ClassKit::KitOf(player))
+                return;
+            damage = Emberfall::ClassKit::Logic::ScaleAutoAttack(damage, Emberfall::ClassKit::AutoAttackPct(player->GetLevel()));
+        }
+    };
+
     // The first dummy effect on the caster without a trigger-and-misc pair of a charge (the build effect), or -1.
     int8 BuildEffect(SpellInfo const* info)
     {
@@ -568,6 +586,7 @@ class spell_ef_kit_hold_not_bosses : public SpellScript
 void AddEmberfallClassKitPowerScripts()
 {
     new emberfall_classkit_power_player();
+    new emberfall_classkit_auto_attack();
     RegisterSpellScript(spell_ef_kit_build_power);
     RegisterSpellScript(spell_ef_kit_power_spender);
     RegisterSpellScript(spell_ef_kit_gain_power);

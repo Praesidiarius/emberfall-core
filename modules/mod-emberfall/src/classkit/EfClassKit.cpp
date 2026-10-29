@@ -203,6 +203,7 @@ namespace Emberfall::ClassKit
         }
         LoadSpecPowers();
         LoadClassPowers();
+        LoadAutoAttack();
         if (s_kits.empty())
             LOG_INFO("server.loading", ">> Emberfall class kits: on, no kits in ef_class_kit");
         else if (problems)

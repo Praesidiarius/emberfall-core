@@ -45,6 +45,7 @@ namespace Emberfall::ClassKit
     {
         std::map<uint32, SpecPower> s_specPowers;   // by spec
         std::map<uint8, ClassPowerRule> s_classPowers;   // by class (the Hunter's Focus)
+        std::map<uint8, float> s_autoAttackPct;     // by level: a player's white swing in percent (feedback #168)
         std::set<uint32> s_fightMarkers;            // kit helper auras that last until cancelled
         constexpr char const* kStateKey = "ef_spec_power";
 
@@ -233,6 +234,34 @@ namespace Emberfall::ClassKit
                          p.classId, p.power, p.max, p.regen, p.regenOutOfCombat);
             } while (r->NextRow());
         }
+    }
+
+    void LoadAutoAttack()
+    {
+        s_autoAttackPct.clear();
+        if (!TableExists("ef_class_kit_auto_attack"))
+        {
+            LOG_INFO("server.loading", ">> Emberfall class kits: no ef_class_kit_auto_attack table (the auto attack as it is)");
+            return;
+        }
+        if (QueryResult r = WorldDatabase.Query("SELECT `level`, `pct` FROM `ef_class_kit_auto_attack`"))
+        {
+            do
+            {
+                Field* f = r->Fetch();
+                s_autoAttackPct[f[0].Get<uint8>()] = std::max(0.0f, f[1].Get<float>());
+            } while (r->NextRow());
+        }
+        if (!s_autoAttackPct.empty())
+            LOG_INFO("server.loading", ">> Emberfall class kits: the auto attack deals {}% at level {}, {}% at level {} ({} levels)",
+                     s_autoAttackPct.begin()->second, s_autoAttackPct.begin()->first, s_autoAttackPct.rbegin()->second,
+                     s_autoAttackPct.rbegin()->first, s_autoAttackPct.size());
+    }
+
+    float AutoAttackPct(uint8 level)
+    {
+        auto it = s_autoAttackPct.find(level);
+        return it != s_autoAttackPct.end() ? it->second : -1.0f;
     }
 
     int32 SpecPowerMaxDelta(Player const* player, uint8 power)

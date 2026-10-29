@@ -602,6 +602,19 @@ namespace Emberfall::ClassKit::Logic
         return flight + std::max<int32_t>(0, extraMs);
     }
 
+    // ---- a player's melee auto attack by level (Emberfall docs/design/classes.md §4.7, feedback #168; EfSpecPower.cpp) ----
+
+    // A white swing's damage at `pct` percent of itself (ef_class_kit_auto_attack: 25 at 1 up to 100 from 51), rounded to
+    // the nearest point; a swing that dealt anything deals at least 1. 100 or more (or a level without a row, pct < 0)
+    // leaves it as it is.
+    constexpr uint32_t ScaleAutoAttack(uint32_t damage, float pct)
+    {
+        if (pct < 0.0f || pct >= 100.0f || damage == 0)
+            return damage;
+        uint32_t const scaled = uint32_t(double(damage) * double(pct) / 100.0 + 0.5);
+        return scaled ? scaled : 1;
+    }
+
     // ---- a spec power's own maximum and its keeping (EfSpecPower.cpp) ----
 
     // A spec power with a maximum other than its slot's (Openings: 50 stored of runic power's 1000; the Pyromancer's Heat:
