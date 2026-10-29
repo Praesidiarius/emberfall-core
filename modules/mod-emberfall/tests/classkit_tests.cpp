@@ -358,6 +358,10 @@ int main()
     check(DamageWithPct(100, 40) == 140 && DamageWithPct(0, 40) == 0, "Merciless Strike on 100: 140; a miss: 0");
     // a percent of max health
     check(PctOfMaxHealth(4321, 10) == 432 && PctOfMaxHealth(4321, 0) == 0, "10 % of max health");
+    // a rule's area where a leap lands (Eagle's Descent): the flight at the charge's speed, then the rule's delay
+    check(LandingDelayMs(21.0f, 42.0f, 100) == 600, "21 yd at 42 yd/s: 0.5 s, then 0.1 s");
+    check(LandingDelayMs(0.0f, 42.0f, 100) == 100, "a leap in place: at once, then the delay");
+    check(LandingDelayMs(10.0f, 0.0f, -50) == 0, "no speed, no negative delay");
     // a crit's total times a bonus
     check(CritWithBonus(200, 50) == 300, "a 200 crit deals 300");
     check(CritWithBonus(200, 0) == 200, "outside Killing Instinct: as rolled");

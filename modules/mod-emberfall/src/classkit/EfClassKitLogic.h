@@ -593,6 +593,15 @@ namespace Emberfall::ClassKit::Logic
         return int32_t(std::min<int64_t>(int64_t(maxHealth) * pct / 100, INT32_MAX));
     }
 
+    // Eagle's Descent (Emberfall hunter-spiritcaller.md): a rule's area at a leap's destination comes as the leap lands:
+    // `extraMs` after the charge covers `distance` yards at `speed` yards a second (the core's charge speed, 42); a charge
+    // in place lands at once.
+    constexpr int32_t LandingDelayMs(float distance, float speed, int32_t extraMs)
+    {
+        int32_t const flight = (distance > 0.0f && speed > 0.0f) ? int32_t(distance / speed * 1000.0f + 0.5f) : 0;
+        return flight + std::max<int32_t>(0, extraMs);
+    }
+
     // ---- a spec power's own maximum and its keeping (EfSpecPower.cpp) ----
 
     // A spec power with a maximum other than its slot's (Openings: 50 stored of runic power's 1000; the Pyromancer's Heat:
