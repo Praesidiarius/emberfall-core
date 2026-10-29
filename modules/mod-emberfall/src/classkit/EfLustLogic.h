@@ -106,4 +106,79 @@ namespace Emberfall::ClassKit::LustLogic
             return 0;
         return std::max<int32_t>(0, int32_t(int64_t(gain) * (100 + pct) / 100));
     }
+
+    // ---- the finalized tree (ankarna's "Barbarian Tank" handoff, 2026-10-29) --------------------------------------------
+
+    // Overflowing Fury: the absorb a heal's overheal leaves. `heal` was meant, `missing` the health the caster lacked,
+    // `existing` what the shield still holds, `capAmount` its most. 0: no overheal (nothing changes).
+    constexpr int64_t OverhealShield(int64_t heal, int64_t missing, int64_t existing, int64_t capAmount)
+    {
+        int64_t const over = heal - std::max<int64_t>(0, missing);
+        if (heal <= 0 || over <= 0 || capAmount <= 0)
+            return 0;
+        return std::min(capAmount, std::max<int64_t>(0, existing) + over);
+    }
+
+    // Vengeful Fury: `want` points a hit, at most `capPerSecond` in a 1 s window (0: no cap). The window starts with the
+    // first gain after the last one ran out. Returns the points granted.
+    inline int32_t CappedGain(uint64_t& windowStart, int32_t& gained, uint64_t now, int32_t want, int32_t capPerSecond)
+    {
+        if (want <= 0)
+            return 0;
+        if (capPerSecond <= 0)
+            return want;
+        if (gained == 0 || now >= windowStart + 1000)
+        {
+            windowStart = now;
+            gained = 0;
+        }
+        int32_t const granted = std::max<int32_t>(0, std::min(want, capPerSecond - gained));
+        gained += granted;
+        return granted;
+    }
+
+    // Focused Devastation: `atOne` percent against one enemy, 100 from `fullAt` enemies on, linear between (floored).
+    constexpr int32_t LinearCountPct(uint32_t enemies, int32_t atOne, int32_t fullAt)
+    {
+        if (enemies <= 1)
+            return atOne;
+        if (fullAt <= 1 || int64_t(enemies) >= fullAt)
+            return 100;
+        int64_t const num = int64_t(100 - atOne) * int64_t(enemies - 1);
+        int64_t const den = fullAt - 1;
+        // floor for the descending case too
+        int64_t step = num / den;
+        if (num % den != 0 && num < 0)
+            --step;
+        return int32_t(atOne + step);
+    }
+
+    // Savage Juggernaut: the stacks are at their maximum.
+    constexpr bool AtFullStacks(uint32_t held, uint32_t cap) { return cap > 0 && held >= cap; }
+
+    // Crippling Blow / Bloodbound Warlord: the strongest of the reductions (percent), 0..100; they never add up.
+    inline int32_t StrongestWard(std::vector<int32_t> const& pcts)
+    {
+        int32_t best = 0;
+        for (int32_t p : pcts)
+            best = std::max(best, p);
+        return std::min(best, 100);
+    }
+
+    // The damage left after a reduction of `pct` percent (rounded down; never below 0).
+    constexpr int64_t Warded(int64_t damage, int32_t pct)
+    {
+        if (damage <= 0)
+            return 0;
+        int32_t const p = std::clamp<int32_t>(pct, 0, 100);
+        return damage * (100 - p) / 100;
+    }
+
+    // Bloodthirsty Berserker: the ms a spend takes off (`msPerPoint` negative: -100 a point); 0 otherwise.
+    constexpr int32_t SpendCutMs(int32_t points, int32_t msPerPoint)
+    {
+        if (points <= 0 || msPerPoint >= 0)
+            return 0;
+        return int32_t(std::min<int64_t>(int64_t(points) * -int64_t(msPerPoint), 3600000));
+    }
 }

@@ -79,7 +79,19 @@ class spell_ef_kit_splash : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_splash::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ENEMY);
+        // effect 2's area: round the target (dest area) or, the Barbarian's Savage Cleave (2026-10-29), a frontal arc
+        // (cone); only the filter its spell has, so no hook goes unmatched
+        bool cone = false, destArea = true;
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(m_scriptSpellId))
+        {
+            SpellEffectInfo const& eff = info->Effects[EFFECT_1];
+            cone = eff.TargetA.GetTarget() == TARGET_UNIT_CONE_ENEMY_104 || eff.TargetB.GetTarget() == TARGET_UNIT_CONE_ENEMY_104;
+            destArea = eff.TargetA.GetTarget() == TARGET_UNIT_DEST_AREA_ENEMY || eff.TargetB.GetTarget() == TARGET_UNIT_DEST_AREA_ENEMY;
+        }
+        if (destArea)
+            OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_splash::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ENEMY);
+        if (cone)
+            OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_splash::FilterTargets, EFFECT_1, TARGET_UNIT_CONE_ENEMY_104);
         OnHit += SpellHitFn(spell_ef_kit_splash::HandleSplash);
     }
 };

@@ -16,7 +16,9 @@
  */
 
 // Standalone tests of the Barbarian's arithmetic (src/classkit/EfLustLogic.h; tests/run_tests.sh builds and runs them):
-// stacks with a timer each, the heal from the hardest hits, the damage by the number of enemies, a builder's percent.
+// stacks with a timer each, the heal from the hardest hits, the damage by the number of enemies, a builder's percent;
+// the finalized tree (2026-10-29): the overheal shield, the capped gain, the linear count scale, the strongest ward, the
+// spend cut.
 // The numbers are ankarna's examples (docs/design/classes/warrior-barbarian.md), fed to the functions.
 
 #include "EfLustLogic.h"
@@ -73,6 +75,40 @@ int main()
     // Primal Fury: +50 % from attacks
     check(BuildPct(20, 50) == 30 && BuildPct(30, 50) == 45 && BuildPct(50, 50) == 75, "ankarna's table");
     check(BuildPct(20, 0) == 20 && BuildPct(0, 50) == 0, "no bonus, no gain");
+
+    // Overflowing Fury: overheal into a shield, at most 30 % of max health
+    check(OverhealShield(200, 50, 0, 300) == 150, "150 overheal from nothing");
+    check(OverhealShield(200, 50, 100, 300) == 250, "on top of the shield left");
+    check(OverhealShield(200, 50, 250, 300) == 300, "capped at 30 %");
+    check(OverhealShield(200, 200, 100, 300) == 0 && OverhealShield(200, 400, 0, 300) == 0, "no overheal: nothing");
+    check(OverhealShield(200, 0, 0, 300) == 200, "at full health: the whole heal");
+
+    // Vengeful Fury: 5 a retaliation, 5 a second at most
+    uint64_t win = 0; int32_t got = 0;
+    check(CappedGain(win, got, 1000, 5, 5) == 5, "the first retaliation: 5");
+    check(CappedGain(win, got, 1400, 5, 5) == 0, "the second in that second: none");
+    check(CappedGain(win, got, 2000, 5, 5) == 5, "a new second: 5");
+    check(CappedGain(win, got, 2100, 3, 0) == 3, "no cap: all");
+    win = 0; got = 0;
+    check(CappedGain(win, got, 0, 3, 5) == 3 && CappedGain(win, got, 10, 3, 5) == 2, "3 + 2 = the 5 cap");
+
+    // Focused Devastation: 250 % on one, 100 % from 5, linear
+    check(LinearCountPct(1, 250, 5) == 250 && LinearCountPct(2, 250, 5) == 212 && LinearCountPct(3, 250, 5) == 175,
+          "1, 2, 3 enemies");
+    check(LinearCountPct(4, 250, 5) == 137 && LinearCountPct(5, 250, 5) == 100 && LinearCountPct(9, 250, 5) == 100,
+          "4, 5+");
+    check(LinearCountPct(0, 250, 5) == 250 && LinearCountPct(3, 250, 1) == 100, "none counted; no range");
+
+    check(AtFullStacks(5, 5) && !AtFullStacks(4, 5) && !AtFullStacks(5, 0), "Savage Juggernaut at 5 stacks");
+
+    // the strongest reduction only: Crippling Blow 10 %, Bloodbound Warlord 15 %
+    check(StrongestWard({ 10, 15 }) == 15 && StrongestWard({ 10 }) == 10 && StrongestWard({}) == 0, "strongest");
+    check(StrongestWard({ 150 }) == 100, "never above 100");
+    check(Warded(1000, 15) == 850 && Warded(1000, 0) == 1000 && Warded(1000, 120) == 0 && Warded(-5, 10) == 0, "warded");
+
+    // Bloodthirsty Berserker: 0.1 s a point
+    check(SpendCutMs(30, -100) == 3000 && SpendCutMs(70, -100) == 7000 && SpendCutMs(100, -100) == 10000, "examples");
+    check(SpendCutMs(0, -100) == 0 && SpendCutMs(30, 0) == 0, "nothing spent or no rule");
 
     std::cout << "classkit lust tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
