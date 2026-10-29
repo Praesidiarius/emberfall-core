@@ -38,6 +38,7 @@ void AddEmberfallAccountFriendsScripts();
 void AddEmberfallProfessionsScripts();
 void AddEmberfallLeashScripts();
 void AddEmberfallHomebindScripts();
+void AddEmberfallSkillLevelsScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -61,4 +62,5 @@ void Addmod_emberfallScripts()
     AddEmberfallProfessionsScripts();
     AddEmberfallLeashScripts();
     AddEmberfallHomebindScripts();
+    AddEmberfallSkillLevelsScripts();
 }
