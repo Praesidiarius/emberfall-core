@@ -18,9 +18,13 @@
 // Standalone tests of the Barbarian's arithmetic (src/classkit/EfLustLogic.h; tests/run_tests.sh builds and runs them):
 // stacks with a timer each, the heal from the hardest hits, the damage by the number of enemies, a builder's percent;
 // the finalized tree (2026-10-29): the overheal shield, the capped gain, the linear count scale, the strongest ward, the
-// spend cut.
+// spend cut; ankarna's balance pass (2026-10-29 06:49): Thunderous Bellow's charges behind its Battlelust cost, the
+// overheal shields adding up to their cap. (Crippling Wounds' refresh has no arithmetic here: one aura per caster without
+// a stack amount, the engine's Unit::_TryStackingOrRefreshingExistingAura refreshes it; the game's
+// test_classkit_barbarian.py checks the data, the live check the refresh.)
 // The numbers are ankarna's examples (docs/design/classes/warrior-barbarian.md), fed to the functions.
 
+#include "EfClassKitLogic.h"
 #include "EfLustLogic.h"
 
 #include <iostream>
@@ -109,6 +113,69 @@ int main()
     // Bloodthirsty Berserker: 0.1 s a point
     check(SpendCutMs(30, -100) == 3000 && SpendCutMs(70, -100) == 7000 && SpendCutMs(100, -100) == 10000, "examples");
     check(SpendCutMs(0, -100) == 0 && SpendCutMs(30, 0) == 0, "nothing spent or no rule");
+
+    // ---- ankarna's balance pass (2026-10-29 06:49; Emberfall warrior-barbarian.md §15) -------------------------------------
+
+    // Thunderous Bellow: 2 charges of 30 s, one recharging at a time, 70 Battlelust. The engine's order, modelled here
+    // with the real charge arithmetic (EfClassKitLogic.h SpendCharge): Spell::CheckPower fails a cast below the cost
+    // before anything happens, and spell_ef_kit_charges spends the charge only AfterCast (a cast that paid). The charge
+    // aura's stacks are the charges recharging; while both recharge the spell is on cooldown until the next comes back.
+    {
+        struct Bellow
+        {
+            int32_t power = 0;
+            uint32_t recharging = 0;   // the charge aura's stacks
+            bool onCooldown = false;
+            bool Cast(int32_t cost = 70)
+            {
+                if (onCooldown || power < cost)  // CheckCast: not ready / SPELL_FAILED_NO_POWER: no charge taken
+                    return false;
+                power -= cost;
+                Emberfall::ClassKit::Logic::ChargeSpend const spend = Emberfall::ClassKit::Logic::SpendCharge(recharging, 2);
+                recharging = spend.recharging;
+                onCooldown = !spend.left;
+                return true;
+            }
+            void ChargeBack()  // spell_ef_kit_charge_aura on expiry (EfSpecPower.cpp ChargeBack): the next one starts
+            {
+                if (recharging)
+                    --recharging;
+                onCooldown = false;
+            }
+        } b;
+        b.power = 69;
+        check(!b.Cast() && b.recharging == 0 && b.power == 69, "69 Battlelust: no Bellow, no charge spent");
+        b.power = 100;
+        check(b.Cast() && b.recharging == 1 && !b.onCooldown && b.power == 30, "70: a Bellow, one charge recharging");
+        check(!b.Cast() && b.recharging == 1, "the second charge waits for 70 Battlelust (30 held)");
+        b.power = 70;
+        check(b.Cast() && b.recharging == 2 && b.onCooldown, "the second charge: both recharging, on cooldown");
+        b.power = 100;
+        check(!b.Cast() && b.power == 100, "no charge left: no cast even at 100");
+        b.ChargeBack();
+        check(b.recharging == 1 && !b.onCooldown, "30 s: one charge back, the other starts its 30 s (one at a time)");
+        check(b.Cast() && b.recharging == 2, "the charge back is usable at once");
+        b.ChargeBack();
+        b.ChargeBack();
+        check(b.recharging == 0, "both back after 30 s each, in turn");
+    }
+
+    // Overflowing Fury: each Bellow's overheal adds to what the shield still holds, the total at most 30 % of max health
+    // (1000 health: cap 300; a 20 % Bellow heals 200). The shield's 10 s are unchanged (each Bellow sets them anew).
+    {
+        int64_t const cap = 300;
+        int64_t shield = OverhealShield(200, 0, 0, cap);
+        check(shield == 200, "Bellow 1 at full health: 200");
+        shield = OverhealShield(200, 0, shield, cap);
+        check(shield == 300, "Bellow 2: 200 + 200 capped at 300");
+        shield -= 120;  // 120 absorbed
+        shield = OverhealShield(200, 50, shield, cap);
+        check(shield == 300, "Bellow 3, 50 missing: 180 left + 150 overheal, capped at 300");
+        shield -= 250;
+        shield = OverhealShield(200, 100, shield, cap);
+        check(shield == 150, "Bellow 4, 100 missing: 50 left + 100 = 150 (below the cap: all of it)");
+        check(OverhealShield(200, 300, shield, cap) == 0, "a Bellow without overheal leaves the shield as it is");
+    }
 
     std::cout << "classkit lust tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
