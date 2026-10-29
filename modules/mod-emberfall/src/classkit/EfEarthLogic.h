@@ -74,6 +74,14 @@ namespace Emberfall::ClassKit::Earth
         return std::clamp<int32_t>(points, 0, std::max<int32_t>(0, stages));
     }
 
+    // The creature the form shows at `stage`: `stage` after the stage-0 creature, which is the form's own (`formBase`,
+    // the transform's misc) unless the owner's look rule names another (`lookBase` > 0: the stoneborn's smaller
+    // elementals, the same model at 0.7 of every display scale).
+    constexpr int32_t FormCreature(int32_t formBase, int32_t lookBase, int32_t stage)
+    {
+        return (lookBase > 0 ? lookBase : formBase) + std::max<int32_t>(0, stage);
+    }
+
     // The roll's speed bonus in percent: the base (+50, so 150 %) plus `stepPct` for every whole `stepYards` travelled
     // (Gathering Momentum: +10 every 5 yd; 0: none).
     constexpr int32_t RollSpeed(int32_t basePct, float travelled, int32_t stepPct, int32_t stepYards)
