@@ -494,6 +494,16 @@ int main()
         check(HealPct(5, 30.0f, 50, 10, 50) == 2250, "both: 15 % x 1.5");
         check(HealPct(5, 40.0f, 0, 10, 0) == 500, "no rank: no low-health bonus");
         check(HealAmount(10000, 750) == 750 && HealAmount(0, 750) == 0 && HealAmount(10000, 0) == 0, "the amount");
+        // Mountain's Renewal (ankarna's defensive rebalancing, 2026-10-29): +100 % a stack, 1 stack 200 %, 2 stacks 300 %
+        check(HealPct(5, 80.0f, 50, 10, 0, 100) == 1000 && HealPct(5, 80.0f, 50, 10, 0, 200) == 1500, "Renewal 10 / 15 %");
+        check(HealPct(5, 80.0f, 50, 10, 0, -100) == 500, "no stacks below none");
+        // the doc's example: Deep Restoration 2 below half health 15 %, 2 stacks 45 %, Relentless Fury 67.5 %, Earthen
+        // Regeneration (+10 %, the self-heal hook) 74.25 % of max health; no cap
+        check(HealPct(5, 40.0f, 50, 10, 0, 0) == 1500, "the example: 15 %");
+        check(HealPct(5, 40.0f, 50, 10, 0, 200) == 4500, "the example: 45 %");
+        check(HealPct(5, 40.0f, 50, 10, 50, 200) == 6750, "the example: 67.5 %");
+        check(SelfHealed(HealAmount(100000, HealPct(5, 40.0f, 50, 10, 50, 200)), 10) == 74250, "the example: 74.25 %");
+        check(SelfHealed(500, 0) == 500 && SelfHealed(0, 10) == 0 && SelfHealed(1000, 10) == 1100, "Earthen Regeneration");
         // Overflowing Stone: into the shell up to 80 %
         check(Overflow(1000, 500, 8000) == 1500 && Overflow(7800, 500, 8000) == 8000 && Overflow(8000, 500, 8000) == 8000,
               "up to the cap");
