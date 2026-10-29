@@ -47,8 +47,8 @@
 //                                   companion): attack power (effect value: percent of the hunter's ranged attack power),
 //                                   stamina and armour (percent of the hunter's), recomputed every 2 s
 //
-// A PetScript turns the companion's basic attack's autocast on when it comes into the world (a hunter never needs the
-// pet bar in a normal fight; the core learns family spells with autocast off).
+// A PetScript keeps the companion at its hunter's level when it comes into the world; its family abilities autocast from
+// the start (the core learns them with autocast on, PATCHES.md #27: a hunter never needs the pet bar in a normal fight).
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
@@ -429,9 +429,10 @@ class spell_ef_pet_owner_scaling : public AuraScript
     }
 };
 
-// The companion's basic attack autocasts from the start (the core learns family spells with autocast off), and a
-// companion always fights beside its hunter at the hunter's level (the core's level hunk, PATCHES.md #17, keeps it there
-// afterwards).
+// A companion always fights beside its hunter at the hunter's level (the core's level hunk, PATCHES.md #17, keeps it
+// there afterwards). Its family abilities autocast from the start: the core learns them with autocast on (PATCHES.md
+// #27); a loaded companion keeps its saved toggles. (This hook once turned them on here, but it runs before a loaded
+// companion's spells arrive, so it never did.)
 class emberfall_classkit_hunt_pet : public PetScript
 {
 public:
@@ -446,13 +447,6 @@ public:
             return;
         if (pet->GetLevel() != owner->GetLevel())
             pet->GivePetLevel(owner->GetLevel());
-        for (auto const& [spellId, ps] : pet->m_spells)
-        {
-            if (ps.state == PETSPELL_REMOVED || ps.active != ACT_DISABLED)
-                continue;
-            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); info && info->IsAutocastable() && !info->IsPassive())
-                pet->ToggleAutocast(info, true);
-        }
     }
 };
 

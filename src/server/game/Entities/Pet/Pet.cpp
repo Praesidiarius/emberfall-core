@@ -1819,7 +1819,9 @@ bool Pet::addSpell(uint32 spellId, ActiveStates active /*= ACT_DECIDE*/, PetSpel
     if (active == ACT_DECIDE)                               // active was not used before, so we save it's autocast/passive state here
     {
         if (spellInfo->IsAutocastable())
-            newspell.active = ACT_DISABLED;
+            // EMBERFALL: #27 a hunter's companion learns its family's abilities with autocast on (its basic attack and
+            // special); a loaded spell keeps the state it was saved with, so the player's own toggle stays
+            newspell.active = Emberfall::OwnData() && getPetType() == HUNTER_PET ? ACT_ENABLED : ACT_DISABLED;
         else
             newspell.active = ACT_PASSIVE;
     }
@@ -1881,7 +1883,7 @@ bool Pet::addSpell(uint32 spellId, ActiveStates active /*= ACT_DECIDE*/, PetSpel
     if (spellInfo->IsPassive())
         CastSpell(this, spellId, true);
     else
-        m_charmInfo->AddSpellToActionBar(spellInfo);
+        m_charmInfo->AddSpellToActionBar(spellInfo, newspell.active == ACT_ENABLED ? ACT_ENABLED : ACT_DECIDE); // EMBERFALL: #27
 
     // unapply aura stats if dont meet requirements
     if (Aura* aura = GetAura(spellId))
