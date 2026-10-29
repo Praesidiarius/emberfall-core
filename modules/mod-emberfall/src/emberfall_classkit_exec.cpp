@@ -51,7 +51,9 @@
 //                                                             _hit_heal (struck: trigger heals value % of max health),
 //                                                             _cooldown_cut (struck: -value ms off trigger's cooldown),
 //                                                             _delayed_area (trigger at the spot misc B yd ahead after value
-//                                                             ms); the Corsair v2.0's (warrior-corsair.md §16):
+//                                                             ms; misc B -1: at the cast's destination value ms after the
+//                                                             leap to it lands: Eagle's Descent); the Corsair v2.0's
+//                                                             (warrior-corsair.md §16):
 //                                                             _crit_cooldown_cut (any crit: -value ms off trigger's cooldown:
 //                                                             Ruthless Barrage), _lone_echo (exactly one enemy struck: trigger
 //                                                             at it with value % of the damage done to it, before armour:
@@ -81,6 +83,7 @@
 #include "GameTime.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerScript.h"
@@ -364,22 +367,39 @@ class spell_ef_kit_rules : public SpellScript
                     ShortenCooldown(caster, trigger, -eff->GetAmount());
         }
         CorsairRules(caster, id);
-        // Aftershock: at the spot misc B yards ahead of where the caster stood, value ms later, whatever was struck
+        // Aftershock: at the spot misc B yards ahead of where the caster stood, value ms later, whatever was struck.
+        // Eagle's Descent (misc B -1): at the cast's destination (a leap to a spot: charge_dest), value ms after the leap
+        // lands (its distance at the core's charge speed, Logic::LandingDelayMs); a cast without a destination: nothing
         for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_delayed_area", id))
         {
             uint32 const trigger = TriggerOf(eff);
             if (!trigger)
                 continue;
-            float const ahead = float(std::max(0, eff->GetMiscValueB()));
-            float const o = caster->GetOrientation();
-            float const x = caster->GetPositionX() + ahead * std::cos(o);
-            float const y = caster->GetPositionY() + ahead * std::sin(o);
-            float const z = caster->GetPositionZ();
+            float x, y, z;
+            int32 delay = std::max(0, eff->GetAmount());
+            if (eff->GetMiscValueB() < 0)
+            {
+                WorldLocation const* dest = GetExplTargetDest();
+                if (!dest)
+                    continue;
+                x = dest->GetPositionX();
+                y = dest->GetPositionY();
+                z = dest->GetPositionZ();
+                delay = Logic::LandingDelayMs(caster->GetExactDist(x, y, z), SPEED_CHARGE, eff->GetAmount());
+            }
+            else
+            {
+                float const ahead = float(eff->GetMiscValueB());
+                float const o = caster->GetOrientation();
+                x = caster->GetPositionX() + ahead * std::cos(o);
+                y = caster->GetPositionY() + ahead * std::sin(o);
+                z = caster->GetPositionZ();
+            }
             caster->m_Events.AddEventAtOffset([caster, trigger, x, y, z]()
             {
                 if (caster->IsInWorld())
                     caster->CastSpell(x, y, z, trigger, true);
-            }, Milliseconds(std::max(0, eff->GetAmount())));
+            }, Milliseconds(delay));
         }
     }
 
