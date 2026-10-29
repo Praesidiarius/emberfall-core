@@ -724,9 +724,10 @@ namespace
         check(m.NewAbilities({{12, {1, 0}}}, {}, passive).empty(), "new abilities: a refund gives none");
     }
 
-    // The strip stays once learned (Emberfall 2026-10-28, Nathanael; talents.md §1.3 rule 8): a class tree's paid node below
-    // the spec level is permanent (TalentRules.h isPermanent); EfTalentModel::Kept / CheckKept / Overlay / WithKept are what
-    // APPLY, SAVE, LOAD, RESET and a spec switch go by (EfTalents.cpp).
+    // The strip stays once learned (Emberfall 2026-10-28, Nathanael; talents.md §1.3 rule 8): a class tree's paid node with
+    // no gate below the spec level is permanent (TalentRules.h isPermanent); EfTalentModel::Kept / CheckKept / Overlay /
+    // WithKept are what APPLY, SAVE, LOAD, RESET and a spec switch go by (EfTalents.cpp), Refit what a login does with a
+    // stored loadout that fails. Since 2026-10-29 the rows below the strip wait for its points (one row gate, no level).
     void permanentTests()
     {
         using namespace ef::talents;
@@ -750,10 +751,12 @@ namespace
         EfTree ct;
         ct.id = 1;
         ct.classId = 1;
-        // the strip 11 -> 12 -> 13 (levels 2-4), a row ability 21 (a choice, from 10) and a stat talent 22 (from 10)
+        // the strip 11 -> 12 -> 13 (levels 2-4), a row ability 21 (a choice) and a stat talent 22, both behind the strip's
+        // 3 points (the compiler's row gate, folded into the nodes)
         ct.nodes = {node(11, 1, 0, NodeKind::Passive, 0, 2), node(12, 1, 1, NodeKind::Active, 11, 3),
-                    node(13, 1, 2, NodeKind::Passive, 12, 4), node(21, 1, 3, NodeKind::Choice, 0, 10),
-                    node(22, 1, 4, NodeKind::Passive, 0, 10)};
+                    node(13, 1, 2, NodeKind::Passive, 12, 4), node(21, 1, 3, NodeKind::Choice, 0, 0),
+                    node(22, 1, 4, NodeKind::Passive, 0, 0)};
+        ct.nodes[3].gate = ct.nodes[4].gate = 3;
         m.trees[1] = ct;
         for (uint32_t const specId : {91u, 92u})
         {
@@ -775,7 +778,7 @@ namespace
         m.Finish(problems);
         check(problems.empty(), "permanent: model problems: " + (problems.empty() ? std::string() : problems[0]));
         check(m.Permanent(*m.Node(11)) && m.Permanent(*m.Node(13)), "permanent: the strip");
-        check(!m.Permanent(*m.Node(21)) && !m.Permanent(*m.Node(22)), "permanent: not the rows below the strip (the spec level)");
+        check(!m.Permanent(*m.Node(21)) && !m.Permanent(*m.Node(22)), "permanent: not the rows below the strip (their gate)");
         check(!m.Permanent(*m.Node(910)), "permanent: no spec tree node, whatever its level");
 
         EfSpec const& a = m.specs[91];
@@ -790,8 +793,12 @@ namespace
         // SAVE to another loadout, LOAD, a spec switch: the strip goes in
         check(m.Overlay({{22, {1, 0}}}, kept) == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {22, {1, 0}}}, "Overlay");
         eft::Pairs const strip3 = {{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}};
-        auto with = m.WithKept(a, {{22, {1, 0}}, {910, {1, 0}}}, kept, 12);
-        check(with && *with == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {22, {1, 0}}, {910, {1, 0}}}, "WithKept: room for the strip");
+        auto with = m.WithKept(a, {{22, {1, 0}}, {910, {1, 0}}}, strip3, 12);
+        check(with && *with == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}, {22, {1, 0}}, {910, {1, 0}}},
+              "WithKept: room for the strip");
+        with = m.WithKept(a, {{22, {1, 0}}, {910, {1, 0}}}, kept, 12);
+        check(with && *with == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {910, {1, 0}}},
+              "WithKept: a row without the full strip goes (GATE)");
         // 4 class points at 10: the strip's 3 and two more do not fit
         with = m.WithKept(a, {{21, {1, 1}}, {22, {1, 0}}, {910, {1, 0}}}, strip3, 10);
         check(with && *with == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}, {910, {1, 0}}},
@@ -800,6 +807,20 @@ namespace
         check(with && *with == strip3, "WithKept: then the strip alone");
         check(!m.WithKept(a, {}, strip3, 3), "WithKept: nothing below the strip's levels");
         check(m.WithKept(m.specs[92], {}, kept, 12) == std::optional<eft::Pairs>(kept), "WithKept: another spec's first loadout gets the strip");
+
+        // 2026-10-29: the rows wait for the full strip, whatever the level; a loadout bought past an unfinished strip (the
+        // level-10 rule of 2026-10-28) fails GATE, and the login's Revalidate refits it: the row points come back, the strip
+        // slots and the spec tree's points stay
+        eft::Pairs const skipped = {{11, {1, 0}}, {12, {1, 0}}, {21, {1, 1}}, {22, {1, 0}}, {910, {1, 0}}};
+        RuleResult const gate = m.Validate(a, m.LoadoutString(a, skipped), 12);
+        check(gate.code == RuleError::Gate && gate.detail == 3, "the rows behind the strip: GATE, the strip's 3 points");
+        check(m.Validate(a, m.LoadoutString(a, {{11, {1, 0}}, {12, {1, 0}}, {13, {1, 0}}, {21, {1, 1}}, {22, {1, 0}}}), 12).ok(),
+              "the rows once the strip is full");
+        check(m.Refit(a, skipped, 12) == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}, {910, {1, 0}}},
+              "Refit: the row points refunded, the strip and the spec tree kept");
+        check(m.Refit(a, {{11, {1, 0}}, {12, {1, 0}}, {22, {1, 0}}, {910, {2, 0}}}, 10) == eft::Pairs{{11, {1, 0}}, {12, {1, 0}}},
+              "Refit: the strip alone when the spec tree no longer fits either");
+        check(m.Refit(a, skipped, 2).empty(), "Refit: nothing when even the strip fails (a level below it)");
     }
 }
 

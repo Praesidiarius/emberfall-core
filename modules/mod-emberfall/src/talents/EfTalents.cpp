@@ -438,7 +438,9 @@ namespace Emberfall::Talents
 
         // Re-validates every stored loadout against the current data and the player's level: after a data
         // change (hash differs) through node IDs (dropped nodes, clamped ranks), and at every level; a loadout
-        // that fails is reset (RESET DATA / LEVEL; DATA the first time since a pick costs a point, kSpecFlagPicksPaid).
+        // that fails is reset (RESET DATA / LEVEL; DATA the first time since a pick costs a point, kSpecFlagPicksPaid),
+        // keeping its strip slots (and its spec tree's points when they still fit; EfTalentModel::Refit, 2026-10-29: a
+        // loadout with class rows bought past an unfinished strip gets those points back and keeps the strip).
         // Then reconciles the spells. Nothing is bought here: the class layout's strip is the player's to buy
         // (2026-10-26, Nathanael: no automatic fill).
         void Revalidate(Player* player, PlayerState& st, EfTalentModel const& data, bool notify)
@@ -473,7 +475,7 @@ namespace Emberfall::Talents
                         reason = "DATA";
                     if (!data.Validate(*spec, data.LoadoutString(*spec, l.pairs), level).ok())
                     {
-                        l.pairs.clear();
+                        l.pairs = data.Refit(*spec, l.pairs, level); // the strip stays, the class tree's rest is refunded
                         reason = "DATA";
                     }
                     l.hash = data.dataHash;
@@ -481,7 +483,7 @@ namespace Emberfall::Talents
                 }
                 if (!data.Validate(*spec, data.LoadoutString(*spec, l.pairs), level).ok())
                 {
-                    l.pairs.clear();
+                    l.pairs = data.Refit(*spec, l.pairs, level);
                     reason = RevalidateResetReason(st.flags);
                     SaveLoadoutRow(trans, guid, l);
                 }

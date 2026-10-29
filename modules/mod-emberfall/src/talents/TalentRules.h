@@ -44,8 +44,9 @@
 // too (Rank: above 1).
 //
 // Permanent nodes (2026-10-28, Nathanael: "the first 9 talent points (level 2-9) in the class tree must not be unlearned;
-// once selected they are set"; talents.md §1.3 rule 8): a class tree's paid node whose required level is below the spec
-// level, which is the class layout's strip (the compiler opens every node below the strip at the spec level). Once a
+// once selected they are set"; talents.md §1.3 rule 8): a class tree's paid node with no gate whose required level is
+// below the spec level, which is the class layout's strip (the compiler puts every node below the strip behind one row
+// gate of the strip's points, 2026-10-29: the strip is full before anything else in the class tree opens). Once a
 // character holds it, no refund, class tree reset, loadout or spec takes it away: checkKept (PERMANENT, detail: the node)
 // and keepPermanent are the client's preview and the server's rule; only a GM reset or a data change that resets a
 // loadout clears it. Validation (validateLoadout) does not look at it: it needs the character's state.
@@ -194,10 +195,11 @@ namespace ef::talents
     // Bought with points (a pick too): every node but a granted one. What a loadout stores.
     inline bool isPaid(const RuleNode& node) { return node.autoCount == 0; }
 
-    // A permanent node (the class layout's strip): a paid node of the class tree below the spec level (`specLevel`).
+    // A permanent node (the class layout's strip): a paid node of the class tree with no gate, below the spec level
+    // (`specLevel`). The rows below the strip wait for its points (their gate), so they never count.
     inline bool isPermanent(const RuleNode& node, bool classTree, uint32_t specLevel)
     {
-        return classTree && isPaid(node) && node.requiredLevel < specLevel;
+        return classTree && isPaid(node) && node.gate == 0 && node.requiredLevel < specLevel;
     }
 
     // How many picks group `group` (1-based) allows at `paid` points spent in the tree and `earned` points earned for it

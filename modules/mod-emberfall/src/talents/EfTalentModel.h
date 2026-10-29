@@ -253,11 +253,12 @@ namespace ef::talents
 
         // ---- the strip stays (Emberfall 2026-10-28, Nathanael: "the first 9 talent points (level 2-9) in the class tree must
         // not be unlearned; once selected they are set"; talents.md §1.3 rule 8) ----
-        // A permanent node is a class tree's paid node below the spec level (TalentRules.h isPermanent: the class layout's
-        // strip). The character's strip is its live loadout's (the active spec's active one); APPLY and SAVE to the live
-        // loadout refuse to lower it (CheckKept: PERMANENT), RESET of the class tree, LOAD, SAVE to another loadout and a
-        // spec switch keep it (WithKept). Only a GM reset (.ef talents reset) and a data change that resets a loadout (§3.7,
-        // Revalidate) clear it.
+        // A permanent node is a class tree's paid node with no gate below the spec level (TalentRules.h isPermanent: the class
+        // layout's strip; the rows below it wait for its points, 2026-10-29). The character's strip is its live loadout's
+        // (the active spec's active one); APPLY and SAVE to the live loadout refuse to lower it (CheckKept: PERMANENT), RESET
+        // of the class tree, LOAD, SAVE to another loadout and a spec switch keep it (WithKept); a stored loadout that fails
+        // the rules at login keeps it too (Refit, §3.7 Revalidate). Only a GM reset (.ef talents reset) clears it, or a data
+        // change or level under which even the strip alone fails.
 
         // Whether a node is permanent.
         bool Permanent(const EfNode& n) const
@@ -325,6 +326,16 @@ namespace ef::talents
                 if (Validate(spec, LoadoutString(spec, candidate), level).ok())
                     return candidate;
             return std::nullopt;
+        }
+
+        // What a stored loadout that fails the rules becomes at login (Revalidate: a data change, a lower level): the strip
+        // stays, so its own strip slots and its spec tree's pairs when they still fit, the rest of the class tree refunded;
+        // else the strip alone; else nothing (WithKept with the loadout's own strip). Emberfall 2026-10-29 (Nathanael): the
+        // class trees' rows wait for the full strip, and a character that bought rows with the strip unfinished (the level
+        // 10 rule of 2026-10-28 let points saved to 11 skip it) gets those row points back and keeps its strip slots.
+        eft::Pairs Refit(const EfSpec& spec, const eft::Pairs& pairs, uint32_t level) const
+        {
+            return WithKept(spec, pairs, Kept(pairs), level).value_or(eft::Pairs{});
         }
 
         // The abilities a change of a loadout's pairs gives (Emberfall 2026-10-26, Nathanael: a bought ability goes to the

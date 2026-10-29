@@ -61,8 +61,10 @@ validated with `TalentRules.h` after the protocol, hash and player-state checks,
 `LIMIT` past 5 per spec), `LOAD` (an apply for the active spec, a mark for another), `DEL` (`GONE`). The strip stays
 once learned (Emberfall 2026-10-28, talents.md §1.3 rule 8; `EfTalentModel::Kept`/`CheckKept`/`WithKept`, the rule
 `TalentRules.h isPermanent`): `APPLY` and `SAVE` to the live loadout without a strip slot the live loadout holds get
-`ERR PERMANENT;node`, `RESET c` keeps it, `LOAD`, `SAVE` to another loadout and a spec switch put it in; only
-`.ef talents reset` and the login's DATA/LEVEL resets clear it. Limits: 20
+`ERR PERMANENT;node`, `RESET c` keeps it, `LOAD`, `SAVE` to another loadout and a spec switch put it in; the
+login's DATA/LEVEL resets keep it too (`EfTalentModel::Refit`: the strip and the spec tree's points when they still fit,
+the rest of the class tree refunded; 2026-10-29, when the class rows came to wait for the full strip, a loadout that
+had bought rows past an unfinished strip got those points back this way); only `.ef talents reset` clears it. Limits: 20
 requests per 10 s (one `THROTTLE` answer per window), `SPEC` once per 2 s, one reassembly of at most 8 x 251
 bytes.
 
