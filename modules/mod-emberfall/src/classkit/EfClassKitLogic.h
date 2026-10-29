@@ -40,13 +40,21 @@ namespace Emberfall::ClassKit::Logic
         return std::clamp<int32_t>(value, 1, hard);
     }
 
+    // The miss rules' builder rule (Emberfall alpha1 feedback #146, class-kit-pipeline.md "Misses"): a builder that strikes
+    // others (an effect aimed at anyone but its caster) builds only when it struck an enemy (`struck` above 0: no miss,
+    // dodge, parry, evade or immunity; nobody in reach or empty air strikes nobody); a self spell always does.
+    constexpr bool Builds(bool strikesOthers, uint32_t struck)
+    {
+        return !strikesOthers || struck > 0;
+    }
+
     // The stacks a builder raises. `value` is its stack effect's value (spell mods in: Crown of Blades +1, Marked by
     // Heaven +1, Dawn's Return +1/+2); `perEnemyMax` its misc B: above 0 one stack per enemy struck, at most that many,
     // plus value - 1 (Sunwheel: 1 per enemy, at most 3; under Crown one more). A builder whose enemy effects struck
     // nobody (a miss, a dodge, nobody in reach) raises nothing; one without enemy effects (`needsHit` false) always does.
     constexpr int32_t BuilderGain(int32_t value, int32_t perEnemyMax, uint32_t hits, bool needsHit)
     {
-        if (needsHit && hits == 0)
+        if (!Builds(needsHit, hits))
             return 0;
         if (perEnemyMax > 0)
             return std::max<int32_t>(0, std::min<int32_t>(int32_t(hits), perEnemyMax) + value - 1);
@@ -132,7 +140,7 @@ namespace Emberfall::ClassKit::Logic
     // doubles it (First Flash: the first build of a fight).
     constexpr int32_t PowerGain(int32_t value, int32_t perEnemyMax, uint32_t hits, bool needsHit, bool first)
     {
-        if (value <= 0 || (needsHit && hits == 0))
+        if (value <= 0 || !Builds(needsHit, hits))
             return 0;
         int32_t const gain = perEnemyMax > 0 ? value * std::min<int32_t>(int32_t(hits), perEnemyMax) : value;
         return first ? gain * 2 : gain;

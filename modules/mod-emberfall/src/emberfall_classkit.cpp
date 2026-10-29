@@ -68,7 +68,8 @@
 //
 //   spell_ef_kit_self_stacks         every dummy effect on the caster with a trigger raises its value in stacks of that
 //                                    self aura (misc B > 0: one per enemy struck, at most misc B, plus value - 1; nothing if
-//                                    the enemy effects struck nobody), up to the aura's cap (EfClassKit.h AddSelfStacks)
+//                                    the enemy effects struck nobody: a miss, dodge or parry strikes nobody, the miss rules
+//                                    of alpha1 feedback #146), up to the aura's cap (EfClassKit.h AddSelfStacks)
 //   spell_ef_kit_delayed_strike      effect 1 (dummy at an enemy): value ms later the trigger is cast where the enemy stands
 //                                    then, or on its last spot if it is gone (Heavenfall, Heaven's Answer)
 //   spell_ef_kit_not_bosses          never on bosses: the cast at one is refused, bosses leave the area (Kneel, Noonday)
@@ -679,22 +680,14 @@ class spell_ef_kit_self_stacks : public SpellScript
     bool _cast = false;                                 // AfterCast ran: a later hit is a missile's
     int32 _granted[MAX_SPELL_EFFECTS] = {};             // the stacks given so far, per effect
 
-    bool NeedsHit()
-    {
-        for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
-        {
-            SpellEffectInfo const& eff = GetSpellInfo()->Effects[i];
-            if (eff.Effect && eff.TargetA.GetTarget() != TARGET_UNIT_CASTER)
-                return true;
-        }
-        return false;
-    }
+    bool NeedsHit() { return Emberfall::ClassKit::StrikesOthers(GetSpellInfo()); }
 
+    // an enemy struck: OnHit runs for a miss, dodge or parry too, so the hit roll decides (the miss rules, #146)
     void HandleHit()
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
-        if (!caster || !target || target == caster)
+        if (!caster || !target || target == caster || !Emberfall::ClassKit::StruckUnit(GetSpell(), target))
             return;
         ++_hits;
     }

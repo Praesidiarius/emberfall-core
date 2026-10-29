@@ -22,8 +22,9 @@
 //
 //   spell_ef_kit_flow           a builder: a dummy on the caster with trigger = the builder's mark (a self aura). The mark's
 //                               effect 1 misc is the gate (an aura of the caster's: a finisher is prepared), its effects 2-3
-//                               name a partner's mark (misc) and the ready aura the pair prepares (trigger). After the cast,
-//                               hit or not: with the gate up nothing changes; while an aura of the caster's has a dummy
+//                               name a partner's mark (misc) and the ready aura the pair prepares (trigger). After a cast
+//                               that struck an enemy (the miss rules, alpha1 feedback #146: a miss, dodge, parry, nobody
+//                               in reach or empty air changes nothing): with the gate up nothing changes; while an aura of the caster's has a dummy
 //                               effect naming this mark (misc) with a trigger (No Quarter), that ready aura and the gate are
 //                               cast; holding a partner's mark, every mark goes and the pair's ready aura and the gate are
 //                               cast; else the mark is laid (refreshed).
@@ -48,8 +49,8 @@
 //                               instances of the trigger's pool running add their value in percent to the strike (Crimson
 //                               Edge, 1 running), those naming the trigger add it to its crit chance. The caster's
 //                               `spell_ef_kit_rule_stack_bonus` rules naming this spell (value % a stack of their trigger, a
-//                               self stacking aura: Crimson Undertow) raise the strike and its new damage over time; a
-//                               landed strike spends those stacks.
+//                               self stacking aura: Crimson Undertow) raise the strike and its new damage over time; the
+//                               cast spends those stacks, struck or not (the miss rules, alpha1 feedback #143).
 //   spell_ef_kit_hook           effect 1, a dummy at the enemy: value = yards short of the caster it lands, misc B = the
 //                               pull's speed (yd/s), trigger = the spell cast at it as the pull starts (Boarding Hook's
 //                               cut: interrupt_cast with no lockout), its mechanic the immunity that refuses it (grip).
@@ -164,6 +165,10 @@ class spell_ef_kit_flow : public SpellScript
         SpellEffectInfo const* own = FindTriggerDummy(GetSpellInfo(), true);
         SpellInfo const* mark = own ? sSpellMgr->GetSpellInfo(own->TriggerSpell) : nullptr;
         if (!caster || !mark)
+            return;
+        // the miss rules (#146): a builder builds Flow only on an enemy it struck
+        if (!Emberfall::ClassKit::Logic::Builds(Emberfall::ClassKit::StrikesOthers(GetSpellInfo()),
+                                                Emberfall::ClassKit::Struck(GetSpell(), caster)))
             return;
         uint32 const gate = uint32(mark->Effects[EFFECT_0].MiscValue);
         // No Quarter: a non-passive aura of the caster's naming this mark with a ready aura (not a partner's mark, whose
@@ -367,7 +372,7 @@ class spell_ef_kit_split_dot : public SpellScript
     PrepareSpellScript(spell_ef_kit_split_dot);
 
     int32 _stackPct = 0;           // Crimson Undertow: percent more on this cast's strike and its new damage over time
-    std::vector<uint32> _stackAuras; // the stack auras that bonus came from (spent on a landed strike)
+    std::vector<uint32> _stackAuras; // the stack auras that bonus came from (spent by the cast, struck or not)
 
     SpellEffectInfo const* Split()
     {
@@ -470,10 +475,6 @@ class spell_ef_kit_split_dot : public SpellScript
             }
         if (!landed)
             return;
-        // the stacks are spent by the strike that landed (a missed one keeps them)
-        for (uint32 stackSpell : _stackAuras)
-            caster->RemoveAurasDueToSpell(stackSpell);
-        _stackAuras.clear();
         int32 const tick = Flow::WithPct(Tick(caster, *eff, dot, crit), _stackPct);
         if (tick <= 0)
             return;
@@ -483,10 +484,15 @@ class spell_ef_kit_split_dot : public SpellScript
         caster->CastCustomSpell(target, spell, &tick, nullptr, nullptr, true);
     }
 
-    // a persistent area aura once at the caster's feet, whatever was struck (with its spell held, when it names one)
+    // a persistent area aura once at the caster's feet, whatever was struck (with its spell held, when it names one); the
+    // stacks read before the cast are spent, struck or not (the miss rules, #143; the strike keeps their percent)
     void AfterCastArea()
     {
         Unit* caster = GetCaster();
+        if (caster)
+            for (uint32 stackSpell : _stackAuras)
+                caster->RemoveAurasDueToSpell(stackSpell);
+        _stackAuras.clear();
         SpellEffectInfo const* eff = Split();
         SpellInfo const* dot = eff ? sSpellMgr->GetSpellInfo(eff->TriggerSpell) : nullptr;
         if (!caster || !dot || !IsArea(dot))

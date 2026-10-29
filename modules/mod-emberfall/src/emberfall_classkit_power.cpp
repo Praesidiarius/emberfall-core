@@ -131,13 +131,8 @@ namespace
         return pct ? Emberfall::ClassKit::LustLogic::BuildPct(gain, pct) : gain;
     }
 
-    bool NeedsHit(SpellInfo const* info)
-    {
-        for (SpellEffectInfo const& eff : info->Effects)
-            if (eff.Effect && eff.TargetA.GetTarget() != TARGET_UNIT_CASTER)
-                return true;
-        return false;
-    }
+    // the miss rules (#146): a builder that strikes others builds only for the enemies it struck
+    bool NeedsHit(SpellInfo const* info) { return Emberfall::ClassKit::StrikesOthers(info); }
 }
 
 class spell_ef_kit_build_power : public SpellScript

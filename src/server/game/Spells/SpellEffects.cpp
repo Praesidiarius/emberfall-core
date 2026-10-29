@@ -54,6 +54,7 @@
 #include "SpellMgr.h"
 #include "EmberfallCombatLog.h"
 #include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
+#include "EmberfallMissRules.h" // EMBERFALL: the miss rules (PATCHES.md #26)
 #include "TemporarySummon.h"
 #include "Totem.h"
 #include "Transport.h"
@@ -237,6 +238,28 @@ pEffect SpellEffects[TOTAL_SPELL_EFFECTS] =
     &Spell::EffectNULL,                                     //163 unused
     &Spell::EffectRemoveAura,                               //164 SPELL_EFFECT_REMOVE_AURA
 };
+
+namespace
+{
+    // EMBERFALL: the miss rules (PATCHES.md #26, alpha1 feedback #146): an energize on the caster of a player's strike (a
+    // spell with an effect aimed at anyone but its caster) gives its power only when the cast struck someone; the hit rolls
+    // come with the target list, so the caster's own effect knows them whatever its order
+    bool EmberfallEnergizesCaster(Unit const* caster, Unit const* target, SpellInfo const* info, std::list<TargetInfo> const& targets)
+    {
+        if (!caster || target != caster)
+            return true;
+        bool strikesOthers = false;
+        for (SpellEffectInfo const& eff : info->Effects)
+            if (eff.Effect && eff.TargetA.GetTarget() && eff.TargetA.GetTarget() != TARGET_UNIT_CASTER)
+                strikesOthers = true;
+        uint32 struck = 0;
+        for (TargetInfo const& t : targets)
+            if (t.targetGUID != caster->GetGUID() && t.missCondition == SPELL_MISS_NONE)
+                ++struck;
+        Unit const* owner = caster->GetCharmerOrOwnerOrSelf();
+        return Emberfall::MissRules::EnergizesCaster(Emberfall::OwnData(), owner && owner->IsPlayer(), strikesOthers, struck);
+    }
+}
 
 void Spell::EffectNULL(SpellEffIndex /*effIndex*/)
 {
@@ -1988,6 +2011,10 @@ void Spell::EffectEnergize(SpellEffIndex effIndex)
     if (!unitTarget->IsAlive())
         return;
 
+    // EMBERFALL: own data (PATCHES.md #26, the miss rules): a strike that struck nobody builds nothing
+    if (!EmberfallEnergizesCaster(unitCaster, unitTarget, m_spellInfo, m_UniqueTargetInfo))
+        return;
+
     if (unitTarget->IsImmunedToAuraPeriodicTick(unitCaster, m_spellInfo))
     {
         unitCaster->SendSpellDamageImmune(unitTarget, GetSpellInfo()->Id);
@@ -2098,6 +2125,10 @@ void Spell::EffectEnergizePct(SpellEffIndex effIndex)
     if (!unitTarget)
         return;
     if (!unitTarget->IsAlive())
+        return;
+
+    // EMBERFALL: own data (PATCHES.md #26, the miss rules): a strike that struck nobody builds nothing
+    if (!EmberfallEnergizesCaster(unitCaster, unitTarget, m_spellInfo, m_UniqueTargetInfo))
         return;
 
     if (unitTarget->HasUnitState(UNIT_STATE_ISOLATED))

@@ -19,6 +19,7 @@
 #include "EmberfallCombatLog.h"
 #include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "EmberfallCastWhileMoving.h" // EMBERFALL: casting on the move (PATCHES.md #25)
+#include "EmberfallMissRules.h" // EMBERFALL: the miss rules (PATCHES.md #26)
 #include "ArenaSpectator.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
@@ -2774,7 +2775,9 @@ void Spell::DoAllEffectOnTarget(TargetInfo* target)
     }
 
     // Do not take combo points on dodge and miss
-    if (missInfo != SPELL_MISS_NONE && m_needComboPoints && m_targets.GetUnitTargetGUID() == target->targetGUID)
+    // EMBERFALL: own data (PATCHES.md #26, the miss rules): a miss spends them like a hit
+    if (missInfo != SPELL_MISS_NONE && m_needComboPoints && m_targets.GetUnitTargetGUID() == target->targetGUID
+        && Emberfall::MissRules::PaysLessOnMiss(Emberfall::OwnData()))
     {
         m_needComboPoints = false;
         // Restore spell mods for a miss/dodge/parry Cold Blood
@@ -5543,7 +5546,9 @@ void Spell::TakePower()
 
     Powers PowerType = Powers(m_spellInfo->PowerType);
     bool hit = true;
-    if (unitCaster->IsPlayer())
+    // EMBERFALL: own data (PATCHES.md #26, the miss rules; alpha1 feedback #142): a spender whose target missed, dodged or
+    // parried takes its whole cost (the runes too), as a hit does; upstream took 0 to a quarter of it
+    if (unitCaster->IsPlayer() && Emberfall::MissRules::PaysLessOnMiss(Emberfall::OwnData()))
     {
         if (PowerType == POWER_RAGE || PowerType == POWER_ENERGY || PowerType == POWER_RUNE || PowerType == POWER_RUNIC_POWER)
             if (ObjectGuid targetGUID = m_targets.GetUnitTargetGUID())
@@ -5585,11 +5590,6 @@ void Spell::TakePower()
 
     if (hit)
         unitCaster->ModifyPower(PowerType, -m_powerCost);
-    // EMBERFALL: own data (PATCHES.md #26): the runic power slot holds a spec's whole points (the Earthwarden's Seismic
-    // Charges, the Executioner's Openings: 10 units a point); a miss kept up to a quarter of the cost at random, a
-    // fraction of a point. A spender that misses takes nothing there
-    else if (Emberfall::OwnData() && PowerType == POWER_RUNIC_POWER)
-        return;
     else
         unitCaster->ModifyPower(PowerType, -irand(0, m_powerCost / 4));
 

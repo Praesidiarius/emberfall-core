@@ -32,6 +32,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "SharedDefines.h"
+#include "Spell.h"
 #include "SpellAuraEffects.h"
 #include "SpellAuras.h"
 #include "SpellInfo.h"
@@ -480,6 +481,51 @@ namespace Emberfall::ClassKit
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
         return info && info->Effects[EFFECT_0].TargetA.GetTarget() == TARGET_UNIT_CASTER;
+    }
+
+    bool StrikesOthers(SpellInfo const* info)
+    {
+        if (!info)
+            return false;
+        for (SpellEffectInfo const& eff : info->Effects)
+            if (eff.Effect && eff.TargetA.GetTarget() && eff.TargetA.GetTarget() != TARGET_UNIT_CASTER)
+                return true;
+        return false;
+    }
+
+    uint32 Struck(Spell* spell, Unit const* caster)
+    {
+        if (!spell)
+            return 0;
+        uint32 n = 0;
+        for (TargetInfo const& info : *spell->GetUniqueTargetInfo())
+            if ((!caster || info.targetGUID != caster->GetGUID()) && info.missCondition == SPELL_MISS_NONE)
+                ++n;
+        return n;
+    }
+
+    bool StruckUnit(Spell* spell, Unit const* target)
+    {
+        if (!spell || !target)
+            return false;
+        for (TargetInfo const& info : *spell->GetUniqueTargetInfo())
+            if (info.targetGUID == target->GetGUID())
+                return info.missCondition == SPELL_MISS_NONE;
+        return false;
+    }
+
+    bool ConsumeOne(Unit* caster, uint32 auraSpell)
+    {
+        Aura* aura = caster && auraSpell ? caster->GetAura(auraSpell) : nullptr;
+        if (!aura)
+            return false;
+        if (aura->IsUsingCharges() && aura->GetCharges() > 0)
+            aura->DropCharge();
+        else if (aura->GetStackAmount() > 1)
+            aura->ModStackAmount(-1);
+        else
+            aura->Remove();
+        return true;
     }
 
     void HitBonuses(Unit* caster, Unit* target, uint32 spellId, uint32 stacks, bool selfTriggers)

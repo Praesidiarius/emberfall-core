@@ -42,6 +42,7 @@
 class Aura;
 class AuraEffect;
 class Player;
+class Spell;
 class SpellInfo;
 class Unit;
 class WorldObject;
@@ -136,6 +137,22 @@ namespace Emberfall::ClassKit
     int32 Lengthen(Unit* caster, uint32 auraSpell, int32 addMs, int32 maxExtraSeconds);
     // Whether a spell's effect 1 targets its caster (a self aura).
     bool TargetsCaster(uint32 spellId);
+    // ---- The miss rules (Emberfall alpha1 feedback #142, #143, #146; docs/design/class-kit-pipeline.md "Misses"; the
+    // core's half: src/server/game/Spells/EmberfallMissRules.h, PATCHES.md #26) ----
+    // A miss, dodge, parry, evade or immunity is the player's loss: a spender pays in full (the core), a proc or stacks an
+    // ability spends are spent (ConsumeOne, the spenders' own scripts), and a builder builds only for an enemy it struck
+    // (Logic::Builds with StrikesOthers and Struck: Flow's marks, self stacks, spec power, the core's caster energize).
+    // Whether a spell strikes others: an effect aimed at anyone but its caster (its builders need a hit; a self spell
+    // with no other target, a cooldown that gives power, always builds).
+    bool StrikesOthers(SpellInfo const* info);
+    // The units other than the caster the cast struck (SPELL_MISS_NONE: no miss, dodge, parry, evade or immunity); the
+    // hit rolls come with the target list, so this holds from the launch on (before a missile lands).
+    uint32 Struck(Spell* spell, Unit const* caster);
+    // Whether the cast struck `target` (SPELL_MISS_NONE).
+    bool StruckUnit(Spell* spell, Unit const* target);
+    // One charge (or one stack, the last one removes it) of the caster's aura `auraSpell`: the proc an ability spends,
+    // hit or miss (spell_ef_kit_consume_aura: the Deathblow window, Echo Ready, Bastion's Resolve). False: no such aura.
+    bool ConsumeOne(Unit* caster, uint32 auraSpell);
     // `consumed` stacks of `stackSpell` were shattered: every non-passive caster aura with a dummy effect whose misc value
     // is `stackSpell`, whose misc B (seconds) is above 0 and that has no trigger spell lasts the effect's amount in ms
     // longer per stack, until it has run misc B seconds beyond its spell's duration (Hoarstorm).

@@ -429,6 +429,7 @@ class spell_ef_kit_rules : public SpellScript
             if (int32 const amount = Flow::CountAmount(_hits, eff->GetAmount(), eff->GetMiscValueB()); amount > 0)
                 caster->CastCustomSpell(caster, trigger, &amount, nullptr, nullptr, true);
         }
+        Rhythm(caster, id);
         if (_struck.empty())
             return;
         auto [primary, damage] = Primary(caster);
@@ -449,7 +450,13 @@ class spell_ef_kit_rules : public SpellScript
                 if (int32 const extra = Flow::ShareOf(damage, eff->GetAmount()); extra > 0)
                     caster->CastCustomSpell(primary, trigger, &extra, nullptr, nullptr, true);
             }
-        // Perfect Rhythm: a landed finisher spends the buff; one that differs from the last landed gives it anew
+    }
+
+    // Perfect Rhythm: every finisher spends the buff, landed or not (the miss rules, #143); a landed one that differs from
+    // the last landed gives it anew (and its Energy)
+    void Rhythm(Unit* caster, uint32 id)
+    {
+        using namespace Emberfall::ClassKit;
         for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_rhythm", id))
         {
             uint32 const buff = TriggerOf(eff);
@@ -462,6 +469,8 @@ class spell_ef_kit_rules : public SpellScript
             AuraEffect const* last = caster->GetAuraEffect(track, EFFECT_0, caster->GetGUID());
             uint32 const previous = last ? uint32(last->GetAmount()) : 0;
             caster->RemoveAurasDueToSpell(buff);
+            if (_struck.empty())
+                continue;
             if (Flow::RhythmChanged(previous, id))
             {
                 GainSpecPower(caster, eff->GetAmount(), id);

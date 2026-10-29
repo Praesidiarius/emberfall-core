@@ -63,6 +63,15 @@ int main()
     check(BuilderGain(1, 3, 0, true) == 0, "Sunwheel striking nobody: nothing");
     check(BuilderGain(2, 0, 0, false) == 2, "a builder without enemy effects always raises");
 
+    // the miss rules' builder rule (alpha1 feedback #146): a strike builds only on an enemy it struck
+    check(Builds(true, 1), "a strike that struck an enemy builds");
+    check(Builds(true, 3), "a sweep that struck three builds");
+    check(!Builds(true, 0), "Crosscurrent at empty air (nobody struck) builds no Flow");
+    check(!Builds(true, 0), "a dodged, parried or missed Quickcut (struck 0) builds no Flow");
+    check(Builds(false, 0), "a self spell (no enemy effect: Flashpoint) builds without a target");
+    check(BuilderGain(1, 0, 0, true) == 0 && PowerGain(10, 0, 0, true, true) == 0,
+          "self stacks and spec power follow the same rule (First Flash doubles nothing)");
+
     // the stacks after a gain
     check(StacksAfter(4, 2, 5) == 5, "4 + 2 at cap 5: 5");
     check(StacksAfter(5, 1, 8) == 6, "Crown: 5 + 1 at cap 8: 6");

@@ -18,6 +18,7 @@
 # and the account friend tests (tests/accountfriends_tests.cpp: src/accountfriends/EfAccountFriendsLogic.h, EFF, ADD, limits)
 # and the profession XP tests (tests/professionxp_tests.cpp: src/professions/EfProfessionXp.h, colours and XP)
 # and the periodic crit tests (tests/periodiccrit_tests.cpp: the core's src/server/game/Spells/Auras/EmberfallPeriodicCrit.h)
+# and the miss rules tests (tests/missrules_tests.cpp: the core's src/server/game/Spells/EmberfallMissRules.h)
 # and the leash tests (tests/leash_tests.cpp: src/leash/EfLeashLogic.h, which landed hit renews a mob's leash).
 # No core, no database:
 #
@@ -75,6 +76,7 @@ meter ../src/meter meter_tests.cpp
 accountfriends ../src/accountfriends accountfriends_tests.cpp
 professionxp ../src/professions professionxp_tests.cpp
 periodiccrit ../../../src/server/game/Spells/Auras periodiccrit_tests.cpp
+missrules ../../../src/server/game/Spells missrules_tests.cpp
 leash ../src/leash leash_tests.cpp"
 
 if ! printf '%s\n' "$TESTS" | xargs -P "$JOBS" -n 3 sh "$HERE/run_tests.sh" --compile; then

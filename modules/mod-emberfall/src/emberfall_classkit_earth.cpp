@@ -351,10 +351,8 @@ class spell_ef_kit_strike : public SpellScript
             return;
         uint32 const id = GetSpellInfo()->Id;
         Heal(caster);
-        // Mountain's Renewal: the strike that lands spends every stack (a cancelled or missed one never gets here)
-        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_heal_stacks", id))
-            if (Aura* stacks = eff->GetBase(); stacks && !stacks->IsPassive() && !stacks->IsRemoved())
-                stacks->Remove();
+        // Mountain's Renewal: the strike spends every stack (after its heal read them); a missed one in Finish
+        SpendHealStacks(caster);
         // Fury of the Earth: an earthquake under the enemy while the fury holds
         for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_quake_during", id))
         {
@@ -429,9 +427,25 @@ class spell_ef_kit_strike : public SpellScript
         caster->CastCustomSpell(caster, heal->TriggerSpell, &amount, nullptr, nullptr, true);
     }
 
+    // Mountain's Renewal's stacks go with the strike, landed or not (the miss rules, alpha1 feedback #143); a channel cut
+    // short never casts the strike and keeps them
+    void SpendHealStacks(Unit* caster)
+    {
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_heal_stacks", GetSpellInfo()->Id))
+            if (Aura* stacks = eff->GetBase(); stacks && !stacks->IsPassive() && !stacks->IsRemoved())
+                stacks->Remove();
+    }
+
+    void Finish()
+    {
+        if (Unit* caster = GetCaster())
+            SpendHealStacks(caster);
+    }
+
     void Register() override
     {
         AfterHit += SpellHitFn(spell_ef_kit_strike::AfterHitTarget);
+        AfterCast += SpellCastFn(spell_ef_kit_strike::Finish);
     }
 };
 
