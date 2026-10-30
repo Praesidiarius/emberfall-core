@@ -232,7 +232,8 @@ class spell_ef_kit_consume_aura : public SpellScript
     }
 };
 
-// Solenne's Favor: one more charge of the trigger aura on the caster, at most the effect's value.
+// Solenne's Favor, Crimson Flow: one more charge of the trigger aura on the caster, at most the effect's value (above the
+// aura's own ProcCharges: the charges a fresh application starts with).
 class spell_ef_kit_add_charge : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_add_charge);
@@ -248,9 +249,12 @@ class spell_ef_kit_add_charge : public SpellScript
                 return;
         if (Aura* aura = caster->GetAura(eff.TriggerSpell, caster->GetGUID()))
         {
+            // SetCharges, not ModCharges: ModCharges clamps a gain to the charges of a fresh application (the aura's
+            // ProcCharges + SPELLMOD_CHARGES: Crimson Flow's 1, 2 with Twin Currents; Solenne's Favor's 1), so the cap
+            // in the effect's value was never reached (Emberfall feedback #211).
             int32 const want = Emberfall::ClassKit::Logic::ChargesAfter(aura->GetCharges(), GetEffectValue());
             if (want > aura->GetCharges())
-                aura->ModCharges(want - aura->GetCharges());
+                aura->SetCharges(uint8(want));
             aura->RefreshDuration();
             return;
         }
