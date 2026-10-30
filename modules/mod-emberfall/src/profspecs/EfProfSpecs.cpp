@@ -675,7 +675,7 @@ namespace Emberfall::ProfSpecs
     void OnBeforeSendLoot(Player* player, ObjectGuid lootGuid, Loot* loot)
     {
         std::shared_ptr<Model const> const m = s_model;
-        if (!m || !loot || !lootGuid.IsGameObject())
+        if (!m || !loot)
             return;
         PlayerState* st = State(player);
         if (!st || st->ranks.empty())
@@ -692,12 +692,18 @@ namespace Emberfall::ProfSpecs
         st->lootSeen[lootGuid] = key;
         if (st->lootSeen.size() > 256)
             st->lootSeen.erase(st->lootSeen.begin());
+        // a corpse's loot: only the nodes of the professions whose materials corpses drop (Cooking's meat, Tailoring's and
+        // First Aid's cloth and glands), never a skinner's or a herbalist's on a stray leather or herb
+        auto const takes = [&](Node const& n) {
+            uint32 const s = m->SkillOfNode(n.id);
+            return !any || s == SKILL_COOKING || s == SKILL_TAILORING || s == SKILL_FIRST_AID;
+        };
         for (LootItem& li : loot->items)
         {
             if (li.is_looted)
                 continue;
             // an upgrade first (a chalk aspect come out silver, a leather as its hide), node by node, then the yield
-            for (auto const& [n, chance] : m->Invested(st->ranks, Effect::Upgrade, skill, [&](Node const& x) { return x.items.count(li.itemid) != 0; }))
+            for (auto const& [n, chance] : m->Invested(st->ranks, Effect::Upgrade, skill, [&](Node const& x) { return x.items.count(li.itemid) != 0 && takes(x); }))
             {
                 bool const hit = roll_chance_i(static_cast<int32>(std::min<uint32>(chance, 100)));
                 LOG_INFO("module", "Emberfall profspecs: {} upgrade roll on {} ({}%): {}", player->GetName(), li.itemid, chance,
@@ -708,7 +714,7 @@ namespace Emberfall::ProfSpecs
                     break;
                 }
             }
-            uint32 const chance = m->Sum(st->ranks, Effect::Yield, skill, [&](Node const& n) { return n.items.count(li.itemid) != 0; });
+            uint32 const chance = m->Sum(st->ranks, Effect::Yield, skill, [&](Node const& n) { return n.items.count(li.itemid) != 0 && takes(n); });
             if (!chance)
                 continue;
             bool const hit = roll_chance_i(static_cast<int32>(std::min<uint32>(chance, 100)));
