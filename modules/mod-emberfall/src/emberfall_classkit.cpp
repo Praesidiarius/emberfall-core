@@ -70,6 +70,8 @@
 //                                    self aura (misc B > 0: one per enemy struck, at most misc B, plus value - 1; nothing if
 //                                    the enemy effects struck nobody: a miss, dodge or parry strikes nobody, the miss rules
 //                                    of alpha1 feedback #146), up to the aura's cap (EfClassKit.h AddSelfStacks)
+//   spell_ef_kit_cast_stacks         the same, but the stacks (value, misc B unused) come when the cast is done, hit or
+//                                    miss, before a missile lands (the Marksman's Beads, Emberfall feedback #172)
 //   spell_ef_kit_delayed_strike      effect 1 (dummy at an enemy): value ms later the trigger is cast where the enemy stands
 //                                    then, or on its last spot if it is gone (Heavenfall, Heaven's Answer)
 //   spell_ef_kit_not_bosses          never on bosses: the cast at one is refused, bosses leave the area (Kneel, Noonday)
@@ -669,12 +671,20 @@ class spell_ef_kit_stack_freeze : public SpellScript
 // A builder of self stacks (the Paladin's Sunblades): every dummy effect on the caster with a trigger raises stacks of
 // that self aura once the cast is done: its value (misc B above 0: one per enemy struck, at most misc B, plus value - 1);
 // nothing when the spell's enemy effects struck nobody. The caster's hit bonuses for this spell run on every enemy
-// struck (Twin Brand). A missile (Spell.dbc speed: the Marksman's shots, feedback #131) strikes after the cast is done:
-// its stacks come as each enemy is struck, the same total.
+// struck (Twin Brand). A missile (Spell.dbc speed, feedback #131) strikes after the cast is done: its stacks come as each
+// enemy is struck, the same total.
+// spell_ef_kit_cast_stacks (the same script, onCast): the stacks come when the cast is done, hit or miss, and the hit
+// bonuses still run as each enemy is struck (the Marksman's Beads on Patient Shot and Hard Draw, Emberfall feedback
+// #172: drawing a bead is the cast, the arrow landing is the damage).
 class spell_ef_kit_self_stacks : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_self_stacks);
 
+public:
+    explicit spell_ef_kit_self_stacks(bool onCast = false) : _onCast(onCast) { }
+
+private:
+    bool const _onCast;
     uint32 _hits = 0;
     bool _first = true;
     bool _cast = false;                                 // AfterCast ran: a later hit is a missile's
@@ -701,7 +711,7 @@ class spell_ef_kit_self_stacks : public SpellScript
             return;
         Emberfall::ClassKit::HitBonuses(caster, target, GetSpellInfo()->Id, 0, _first);
         _first = false;
-        if (_cast)
+        if (_cast && !_onCast)
             Grant(GetCaster());
     }
 
@@ -716,7 +726,8 @@ class spell_ef_kit_self_stacks : public SpellScript
             SpellEffectInfo const& eff = GetSpellInfo()->Effects[i];
             if (eff.Effect != SPELL_EFFECT_DUMMY || !eff.TriggerSpell || eff.TargetA.GetTarget() != TARGET_UNIT_CASTER)
                 continue;
-            int32 const gain = Emberfall::ClassKit::Logic::BuilderGain(eff.CalcValue(caster), eff.MiscValueB, _hits, needsHit);
+            int32 const gain = _onCast ? std::max<int32>(0, eff.CalcValue(caster))
+                : Emberfall::ClassKit::Logic::BuilderGain(eff.CalcValue(caster), eff.MiscValueB, _hits, needsHit);
             if (gain > _granted[i])
                 Emberfall::ClassKit::AddSelfStacks(caster, eff.TriggerSpell, gain - _granted[i]);
             _granted[i] = std::max(_granted[i], gain);
@@ -927,6 +938,7 @@ void AddEmberfallClassKitScripts()
     RegisterSpellScript(spell_ef_kit_interrupt_reset);
     RegisterSpellScript(spell_ef_kit_stack_freeze);
     RegisterSpellScript(spell_ef_kit_self_stacks);
+    RegisterSpellScriptWithArgs(spell_ef_kit_self_stacks, "spell_ef_kit_cast_stacks", true);
     RegisterSpellScript(spell_ef_kit_delayed_strike);
     RegisterSpellScript(spell_ef_kit_not_bosses);
     RegisterSpellScript(spell_ef_kit_talent_buff);
