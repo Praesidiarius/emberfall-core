@@ -71,6 +71,54 @@ static Model MakeModel()
     return m;
 }
 
+// The other professions' shapes (feedback #204): Alchemy's Double Batch next to Tailoring's Whole Bolt, Tailoring's
+// refunds, Enchanting's chalk upgrade and proc glyph potency, First Aid's bandage potency and cleanse, a repair discount.
+static Model MakeOtherModel()
+{
+    Model m;
+    m.hash = "8899aabbccddeeff";
+    uint32_t spell = 98001;
+    auto tree = [&](uint32_t id, uint32_t skill, std::vector<Node> nodes) {
+        Tree t;
+        t.id = id, t.skill = skill, t.sort = 1, t.name = "tree " + std::to_string(id);
+        for (auto const& [other, o] : m.trees)
+            t.sort += o.skill == skill ? 1 : 0;   // 1..n within the profession
+        t.nodes = std::move(nodes);
+        m.trees[id] = t;
+    };
+    Node batch = MakeNode(705, 7, 0, 1, 7, 0, {}, Effect::CraftBatch, 1, true, spell);
+    batch.extra = 4;
+    tree(7, 171, {batch});
+    Node bolts = MakeNode(1602, 16, 0, 1, 3, 0, {}, Effect::CraftRefund, 10, true, spell);
+    bolts.families = {6};
+    bolts.items = {99470, 99471};
+    Node pieces = MakeNode(1604, 16, 1, 2, 8, 3, {1602}, Effect::CraftRefund, 4, true, spell);
+    pieces.families = {7, 12};
+    Node whole = MakeNode(1607, 16, 2, 3, 7, 9, {1604}, Effect::CraftBatch, 1, true, spell);
+    whole.families = {6};
+    whole.extra = 2;
+    tree(16, 197, {bolts, pieces, whole});
+    Node chalk = MakeNode(1904, 19, 0, 1, 8, 0, {}, Effect::Upgrade, 2, true, spell);
+    chalk.items = {93230};
+    chalk.extra = 1;
+    tree(19, 333, {chalk});
+    Node flame = MakeNode(2101, 21, 0, 1, 3, 0, {}, Effect::Potency, 5, true, spell);
+    flame.targetSpells = {100200, 100201};
+    tree(21, 333, {flame});
+    Node firm = MakeNode(3101, 31, 0, 1, 3, 0, {}, Effect::Potency, 5, true, spell);
+    firm.families = {16};
+    Node clean = MakeNode(3102, 31, 1, 2, 6, 3, {3101}, Effect::Cleanse, 5, true, spell);
+    clean.families = {16};
+    tree(31, 129, {firm, clean});
+    Node pressure = MakeNode(3201, 32, 0, 1, 3, 0, {}, Effect::Potency, 10, true, spell);
+    pressure.families = {16};
+    pressure.extra = 35;
+    tree(32, 129, {pressure});
+    tree(12, 164, {MakeNode(1201, 12, 0, 1, 35, 0, {}, Effect::RepairDiscount, 3, true, spell)});
+    m.Index();
+    return m;
+}
+
 int main()
 {
     Model const m = MakeModel();
@@ -135,6 +183,38 @@ int main()
     CHECK(m.Remap(old) && old == Ranks({{101, 3}}));
     CHECK(m.Spent(186, {{101, 3}, {701, 2}}) == 3 && m.SpentInTree(7, {{101, 3}, {701, 2}}) == 2);
     CHECK(Digit(35) == 'z' && DigitValue('z') == 35 && DigitValue('9') == 9 && DigitValue('-') == -1);
+
+    // the other professions' effects (feedback #204, professions.md §10.11)
+    Model const t = MakeOtherModel();
+    CHECK(t.Problems().empty());
+    // craft batches count only the profession's own nodes and the recipe's family (an alchemist's five brews never
+    // make five robes, a tailor's bolts never batch a robe)
+    Ranks b{{705, 2}, {1607, 3}};
+    CHECK(t.Batch(b, 171, 1) == std::make_pair(2u, 4u));
+    CHECK(t.Batch(b, 197, 6) == std::make_pair(3u, 2u));          // bolts (part)
+    CHECK(t.Batch(b, 197, 7) == std::make_pair(0u, 0u));          // armour: the node names part only
+    // node by node: a refund names its own reagents, an upgrade its own better item
+    Ranks rr{{1602, 2}, {1604, 4}, {1904, 3}};
+    auto refunds = t.Invested(rr, Effect::CraftRefund, 197, [](Node const& n) { return Model::TakesFamily(n, 7); });
+    CHECK(refunds.size() == 1 && refunds[0].first->id == 1604 && refunds[0].second == 16);
+    auto bolts = t.Invested(rr, Effect::CraftRefund, 197, [](Node const& n) { return Model::TakesFamily(n, 6); });
+    CHECK(bolts.size() == 1 && bolts[0].first->id == 1602 && bolts[0].second == 20);
+    auto silver = t.Invested(rr, Effect::Upgrade, 333, [](Node const& n) { return n.items.count(93230) != 0; });
+    CHECK(silver.size() == 1 && silver[0].second == 6 && silver[0].first->extra == 1);
+    CHECK(t.Invested(rr, Effect::Upgrade, 197, [](Node const&) { return true; }).empty());   // another profession's
+    // potency: the named spells or the item spells of the families; a threshold only below that health
+    Ranks p{{3101, 3}, {3201, 2}, {2101, 1}};
+    CHECK(t.Potency(p, 99470, 16, 80.0f) == 15);                  // a bandage, the target at 80 %: Firm Hands only
+    CHECK(t.Potency(p, 99470, 16, 30.0f) == 35);                  // under 35 %: Pressure too
+    CHECK(t.Potency(p, 100200, 0, 50.0f) == 5);                   // a flame glyph's hit
+    CHECK(t.Potency(p, 12345, 0, 10.0f) == 0);
+    CHECK(Model::Raise(64, 35) == 86 && Model::Raise(10, 0) == 10);
+    CHECK(t.Sum(p, Effect::Cleanse) == 0);
+    CHECK(t.Sum({{3102, 4}}, Effect::Cleanse, 0, [](Node const& n) { return n.families.count(16) != 0; }) == 20);
+    // repairs: the discounts summed, never below nothing
+    CHECK(t.RepairFactor({}) == 1.0f);
+    CHECK(t.RepairFactor({{1201, 3}}) > 0.909f && t.RepairFactor({{1201, 3}}) < 0.911f);
+    CHECK(t.RepairFactor({{1201, 35}}) == 0.0f);
 
     if (s_failed)
     {

@@ -27,6 +27,7 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "SharedDefines.h"
+#include "UnitScript.h"
 #include "WorldScript.h"
 
 using namespace Acore::ChatCommands;
@@ -50,7 +51,8 @@ namespace
     public:
         emberfall_profspecs_player() : PlayerScript("emberfall_profspecs_player", {
             PLAYERHOOK_ON_LOGIN, PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_SET_SKILL, PLAYERHOOK_ON_BEFORE_SEND_LOOT,
-            PLAYERHOOK_ON_UPDATE_CRAFTING_SKILL, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_DELETE_FROM_DB }) { }
+            PLAYERHOOK_ON_UPDATE_CRAFTING_SKILL, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_DELETE_FROM_DB, PLAYERHOOK_ON_SPELL_CAST,
+            PLAYERHOOK_ON_BEFORE_DURABILITY_REPAIR }) { }
 
         void OnPlayerLogin(Player* player) override { Emberfall::ProfSpecs::OnLogin(player); }
 
@@ -70,13 +72,15 @@ namespace
             Emberfall::ProfSpecs::OnSetSkill(player, skillId, newValue);
         }
 
-        // Full Baskets / Rich Seams: one more herb or ore, rolled once per node's loot.
+        // Full Baskets / Rich Seams: one more herb or ore, rolled once per node's loot; the other trees' yields and
+        // upgrades (feedback #204): a catch, a skinned beast, a looted corpse's meat or cloth, a disenchanted item's runes.
         void OnPlayerBeforeSendLoot(Player* player, ObjectGuid lootGuid, Loot* loot) override
         {
             Emberfall::ProfSpecs::OnBeforeSendLoot(player, lootGuid, loot);
         }
 
-        // The Steady Hand and The Careful Reading: after a craft made its item (Player::UpdateCraftSkill).
+        // The Steady Hand and The Careful Reading, and the other crafts' extra output, refunds and upgrades: after a
+        // craft made its item (Player::UpdateCraftSkill).
         void OnPlayerUpdateCraftingSkill(Player* player, SkillLineAbilityEntry const* skill, uint32 /*currentLevel*/, uint32& /*gain*/) override
         {
             Emberfall::ProfSpecs::OnCraft(player, skill);
@@ -85,10 +89,39 @@ namespace
         // Far Sight: the far nodes every few seconds while tracked (a cheap no-op without ranks).
         void OnPlayerUpdate(Player* player, uint32 diff) override { Emberfall::ProfSpecs::OnUpdate(player, diff); }
 
+        // Field Medicine: a bandage going on may draw a poison or close a bleed.
+        void OnPlayerSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override { Emberfall::ProfSpecs::OnSpellCast(player, spell); }
+
+        // The Long Fire: cheaper repairs.
+        void OnPlayerBeforeDurabilityRepair(Player* player, ObjectGuid /*npc*/, ObjectGuid /*item*/, float& discountMod, uint8 /*guildBank*/) override
+        {
+            Emberfall::ProfSpecs::OnRepair(player, discountMod);
+        }
+
         void OnPlayerDeleteFromDB(CharacterDatabaseTransaction trans, uint32 guid) override
         {
             trans->Append("DELETE FROM `ef_character_prof_rank` WHERE `guid` = {}", guid);
             trans->Append("DELETE FROM `ef_character_prof_granted` WHERE `guid` = {}", guid);
+        }
+    };
+
+    // Potency (feedback #204): bandages that heal more (a periodic heal's tick) and the enchanter's own proc glyphs that
+    // hit harder (a spell's direct damage). Both hooks pass (target, caster) here: ModifyPeriodicDamageAurasTick from
+    // AuraEffect's periodic damage and heal ticks, ModifySpellDamageTaken from Unit::CalculateSpellDamageTaken.
+    class emberfall_profspecs_unit : public UnitScript
+    {
+    public:
+        emberfall_profspecs_unit() : UnitScript("emberfall_profspecs_unit", true,
+            { UNITHOOK_MODIFY_PERIODIC_DAMAGE_AURAS_TICK, UNITHOOK_MODIFY_SPELL_DAMAGE_TAKEN }) { }
+
+        void ModifyPeriodicDamageAurasTick(Unit* target, Unit* caster, uint32& amount, SpellInfo const* spellInfo) override
+        {
+            Emberfall::ProfSpecs::OnTick(target, caster, amount, spellInfo);
+        }
+
+        void ModifySpellDamageTaken(Unit* target, Unit* attacker, int32& damage, SpellInfo const* spellInfo) override
+        {
+            Emberfall::ProfSpecs::OnSpellDamage(target, attacker, damage, spellInfo);
         }
     };
 
@@ -188,6 +221,7 @@ void AddEmberfallProfSpecsScripts()
 {
     new emberfall_profspecs_world();
     new emberfall_profspecs_player();
+    new emberfall_profspecs_unit();
     new emberfall_profspecs_trainers();
     new emberfall_profspecs_commands();
 }

@@ -47,10 +47,13 @@
 #include "Log.h"
 #include "LootMgr.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "Random.h"
 #include "ScriptedGossip.h"
 #include "SharedDefines.h"
+#include "Spell.h"
+#include "SpellAuraEffects.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "WorldPacket.h"
@@ -78,6 +81,11 @@ namespace Emberfall::ProfSpecs
         uint32 s_generation = 0;
         // skill_discovery_template, keyed as the core keys it: the recipe spell (> 0) or -skill line.
         std::map<int32, std::vector<std::pair<uint32, uint32>>> s_discoveries; // key -> (spell, required skill)
+        // What the made items do when used (a bandage's heal, an antidote's cure): item spell -> the recipe family,
+        // for potency and cleanse (feedback #204); and every spell a potency node names, so the damage and heal
+        // hooks skip all others at once.
+        std::map<uint32, uint32> s_itemSpellFamily;
+        std::set<uint32> s_potencySpells;
 
         uint64 NowMs()
         {
@@ -92,7 +100,9 @@ namespace Emberfall::ProfSpecs
             uint32 generation = 0;
             Ranks ranks;
             std::set<uint32> granted;
-            std::map<ObjectGuid, uint32> lootSeen; // node -> its loot's generation time (the yield roll once per loot)
+            // a loot source -> (its loot's generation, the loot type): the yield and upgrade rolls once per loot, not
+            // again when the window opens again (a node's generation time, a corpse's death, a disenchanted item's own GUID)
+            std::map<ObjectGuid, std::pair<uint32, uint8>> lootSeen;
             eft::RateLimit limit{20, 10000};
             uint32 scanTimer = 0, scanId = 0;
             std::string lastNodes;
@@ -251,6 +261,45 @@ namespace Emberfall::ProfSpecs
             if (!st->loaded || st->generation != s_generation)
                 LoadState(player, *st, *s_model);
             return st;
+        }
+
+        // The profession whose loot this is (0: none of ours) and the loot's generation: a herb or ore node's lock, a
+        // catch (the bobber or the pool), a skinned beast (its loot skill), a looted corpse (0 skill: every profession's
+        // corpse yields, the meat and cloth of Cooking, Tailoring and First Aid), a disenchanted item. `any` is set for
+        // a corpse.
+        uint32 LootSkill(Player* player, ObjectGuid lootGuid, Loot const* loot, uint32& generation, bool& any)
+        {
+            generation = 0;
+            any = false;
+            if (lootGuid.IsGameObject())
+            {
+                GameObject* go = ObjectAccessor::GetGameObject(*player, lootGuid);
+                if (!go)
+                    return 0;
+                generation = go->GetLootGenerationTime();
+                if (loot->loot_type == LOOT_FISHING)
+                    return SKILL_FISHING;
+                uint32 required = 0;
+                return SkillOfLock(GatherLock(go, required));
+            }
+            if (lootGuid.IsCreatureOrVehicle())
+            {
+                Creature* creature = ObjectAccessor::GetCreature(*player, lootGuid);
+                if (!creature)
+                    return 0;
+                generation = static_cast<uint32>(creature->GetRespawnTime());
+                if (loot->loot_type == LOOT_SKINNING)
+                    return creature->GetCreatureTemplate()->GetRequiredLootSkill();
+                if (loot->loot_type == LOOT_CORPSE)
+                {
+                    any = true;
+                    return 0;
+                }
+                return 0;
+            }
+            if (lootGuid.IsItem() && loot->loot_type == LOOT_DISENCHANTING)
+                return SKILL_ENCHANTING;
+            return 0;
         }
 
         void GiveItems(Player* player, uint32 item, uint32 count)
@@ -467,6 +516,23 @@ namespace Emberfall::ProfSpecs
         m->Index();
         for (std::string const& p : m->Problems())
             problems.push_back(p);
+        // the made items' use spells by family (potency, cleanse) and the spells the potency nodes name
+        s_itemSpellFamily.clear();
+        s_potencySpells.clear();
+        for (auto const& [spell, recipe] : m->recipes)
+            if (ItemTemplate const* proto = sObjectMgr->GetItemTemplate(recipe.item))
+                for (auto const& use : proto->Spells)
+                    if (use.SpellId > 0)
+                        s_itemSpellFamily[static_cast<uint32>(use.SpellId)] = recipe.family;
+        for (auto const& [id, t] : m->trees)
+            for (Node const& n : t.nodes)
+                if (n.effect == Effect::Potency && n.active)
+                {
+                    s_potencySpells.insert(n.targetSpells.begin(), n.targetSpells.end());
+                    for (auto const& [itemSpell, family] : s_itemSpellFamily)
+                        if (n.families.count(family))
+                            s_potencySpells.insert(itemSpell);
+                }
         if (!problems.empty())
         {
             for (std::string const& p : problems)
@@ -609,28 +675,46 @@ namespace Emberfall::ProfSpecs
     void OnBeforeSendLoot(Player* player, ObjectGuid lootGuid, Loot* loot)
     {
         std::shared_ptr<Model const> const m = s_model;
-        if (!m || !loot || !lootGuid.IsGameObject())
+        if (!m || !loot)
             return;
         PlayerState* st = State(player);
         if (!st || st->ranks.empty())
             return;
-        GameObject* go = ObjectAccessor::GetGameObject(*player, lootGuid);
-        uint32 required = 0;
-        uint32 const skill = SkillOfLock(GatherLock(go, required));
-        if (!skill)
+        uint32 generation = 0;
+        bool any = false;
+        uint32 const skill = LootSkill(player, lootGuid, loot, generation, any);
+        if (!skill && !any)
             return;
-        uint32 const generation = go->GetLootGenerationTime();
+        std::pair<uint32, uint8> const key{generation, static_cast<uint8>(loot->loot_type)};
         auto const seen = st->lootSeen.find(lootGuid);
-        if (seen != st->lootSeen.end() && seen->second == generation)
+        if (seen != st->lootSeen.end() && seen->second == key)
             return; // this loot was rolled for already (the window opened again)
-        st->lootSeen[lootGuid] = generation;
+        st->lootSeen[lootGuid] = key;
         if (st->lootSeen.size() > 256)
             st->lootSeen.erase(st->lootSeen.begin());
+        // a corpse's loot: only the nodes of the professions whose materials corpses drop (Cooking's meat, Tailoring's and
+        // First Aid's cloth and glands), never a skinner's or a herbalist's on a stray leather or herb
+        auto const takes = [&](Node const& n) {
+            uint32 const s = m->SkillOfNode(n.id);
+            return !any || s == SKILL_COOKING || s == SKILL_TAILORING || s == SKILL_FIRST_AID;
+        };
         for (LootItem& li : loot->items)
         {
             if (li.is_looted)
                 continue;
-            uint32 const chance = m->Sum(st->ranks, Effect::Yield, skill, [&](Node const& n) { return n.items.count(li.itemid) != 0; });
+            // an upgrade first (a chalk aspect come out silver, a leather as its hide), node by node, then the yield
+            for (auto const& [n, chance] : m->Invested(st->ranks, Effect::Upgrade, skill, [&](Node const& x) { return x.items.count(li.itemid) != 0 && takes(x); }))
+            {
+                bool const hit = roll_chance_i(static_cast<int32>(std::min<uint32>(chance, 100)));
+                LOG_INFO("module", "Emberfall profspecs: {} upgrade roll on {} ({}%): {}", player->GetName(), li.itemid, chance,
+                    hit ? std::to_string(li.itemid + n->extra) : std::string("no"));
+                if (hit && sObjectMgr->GetItemTemplate(li.itemid + n->extra))
+                {
+                    li.itemid += n->extra;
+                    break;
+                }
+            }
+            uint32 const chance = m->Sum(st->ranks, Effect::Yield, skill, [&](Node const& n) { return n.items.count(li.itemid) != 0 && takes(n); });
             if (!chance)
                 continue;
             bool const hit = roll_chance_i(static_cast<int32>(std::min<uint32>(chance, 100)));
@@ -658,18 +742,49 @@ namespace Emberfall::ProfSpecs
             LOG_INFO("module", "Emberfall profspecs: {} steady hand on {} ({}%): a second item", player->GetName(), ability->Spell, extra);
             GiveItems(player, r.item, 1);
         }
-        uint32 const batch = m->Sum(st->ranks, Effect::CraftBatch, r.skill);
+        auto const [batch, more] = m->Batch(st->ranks, r.skill, r.family);
         if (batch && roll_chance_i(static_cast<int32>(std::min<uint32>(batch, 100))))
         {
-            uint32 more = 0;
-            for (auto const& [node, rank] : st->ranks)
-                if (Node const* n = m->NodeById(node); n && n->effect == Effect::CraftBatch && n->active)
-                    more = std::max(more, n->extra);
             LOG_INFO("module", "Emberfall profspecs: {} double batch on {} ({}%): {} more", player->GetName(), ability->Spell, batch, more);
             if (more)
                 GiveItems(player, r.item, more);
         }
         SpellInfo const* spell = sSpellMgr->GetSpellInfo(ability->Spell);
+        // a reagent back, node by node: one of the node's items the recipe took (none named: the one it takes most of)
+        if (spell)
+            for (auto const& [n, chance] : m->Invested(st->ranks, Effect::CraftRefund, r.skill, [&](Node const& x) { return Model::TakesFamily(x, r.family); }))
+            {
+                uint32 back = 0, most = 0;
+                for (uint32 i = 0; i < MAX_SPELL_REAGENTS; ++i)
+                {
+                    uint32 const reagent = spell->Reagent[i] > 0 ? static_cast<uint32>(spell->Reagent[i]) : 0;
+                    uint32 const count = spell->ReagentCount[i];
+                    if (reagent && count > most && (n->items.empty() || n->items.count(reagent)))
+                    {
+                        back = reagent;
+                        most = count;
+                    }
+                }
+                if (!back)
+                    continue;
+                bool const hit = roll_chance_i(static_cast<int32>(std::min<uint32>(chance, 100)));
+                LOG_INFO("module", "Emberfall profspecs: {} refund roll on {} (node {}, {}%): {}", player->GetName(), ability->Spell, n->id, chance,
+                    hit ? std::to_string(back) : std::string("no"));
+                if (hit)
+                    GiveItems(player, back, 1);
+            }
+        // the item made as the one `extra` IDs on (a chalk glyph come out silver): the one made goes, the better one comes
+        for (auto const& [n, chance] : m->Invested(st->ranks, Effect::Upgrade, r.skill, [&](Node const& x) { return x.items.count(r.item) != 0; }))
+        {
+            bool const hit = roll_chance_i(static_cast<int32>(std::min<uint32>(chance, 100)));
+            LOG_INFO("module", "Emberfall profspecs: {} upgrade roll on {} ({}%): {}", player->GetName(), r.item, chance, hit ? "brighter" : "no");
+            if (hit && player->HasItemCount(r.item, 1) && sObjectMgr->GetItemTemplate(r.item + n->extra))
+            {
+                player->DestroyItemCount(r.item, 1, true);
+                GiveItems(player, r.item + n->extra, 1);
+            }
+            break;
+        }
         uint32 const bonus = m->Sum(st->ranks, Effect::Discovery, r.skill);
         if (spell && spell->Mechanic == MECHANIC_DISCOVERY && bonus)
         {
@@ -686,6 +801,81 @@ namespace Emberfall::ProfSpecs
             if (hit && !open.empty())
                 player->learnSpell(open[urand(0, static_cast<uint32>(open.size() - 1))]);
         }
+    }
+
+    void OnTick(Unit* target, Unit* caster, uint32& amount, SpellInfo const* spellInfo)
+    {
+        if (!spellInfo || !amount || !caster || !target || !s_potencySpells.count(spellInfo->Id))
+            return;
+        Player* player = caster->ToPlayer();
+        std::shared_ptr<Model const> const m = s_model;
+        PlayerState* st = player && m ? State(player) : nullptr;
+        if (!st || st->ranks.empty())
+            return;
+        auto const fam = s_itemSpellFamily.find(spellInfo->Id);
+        uint32 const pct = m->Potency(st->ranks, spellInfo->Id, fam == s_itemSpellFamily.end() ? 0 : fam->second, target->GetHealthPct());
+        if (pct)
+            amount = Model::Raise(amount, pct);
+    }
+
+    void OnSpellDamage(Unit* target, Unit* attacker, int32& damage, SpellInfo const* spellInfo)
+    {
+        if (damage <= 0)
+            return;
+        uint32 amount = static_cast<uint32>(damage);
+        OnTick(target, attacker, amount, spellInfo);
+        damage = static_cast<int32>(amount);
+    }
+
+    void OnSpellCast(Player* player, Spell* spell)
+    {
+        std::shared_ptr<Model const> const m = s_model;
+        if (!m || !spell || s_itemSpellFamily.empty())
+            return;
+        auto const fam = s_itemSpellFamily.find(spell->GetSpellInfo()->Id);
+        if (fam == s_itemSpellFamily.end())
+            return;
+        PlayerState* st = State(player);
+        if (!st || st->ranks.empty())
+            return;
+        uint32 const chance = m->Sum(st->ranks, Effect::Cleanse, 0, [&](Node const& n) { return n.families.count(fam->second) != 0; });
+        if (!chance)
+            return;
+        Unit* target = spell->m_targets.GetUnitTarget();
+        if (!target)
+            target = player;
+        bool const hit = roll_chance_i(static_cast<int32>(std::min<uint32>(chance, 100)));
+        // the first poison or bleed on the target (an aura of a harmful spell whose dispel is poison or whose mechanic,
+        // or one of its effects', is bleeding)
+        Aura* found = nullptr;
+        if (hit)
+            for (auto const& [id, app] : target->GetAppliedAuras())
+            {
+                Aura* aura = app->GetBase();
+                SpellInfo const* info = aura->GetSpellInfo();
+                if (app->IsPositive() || aura->IsPassive())
+                    continue;
+                if (info->Dispel == DISPEL_POISON || (info->GetAllEffectsMechanicMask() & (1 << MECHANIC_BLEED)))
+                {
+                    found = aura;
+                    break;
+                }
+            }
+        LOG_INFO("module", "Emberfall profspecs: {} cleanse roll on {} ({}%): {}", player->GetName(), spell->GetSpellInfo()->Id, chance,
+            found ? std::to_string(found->GetId()) : hit ? std::string("nothing to draw") : std::string("no"));
+        if (found)
+            target->RemoveAura(found, AURA_REMOVE_BY_ENEMY_SPELL);
+    }
+
+    void OnRepair(Player* player, float& discountMod)
+    {
+        std::shared_ptr<Model const> const m = s_model;
+        PlayerState* st = m ? State(player) : nullptr;
+        if (!st || st->ranks.empty())
+            return;
+        float const factor = m->RepairFactor(st->ranks);
+        if (factor < 1.0f)
+            discountMod *= factor;
     }
 
     void OnUpdate(Player* player, uint32 diff)
@@ -787,7 +977,11 @@ namespace Emberfall::ProfSpecs
             std::to_string(m->Sum(st->ranks, Effect::MinimapRange)) + ", rarest first " + std::to_string(m->Sum(st->ranks, Effect::RarestFirst)) +
             ", gather speed " + std::to_string(m->Sum(st->ranks, Effect::GatherSpeed)) + ", craft extra " +
             std::to_string(m->Sum(st->ranks, Effect::CraftExtra)) + ", duration " + std::to_string(m->Sum(st->ranks, Effect::Duration)) +
-            ", discovery " + std::to_string(m->Sum(st->ranks, Effect::Discovery)));
+            ", discovery " + std::to_string(m->Sum(st->ranks, Effect::Discovery)) + ", refund " +
+            std::to_string(m->Sum(st->ranks, Effect::CraftRefund)) + ", upgrade " + std::to_string(m->Sum(st->ranks, Effect::Upgrade)) +
+            ", skill " + std::to_string(m->Sum(st->ranks, Effect::SkillBonus)) + ", potency " + std::to_string(m->Sum(st->ranks, Effect::Potency)) +
+            ", cleanse " + std::to_string(m->Sum(st->ranks, Effect::Cleanse)) + ", repair discount " +
+            std::to_string(m->Sum(st->ranks, Effect::RepairDiscount)) + "%");
         // the gather spells the speed ranks modify, with the cast time the core gives them for this player
         std::set<uint32> gather;
         for (auto const& [id, t] : m->trees)
