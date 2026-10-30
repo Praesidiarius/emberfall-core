@@ -437,10 +437,12 @@ namespace Emberfall::ClassKit::Logic
         return dx * dx + dy * dy <= radius * radius && dz <= 6.0f && dz >= -6.0f;
     }
 
-    // Solenne's Favor (spell_ef_kit_add_charge): the charges after a gain, at most `max` (2).
-    constexpr int32_t ChargesAfter(int32_t have, int32_t max)
+    // Solenne's Favor, Crimson Flow (spell_ef_kit_add_charge): the charges after a gain of `gain` (1; Twin Currents' bonus
+    // roll 2), at most `max` (2; Crimson Flow's 5).
+    constexpr int32_t ChargesAfter(int32_t have, int32_t max, int32_t gain = 1)
     {
-        return std::max<int32_t>(1, std::min<int32_t>(std::max<int32_t>(0, have) + 1, std::max<int32_t>(1, max)));
+        return std::max<int32_t>(1, std::min<int32_t>(std::max<int32_t>(0, have) + std::max<int32_t>(1, gain),
+                                                      std::max<int32_t>(1, max)));
     }
 
     // Solenne's Aegis's bursts (spell_ef_kit_absorb_burst): an absorbed blow at `nowMs` bursts when at least `gapMs` have
