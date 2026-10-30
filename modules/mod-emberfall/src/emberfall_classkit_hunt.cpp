@@ -43,6 +43,14 @@
 //                                   neither speed nor distance); this script refuses it while rooted (the engine checks
 //                                   roots for charges and jumps but not for CHARGE_DEST) and when not on the ground
 //                                   (falling or jumping, flying, swimming)
+//   spell_ef_kit_feint              a feint (Lie Still, feedback #232), an aura script beside its FEIGN_DEATH (effect
+//                                   1): the core drops the hunter's combat and threat, but the companion still fighting
+//                                   put the hunter back in at its next hit (Unit::AtTargetAttacked engages the attacker's
+//                                   owner), so the hunter never left combat. Here the hunter's companion and guardians stop
+//                                   too: their attack and casts end, their fights and threat go, they come back (the pet
+//                                   bar's Follow without the command). Inside a boss encounter nothing more (the core
+//                                   keeps the hunter's combat there as well). An enemy that still attacks (a curse of its
+//                                   ticking on the hunter, one that sees through feints) brings combat back, as upstream
 //   spell_ef_pet_owner_scaling      the companion's share of its hunter (spells/pets.yaml, a family passive on every
 //                                   companion): attack power (effect value: percent of the hunter's ranged attack power),
 //                                   stamina and armour (percent of the hunter's), recomputed every 2 s
@@ -56,6 +64,7 @@
 #include "CharmInfo.h"
 #include "ObjectAccessor.h"
 #include "CreatureAI.h"
+#include "InstanceScript.h"
 #include "Pet.h"
 #include "PetDefines.h"
 #include "Player.h"
@@ -70,6 +79,7 @@
 #include "Unit.h"
 
 #include <algorithm>
+#include <vector>
 
 namespace
 {
@@ -429,6 +439,41 @@ class spell_ef_pet_owner_scaling : public AuraScript
     }
 };
 
+// Lie Still (feedback #232): the hunter's companion and guardians leave the fight with it, so the hunter is out of combat.
+class spell_ef_kit_feint : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_feint);
+
+    void Apply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* owner = GetUnitOwner();
+        if (!owner || !owner->IsPlayer())
+            return;
+        if (InstanceScript* instance = owner->GetInstanceScript(); instance && instance->IsEncounterInProgress())
+            return;
+        std::vector<Unit*> const controlled(owner->m_Controlled.begin(), owner->m_Controlled.end());
+        for (Unit* unit : controlled)
+        {
+            if (!unit || !unit->IsInWorld() || !unit->IsAlive())
+                continue;
+            if (Creature* creature = unit->ToCreature(); creature && creature->IsAIEnabled)
+                creature->AI()->PetStopAttack();     // attack, casts and the attack command end; it comes back
+            unit->AttackStop();
+            unit->InterruptNonMeleeSpells(false);
+            unit->CombatStop(true);                  // its fights and the threat on it
+            if (CharmInfo* charm = unit->GetCharmInfo())
+                charm->SetIsCommandAttack(false);
+        }
+        // the companion's last blow may have engaged the hunter again before it stopped
+        owner->CombatStop(false, false);
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_ef_kit_feint::Apply, EFFECT_0, SPELL_AURA_FEIGN_DEATH, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
 // A companion always fights beside its hunter at the hunter's level (the core's level hunk, PATCHES.md #17, keeps it
 // there afterwards). Its family abilities autocast from the start: the core learns them with autocast on (PATCHES.md
 // #27); a loaded companion keeps its saved toggles. (This hook once turned them on here, but it runs before a loaded
@@ -457,5 +502,6 @@ void AddEmberfallClassKitHuntScripts()
     RegisterSpellScript(spell_ef_kit_dash);
     RegisterSpellAndAuraScriptPair(spell_ef_kit_gentling, spell_ef_kit_gentling_aura);
     RegisterSpellScript(spell_ef_pet_owner_scaling);
+    RegisterSpellScript(spell_ef_kit_feint);
     new emberfall_classkit_hunt_pet();
 }
