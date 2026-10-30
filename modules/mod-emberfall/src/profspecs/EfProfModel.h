@@ -26,7 +26,9 @@
 //   wire       a profession's ranks as `<tree 1>.<tree 2>.<tree 3>`, one base-36 digit (0-9, a-z) per node in `ord`
 //              order, so a node may hold up to 35 ranks
 //   effects    a node's effect, per_rank and targets (items, families, spells); Sum() adds per_rank x rank over the
-//              invested nodes of one kind that apply, only for nodes that work with today's content (`active`)
+//              invested nodes of one kind that apply, only for nodes that work with today's content (`active`);
+//              Invested() lists them with their value, for the effects rolled node by node (a refund names its own
+//              reagents, an upgrade its own better item: Emberfall feedback #204, professions.md §10.11)
 
 #pragma once
 
@@ -54,6 +56,15 @@ namespace ef::prof
         CraftBatch = 6,
         Duration = 7,
         Discovery = 8,
+        // the other professions' trees (feedback #204, professions.md §10.11)
+        CraftRefund = 9,    // a recipe's reagent back (items: which; none: the one it takes most of)
+        Upgrade = 10,       // a looted or crafted item as the one `extra` IDs on
+        SkillBonus = 11,    // the rank spell's mod_skill aura (nothing for the server to do)
+        Potency = 12,       // the caster's spells (targetSpells, or the item spells of families) heal or hit harder;
+                            // `extra`: only on a target below that % health
+        Cleanse = 13,       // an item spell of families also draws a poison or closes a bleed on its target
+        SpellMod = 14,      // the rank spell's modifier aura (nothing for the server to do)
+        RepairDiscount = 15,
     };
 
     // ef_prof_node_target.kind
@@ -339,6 +350,57 @@ namespace ef::prof
         uint32_t Sum(Ranks const& ranks, Effect effect, uint32_t skill = 0) const
         {
             return Sum(ranks, effect, skill, [](Node const&) { return true; });
+        }
+
+        // The invested nodes of `effect` (of `skill`; 0: any) that work today and accept `match`, each with its value
+        // (per_rank x rank): the effects rolled node by node.
+        template <class Match>
+        std::vector<std::pair<Node const*, uint32_t>> Invested(Ranks const& ranks, Effect effect, uint32_t skill, Match const& match) const
+        {
+            std::vector<std::pair<Node const*, uint32_t>> out;
+            for (auto const& [node, rank] : ranks)
+            {
+                Node const* n = NodeById(node);
+                if (!n || n->effect != effect || !n->active || !rank || (skill && SkillOfNode(node) != skill) || !match(*n))
+                    continue;
+                out.emplace_back(n, n->perRank * std::min(rank, n->maxRank));
+            }
+            return out;
+        }
+
+        // A node of a craft effect applies to a recipe of `family` when it names no families or names that one.
+        static bool TakesFamily(Node const& n, uint32_t family) { return n.families.empty() || n.families.count(family) != 0; }
+
+        // Double Batch and its kin: the chance (summed) and the items it adds (the largest `extra`) for a recipe of
+        // `family` of `skill`. Only the profession's own nodes count: an alchemist's five brews never make five robes.
+        std::pair<uint32_t, uint32_t> Batch(Ranks const& ranks, uint32_t skill, uint32_t family) const
+        {
+            uint32_t chance = 0, more = 0;
+            for (auto const& [n, value] : Invested(ranks, Effect::CraftBatch, skill, [&](Node const& x) { return TakesFamily(x, family); }))
+            {
+                chance += value;
+                more = std::max(more, n->extra);
+            }
+            return {chance, more};
+        }
+
+        // Potency on a spell: the percent more it heals or hits, from the nodes that name the spell (or its item family,
+        // `family`, 0: none) and whose health threshold (extra; 0: none) the target is under.
+        uint32_t Potency(Ranks const& ranks, uint32_t spell, uint32_t family, float targetHealthPct) const
+        {
+            return Sum(ranks, Effect::Potency, 0, [&](Node const& n) {
+                bool const named = n.targetSpells.count(spell) != 0 || (family && n.families.count(family) != 0);
+                return named && (!n.extra || targetHealthPct < static_cast<float>(n.extra));
+            });
+        }
+
+        // `amount` raised by `pct` percent (rounded down).
+        static uint32_t Raise(uint32_t amount, uint32_t pct) { return static_cast<uint32_t>(uint64_t(amount) * (100 + pct) / 100); }
+
+        // What a repair costs, as a factor of the vendor's price (the repair discounts summed, at most 100 %).
+        float RepairFactor(Ranks const& ranks) const
+        {
+            return 1.0f - static_cast<float>(std::min<uint32_t>(Sum(ranks, Effect::RepairDiscount), 100)) / 100.0f;
         }
 
         // The ranks with the nodes of one tree taken out (a reset), and the points it takes back.
