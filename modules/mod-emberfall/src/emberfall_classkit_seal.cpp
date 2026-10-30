@@ -58,7 +58,9 @@
 //                              still on them ticks once more (its own tick: the bonuses). The caster's dummy auras naming
 //                              it: with a trigger, after each flare the trigger healing the caster for value per mille of
 //                              its maximum health for each curse that ticked (Sanguine Leech); without one, only the
-//                              enemy it starts at is fixed (Eternal Torrent).
+//                              enemy it starts at is fixed (Eternal Torrent). The enemy it starts at is dropped from the
+//                              targets (feedback #228): only the warlock holds the channel, so neither a resisted dummy
+//                              nor that enemy's death ends it.
 //   spell_ef_kit_collapse      effect 1 a dummy on the caster: value = percent of what the curses still had to deal
 //                              (Devastating Collapse), trigger = the hit cast at each cursed enemy with that amount; the
 //                              curses go. Remaining = the ticks left (rounded up) x the tick as it would land now. Then the
@@ -433,10 +435,21 @@ class spell_ef_kit_torrent : public SpellScript
             caster->CustomData.GetDefault<TorrentTarget>(kTorrentKey)->target = target ? target->GetGUID() : ObjectGuid::Empty;
     }
 
+    // Feedback #228: the enemy it starts at is no channel target. Effect 2's dummy there gives the range and sight check
+    // (the explicit target, kept: CheckRange, CheckCast, the channel object, Record), but a unit in the channel's target
+    // list must stay alive and hit for the channel to run (Spell::UpdateChanneledTargetList): a resisted, evaded or
+    // immune dummy ended the ritual at its first update after the Seals were spent, and the start enemy dying (the flares
+    // kill it) ended it with the flares on every other cursed enemy lost. The ritual is on the warlock (effect 1).
+    void DropTarget(WorldObject*& target)
+    {
+        target = nullptr;
+    }
+
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_ef_kit_torrent::CheckCast);
         BeforeCast += SpellCastFn(spell_ef_kit_torrent::Record);
+        OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_ef_kit_torrent::DropTarget, EFFECT_1, TARGET_UNIT_TARGET_ENEMY);
     }
 };
 
