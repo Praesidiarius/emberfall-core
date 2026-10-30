@@ -224,6 +224,11 @@ enum ActionButtonType
     ACTION_BUTTON_EQSET     = 0x20,
     ACTION_BUTTON_MACRO     = 0x40,
     ACTION_BUTTON_CMACRO    = ACTION_BUTTON_C | ACTION_BUTTON_MACRO,
+    // EMBERFALL: (PATCHES.md #29) a pet's action on the player's own bars, which the Emberfall client sends and uses:
+    // a pet spell (its ID), a pet order (the pet action type << 8 | the command or reaction). Kept as they are; the pet
+    // is commanded through CMSG_PET_ACTION as from its bar
+    ACTION_BUTTON_EF_PET_SPELL = 0x10,
+    ACTION_BUTTON_EF_PET_ORDER = 0x11,
     ACTION_BUTTON_ITEM      = 0x80
 };
 

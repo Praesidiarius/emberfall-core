@@ -928,6 +928,10 @@ void WorldSession::HandleSetActionButtonOpcode(WorldPacket& recv_data)
             case ACTION_BUTTON_ITEM:
                 LOG_DEBUG("network.opcode", "MISC: Added Item {} into button {}", action, button);
                 break;
+            case ACTION_BUTTON_EF_PET_SPELL: // EMBERFALL: (PATCHES.md #29) a pet's action on the player's bar
+            case ACTION_BUTTON_EF_PET_ORDER:
+                LOG_DEBUG("network.opcode", "MISC: Added pet action {} (type {}) into button {}", action, type, button);
+                break;
             default:
                 LOG_ERROR("network.opcode", "MISC: Unknown action button type {} for action {} into button {} for player {} ({})",
                     type, action, button, _player->GetName(), _player->GetGUID().ToString());
