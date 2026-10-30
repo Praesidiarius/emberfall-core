@@ -21,6 +21,7 @@
 #include "ChatTextBuilder.h"
 #include "CreatureGroups.h"
 #include "CreatureTextMgr.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "GameEventMgr.h"
 #include "GossipDef.h"
 #include "GridDefines.h"
@@ -1225,6 +1226,17 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
                     Player* player = target->ToUnit()->GetCharmerOrOwnerPlayerOrPlayerItself();
                     if (!player)
                         continue;
+
+                    // EMBERFALL: own data (PATCHES.md #31): the group's credit is measured from the creature whose
+                    // event it is (an escort's end), so a stored member who stayed behind gets none and the members
+                    // round the escortee all do (a player out of the group too); upstream measures each member from
+                    // the target player itself.
+                    if (Emberfall::OwnData() && me)
+                    {
+                        if (player->GetGroup() || player->IsAtGroupRewardDistance(me))
+                            player->RewardPlayerAndGroupAtEvent(e.action.killedMonster.creature, me);
+                        continue;
+                    }
 
                     player->RewardPlayerAndGroupAtEvent(e.action.killedMonster.creature, player);
                     LOG_DEBUG("sql.sql", "SmartScript::ProcessAction: SMART_ACTION_CALL_KILLEDMONSTER: Player {}, Killcredit: {}",

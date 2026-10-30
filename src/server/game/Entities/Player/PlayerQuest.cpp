@@ -2494,7 +2494,7 @@ void Player::SendQuestConfirmAccept(Quest const* quest, Player* pReceiver)
 
         WorldPackets::Quest::QuestConfirmAccept questConfirmAccept;
         questConfirmAccept.QuestId = quest->GetQuestId();
-        questConfirmAccept.QuestTitle = quest->GetTitle();
+        questConfirmAccept.QuestTitle = strTitle; // EMBERFALL: the receiver's language (PATCHES.md #32; upstream sent the English title and left strTitle unused)
         questConfirmAccept.PlayerGuid = GetGUID();
         pReceiver->SendDirectMessage(questConfirmAccept.Write());
 
