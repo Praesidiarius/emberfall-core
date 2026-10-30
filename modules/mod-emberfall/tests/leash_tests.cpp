@@ -16,7 +16,7 @@
  */
 
 // Standalone tests of the leash rule (src/leash/EfLeashLogic.h; tests/run_tests.sh builds and runs them): which landed
-// hit of a creature renews its own leash timer, and the timer per level.
+// hit of a creature renews its own leash timer, which DoT tick renews its victim's (#185), and the timer per level.
 
 #include "EfLeashLogic.h"
 
@@ -75,6 +75,39 @@ int main()
     Hit player = MobHit(HitKind::Melee);
     player.attackerIsCreature = false;
     check(!HitRenewsAttackerLeash(player), "a player's hit renews nothing here (the core renews the victim's)");
+
+    // feedback #185: a player's DoT tick on an engaged mob renews the mob's leash, as a direct hit it takes does
+    Tick tick;
+    tick.victimIsCreature = true;
+    tick.victimEngaged = true;
+    tick.attackerPlayerControlled = true;
+    tick.kind = HitKind::OverTime;
+    tick.damage = 42;
+    check(TickRenewsVictimLeash(tick), "a player's DoT tick on an engaged mob renews its leash");
+    Tick t = tick;
+    t.kind = HitKind::Melee;
+    check(!TickRenewsVictimLeash(t), "direct hits stay the core's (it renews the victim itself)");
+    t = tick;
+    t.damage = 0;
+    check(!TickRenewsVictimLeash(t), "a fully absorbed tick does not");
+    t = tick;
+    t.victimEvading = true;
+    check(!TickRenewsVictimLeash(t), "a tick does not call an evading mob back");
+    t = tick;
+    t.victimEngaged = false;
+    check(!TickRenewsVictimLeash(t), "a mob not engaged has no leash to renew");
+    t = tick;
+    t.victimPlayerOwned = true;
+    check(!TickRenewsVictimLeash(t), "a player's pet taking a tick does not");
+    t = tick;
+    t.attackerPlayerControlled = false;
+    check(!TickRenewsVictimLeash(t), "a mob's DoT on another mob does not");
+    t = tick;
+    t.selfHit = true;
+    check(!TickRenewsVictimLeash(t), "self damage does not");
+    t = tick;
+    t.victimIsCreature = false;
+    check(!TickRenewsVictimLeash(t), "a player taking a tick has no leash");
 
     // upstream's Creature::GetLeashTimer: 11 s to level 29, then a second per ten levels; Classic: 11/12/13/14/15
     check(LeashSeconds(1) == 11, "level 1: 11 s");

@@ -22,6 +22,8 @@
 // timer too (src/leash/EfLeashLogic.h), so a mob leashes only once nobody has hit anybody for its leash time and its
 // victim is away from its home (or unreachable: the core's 10 s evade timer, unchanged). Its linked pack shares the
 // timer (the core's AssistDelayEvent shares the pointer with the mobs that came to its call).
+// Feedback #185: a DoT tick a player (or a player's pet) lands on a creature renews that creature's timer too, as
+// upstream does a direct hit it takes (upstream leaves DoT ticks out); switch Emberfall.Leash.DotsRenew (default 1).
 // On with Emberfall.OwnData = 1 and Emberfall.Leash.MobHitsRenew (default 1). Dungeons never leash by distance
 // (CanCreatureAttack returns before the check), so instances and their bosses' own rules are untouched. Social aggro needs no code: the core's CallAssistance (same faction template
 // with the respond-to-call-for-help flag, CreatureFamilyAssistanceRadius) and Emberfall's faction data.
@@ -37,6 +39,7 @@
 namespace
 {
     bool s_mobHitsRenew = true;
+    bool s_dotsRenew = true;
 
     Emberfall::Leash::HitKind KindOf(DamageEffectType type)
     {
@@ -57,9 +60,10 @@ namespace
         void OnAfterConfigLoad(bool /*reload*/) override
         {
             s_mobHitsRenew = sConfigMgr->GetOption<bool>("Emberfall.Leash.MobHitsRenew", true, false);
+            s_dotsRenew = sConfigMgr->GetOption<bool>("Emberfall.Leash.DotsRenew", true, false);
             if (Emberfall::OwnData())
-                LOG_INFO("server.loading", ">> Emberfall leash: a mob's own hits renew its leash: {}",
-                         s_mobHitsRenew ? "on" : "off");
+                LOG_INFO("server.loading", ">> Emberfall leash: a mob's own hits renew its leash: {}; DoT ticks it takes: {}",
+                         s_mobHitsRenew ? "on" : "off", s_dotsRenew ? "on" : "off");
         }
     };
 
@@ -69,11 +73,30 @@ namespace
         // DealDamage is called on every UnitScript (ScriptMgr::DealDamage walks them all); no hook list needed.
         emberfall_leash_unit() : UnitScript("emberfall_leash_unit", true) { }
 
-        // Unit::DealDamage, first thing: a landed hit (melee misses, dodges and parries never get here; a fully absorbed
+        // Unit::DealDamage, first thing: a landed hit or a periodic tick (melee misses, dodges and parries never get here; a fully absorbed
         // hit does). Only observes: the damage goes back unchanged.
         uint32 DealDamage(Unit* attacker, Unit* victim, uint32 damage, DamageEffectType type) override
         {
-            if (!s_mobHitsRenew || !attacker || !victim || !Emberfall::OwnData())
+            if (!attacker || !victim || !Emberfall::OwnData())
+                return damage;
+
+            if (s_dotsRenew && type == DOT)
+                if (Creature* target = victim->ToCreature())
+                {
+                    Emberfall::Leash::Tick tick;
+                    tick.victimIsCreature = true;
+                    tick.victimPlayerOwned = target->GetOwnerGUID().IsPlayer();
+                    tick.victimEngaged = target->IsEngaged();
+                    tick.victimEvading = target->IsInEvadeMode();
+                    tick.attackerPlayerControlled = attacker->IsControlledByPlayer();
+                    tick.selfHit = attacker == victim;
+                    tick.kind = Emberfall::Leash::HitKind::OverTime;
+                    tick.damage = damage;
+                    if (Emberfall::Leash::TickRenewsVictimLeash(tick))
+                        target->UpdateLeashExtensionTime();
+                }
+
+            if (!s_mobHitsRenew)
                 return damage;
             Creature* creature = attacker->ToCreature();
             if (!creature)

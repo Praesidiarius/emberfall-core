@@ -427,15 +427,17 @@ The world tables `ef_editor_zone`, `ef_editor_spawn`, `ef_editor_entry` come fro
 
 The open world's leash as in Classic: upstream renews a creature's leash timer (`Creature::GetLeashTimer`, 11 s to level
 29, 15 s at 60) when it is hit, attacked or engaged; the module renews it also when the creature lands a melee or direct
-spell hit (not damage over time) on its victim. A mob that keeps hitting you, or that you keep hitting, never leashes; it
+spell hit (not damage over time) on its victim, and (feedback #185) when a player's or a pet's DoT ticks on it. A mob that
+keeps hitting you, or that you keep hitting or dotting, never leashes; it
 goes home once its timer ran out with its victim more than `CreatureLeashRadius` (30 yd, 2D) from its home, or after the
 core's 10 s evade timer when it cannot reach its victim. Dungeons never leash by distance (upstream), so nothing changes
-there. On with `Emberfall.OwnData = 1` and `Emberfall.Leash.MobHitsRenew` (default 1, `AC_EMBERFALL_LEASH_MOB_HITS_RENEW`).
+there. On with `Emberfall.OwnData = 1` and `Emberfall.Leash.MobHitsRenew` (default 1, `AC_EMBERFALL_LEASH_MOB_HITS_RENEW`); the DoT
+half with `Emberfall.Leash.DotsRenew` (default 1, `AC_EMBERFALL_LEASH_DOTS_RENEW`).
 Social aggro is the core's `CallAssistance` on Emberfall's faction data (no module code).
 
 | File | What |
 |---|---|
-| `src/leash/EfLeashLogic.h` | pure: which landed hit renews the attacker's leash, the timer per level (`tests/leash_tests.cpp`) |
+| `src/leash/EfLeashLogic.h` | pure: which landed hit renews the attacker's leash, which DoT tick renews the victim's (#185), the timer per level (`tests/leash_tests.cpp`) |
 | `src/emberfall_leash.cpp` | `emberfall_leash_world` (`OnAfterConfigLoad`: the switch, boot line `>> Emberfall leash: ...`), `emberfall_leash_unit` (`UnitScript::DealDamage`, observes only: `Creature::UpdateLeashExtensionTime` for a renewing hit) |
 
 ## Account friends (Emberfall `docs/design/account-friends.md`)

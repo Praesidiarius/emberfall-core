@@ -54,6 +54,30 @@ namespace Emberfall::Leash
         return h.kind == HitKind::Melee || h.kind == HitKind::SpellDirect;
     }
 
+    // A creature taking a periodic tick (Emberfall feedback #185). Upstream's Unit::DealDamage renews the victim's leash
+    // for a direct hit it takes but not for a DoT tick (nor a damage shield): a mob a player keeps dotting from range
+    // evaded once its timer ran out. Here a tick from a player or a player's pet renews it like a direct hit would.
+    struct Tick
+    {
+        bool victimIsCreature = false;
+        bool victimPlayerOwned = false;        // a player's pet, guardian or companion: upstream renews none of these
+        bool victimEngaged = false;            // in combat with a threat list
+        bool victimEvading = false;            // on its way home: a tick does not call it back
+        bool attackerPlayerControlled = false; // a player, or a unit a player controls or owns
+        bool selfHit = false;
+        HitKind kind = HitKind::Other;
+        unsigned damage = 0;                   // a fully absorbed tick renews nothing (as upstream's hits)
+    };
+
+    // Does this periodic tick renew the victim's leash timer?
+    inline bool TickRenewsVictimLeash(Tick const& t)
+    {
+        if (t.kind != HitKind::OverTime || !t.victimIsCreature || t.victimPlayerOwned || !t.victimEngaged ||
+            t.victimEvading || !t.attackerPlayerControlled || t.selfHit)
+            return false;
+        return t.damage > 0;
+    }
+
     // The leash timer of a creature of minimum level `minLevel`, as upstream's Creature::GetLeashTimer (seconds); here
     // for the tests and the design doc's table.
     inline unsigned LeashSeconds(unsigned minLevel)
