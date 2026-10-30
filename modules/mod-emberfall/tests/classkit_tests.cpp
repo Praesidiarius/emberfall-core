@@ -269,6 +269,10 @@ int main()
     check(ChargesAfter(0, 2) == 1, "the first charge");
     check(ChargesAfter(1, 2) == 2, "the second charge");
     check(ChargesAfter(2, 2) == 2, "never a third");
+    check(ChargesAfter(0, 5, 2) == 2, "a bonus roll on a fresh buff: two");          // Twin Currents (Emberfall #212)
+    check(ChargesAfter(3, 5, 2) == 5, "a bonus roll: two more");
+    check(ChargesAfter(4, 5, 2) == 5, "a bonus roll at four: the cap");
+    check(ChargesAfter(4, 5) == 5 && ChargesAfter(5, 5) == 5, "Crimson Flow's cap of 5 (Emberfall #211)");
     // a burst at most once an interval
     check(BurstDue(5000, 0, 1000), "the first blow bursts");
     check(!BurstDue(5500, 5000, 1000), "half a second later: not");

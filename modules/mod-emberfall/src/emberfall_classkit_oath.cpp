@@ -45,7 +45,9 @@
 //                                  rules, alpha1 feedback #143: a missed, dodged or parried Deathblow spends its proc)
 //   spell_ef_kit_add_charge        a dummy effect on the caster with a trigger: one more charge of that aura on the caster,
 //                                  at most the effect's value; misc: a spell the caster must know (Aegis of Judgment's
-//                                  shield and Solenne's Favor)
+//                                  shield and Solenne's Favor; Crimson Flow's proc). A second dummy of the spell without a
+//                                  trigger is a bonus roll: with its misc known, value % for one charge more (Twin
+//                                  Currents, Emberfall feedback #212)
 //   spell_ef_kit_absorb_burst      a school absorb (effect 1) whose absorbed blows cast effect 2's trigger at the owner, at
 //                                  most once in effect 2's value in ms (Solenne's Aegis's bursts)
 //   spell_ef_kit_stack_refill      a passive's periodic dummy: after misc B seconds out of combat the owner's self stacks of
@@ -232,7 +234,8 @@ class spell_ef_kit_consume_aura : public SpellScript
     }
 };
 
-// Solenne's Favor: one more charge of the trigger aura on the caster, at most the effect's value.
+// Solenne's Favor, Crimson Flow: one more charge of the trigger aura on the caster, at most the effect's value (above the
+// aura's own ProcCharges: the charges a fresh application starts with).
 class spell_ef_kit_add_charge : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_add_charge);
@@ -246,15 +249,39 @@ class spell_ef_kit_add_charge : public SpellScript
         if (eff.MiscValue > 0)
             if (Player* player = caster->ToPlayer(); player && !player->HasSpell(uint32(eff.MiscValue)))
                 return;
-        if (Aura* aura = caster->GetAura(eff.TriggerSpell, caster->GetGUID()))
+        int32 const cap = GetEffectValue();
+        int32 gain = BonusRoll(caster, effIndex) ? 2 : 1;
+        Aura* aura = caster->GetAura(eff.TriggerSpell, caster->GetGUID());
+        if (!aura)
         {
-            int32 const want = Emberfall::ClassKit::Logic::ChargesAfter(aura->GetCharges(), GetEffectValue());
-            if (want > aura->GetCharges())
-                aura->ModCharges(want - aura->GetCharges());
-            aura->RefreshDuration();
-            return;
+            caster->CastSpell(caster, eff.TriggerSpell, true);   // a fresh buff: its ProcCharges (the first charge)
+            if (gain < 2 || !(aura = caster->GetAura(eff.TriggerSpell, caster->GetGUID())))
+                return;
+            gain = 1;                                             // the bonus roll's charge on top
         }
-        caster->CastSpell(caster, eff.TriggerSpell, true);
+        // SetCharges, not ModCharges: ModCharges clamps a gain to the charges of a fresh application (the aura's
+        // ProcCharges + SPELLMOD_CHARGES: Crimson Flow's 1; Solenne's Favor's 1), so the cap in the effect's value was
+        // never reached (Emberfall feedback #211).
+        int32 const want = Emberfall::ClassKit::Logic::ChargesAfter(aura->GetCharges(), cap, gain);
+        if (want > aura->GetCharges())
+            aura->SetCharges(uint8(want));
+        aura->RefreshDuration();
+    }
+
+    // The bonus roll (Twin Currents): another dummy of the spell without a trigger whose misc the caster knows; value %.
+    bool BonusRoll(Unit* caster, SpellEffIndex charge)
+    {
+        Player* player = caster->ToPlayer();
+        for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+        {
+            SpellEffectInfo const& e = GetSpellInfo()->Effects[i];
+            if (i == charge || e.Effect != SPELL_EFFECT_DUMMY || e.TriggerSpell || e.MiscValue <= 0)
+                continue;
+            if (!player || !player->HasSpell(uint32(e.MiscValue)))
+                continue;
+            return roll_chance_i(e.CalcValue(caster));
+        }
+        return false;
     }
 
     void Register() override
