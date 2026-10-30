@@ -375,7 +375,7 @@ class spell_ef_kit_power_spender : public SpellScript
             SpellInfo const* info = sSpellMgr->GetSpellInfo(b.trigger);
             if (!info)
                 continue;
-            if (info->Effects[EFFECT_0].Effect == SPELL_EFFECT_SCHOOL_DAMAGE || info->Effects[EFFECT_0].Effect == SPELL_EFFECT_HEAL)
+            if (Emberfall::ClassKit::IsDamageEffect(info->Effects[EFFECT_0]) || info->Effects[EFFECT_0].Effect == SPELL_EFFECT_HEAL)
             {
                 if (first)
                     Echo(caster, target, b.trigger, b.amount);

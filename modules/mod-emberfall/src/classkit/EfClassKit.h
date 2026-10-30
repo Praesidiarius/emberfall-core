@@ -43,6 +43,7 @@ class Aura;
 class AuraEffect;
 class Player;
 class Spell;
+class SpellEffectInfo;
 class SpellInfo;
 class Unit;
 class WorldObject;
@@ -137,6 +138,17 @@ namespace Emberfall::ClassKit
     int32 Lengthen(Unit* caster, uint32 auraSpell, int32 addMs, int32 maxExtraSeconds);
     // Whether a spell's effect 1 targets its caster (a self aura).
     bool TargetsCaster(uint32 spellId);
+    // ---- Weapon strikes (Emberfall docs/design/classes.md §4.8, 2026-10-30; the core's PATCHES.md #28) ----
+    // Whether an effect deals weapon damage (weapon damage, normalised or not, or its percent): the physical abilities'
+    // damage effect since 2026-10-30, the misc value its percent of the weapon.
+    bool IsWeaponEffect(SpellEffectInfo const& eff);
+    // Whether an effect deals damage at all: school damage or a weapon effect (the scripts that read "the strike").
+    bool IsDamageEffect(SpellEffectInfo const& eff);
+    // A strike's base before the crit and the hit's modifiers, as the scripts that share it out read it (the Corsair's
+    // Saltwound and Razorstorm): school damage, effect `index`'s value (level growth in, random in its range) plus the
+    // attack power share of the spell's spell_bonus_data; a weapon effect, its percent (misc) of the caster's weapon damage
+    // (rolled, the attack power's share in, normalised for NORMALIZED_WEAPON_DMG; the spell's hand) plus its value.
+    int32 StrikeBase(Unit* caster, SpellInfo const* info, uint8 index);
     // ---- The miss rules (Emberfall alpha1 feedback #142, #143, #146; docs/design/class-kit-pipeline.md "Misses"; the
     // core's half: src/server/game/Spells/EmberfallMissRules.h, PATCHES.md #26) ----
     // A miss, dodge, parry, evade or immunity is the player's loss: a spender pays in full (the core), a proc or stacks an

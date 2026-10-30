@@ -22,8 +22,9 @@
 // checks the contracts). Condemned's bonuses are data (mod_damage_from_caster with a class mask); Oathblade's sword and
 // Hallowed Ground's burst are hit bonuses (EfClassKit.h HitBonuses: a class mask, the trigger's TargetAuraSpell).
 //
-//   spell_ef_kit_splash          effect 2 (school damage on the enemies round the target) leaves the target out and deals
-//                                its misc value in percent (Sacred Brand: 50 % to the enemies near its target)
+//   spell_ef_kit_splash          effect 2 (damage on the enemies round the target) leaves the target out and deals its
+//                                misc B value in percent (Sacred Brand: 50 % to the enemies near its target; misc B since
+//                                2026-10-30: a weapon strike's misc is its weapon percent, the core's PATCHES.md #28)
 //   spell_ef_kit_launch_stack    the caster's launch auras whose class mask covers this spell launch their stacks
 //                                (EfClassKit.h LaunchStacks: Crown of Blades' swords from Sacred Brand, Edict of Solenne,
 //                                Oathblade one at a time, from Solenne's Wrath all at once)
@@ -56,7 +57,7 @@
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
 
-// Sacred Brand: effect 2 strikes the enemies round the target, not the target itself, for its misc value in percent.
+// Sacred Brand: effect 2 strikes the enemies round the target, not the target itself, for its misc B value in percent.
 class spell_ef_kit_splash : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_splash);
@@ -72,7 +73,7 @@ class spell_ef_kit_splash : public SpellScript
         Unit* target = GetHitUnit();
         if (!target || target == GetExplTargetUnit() || target == GetCaster())
             return;
-        int32 const pct = GetSpellInfo()->Effects[EFFECT_1].MiscValue;
+        int32 const pct = GetSpellInfo()->Effects[EFFECT_1].MiscValueB;
         if (pct > 0 && GetHitDamage() > 0)
             SetHitDamage(Emberfall::ClassKit::Logic::PctOf(GetHitDamage(), pct));
     }

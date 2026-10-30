@@ -295,6 +295,11 @@ int main()
     check(SweepDamage(200, 50) == 100, "a sweep hit: half");
     check(SweepDamage(300, 50) == 150, "Red Harvest: 1.5 x the base, then half: three quarters");
     check(SweepDamage(0, 50) == 0, "a miss stays a miss");
+    // a weapon strike's base (Razorwake's Saltwound share, 2026-10-30): the weapon percent, then the points
+    check(WeaponStrikeBase(200, 45, 12) == 102, "45 % of a 200 swing + 12");
+    check(WeaponStrikeBase(200, 0, 5) == 205, "no percent: the whole weapon + 5");
+    check(WeaponStrikeBase(-10, 45, 7) == 7, "no weapon damage: the points");
+    check(WeaponStrikeBase(10, 50, -20) == 0, "never below 0");
     // a build floor (Murderous Instinct) is a floor, not added on top
     check(BuildWithRules(PowerGain(1, 0, 1, true, false), 0, 0) == 1, "v1.0 Deathblow: +1");
     check(BuildWithRules(PowerGain(1, 0, 1, true, false), 0, 3) == 3, "Murderous Instinct without Deadly Opportunity: 3");

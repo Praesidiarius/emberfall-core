@@ -112,15 +112,10 @@ namespace
         return nullptr;
     }
 
-    // The strike's base: effect `index`'s value (level growth in, random in its range) and the attack power share of the
-    // spell's spell_bonus_data, before any crit or modifier.
-    int32 StrikeBase(Unit* caster, SpellInfo const* info, uint8 index)
-    {
-        int32 base = info->Effects[index].CalcValue(caster);
-        if (SpellBonusEntry const* bonus = sSpellMgr->GetSpellBonusData(info->Id); bonus && bonus->ap_bonus > 0.0f)
-            base += int32(bonus->ap_bonus * caster->GetTotalAttackPowerValue(BASE_ATTACK));
-        return base;
-    }
+    // The strike's base before any crit or modifier: EfClassKit.h StrikeBase (since 2026-10-30 Razorwake and Stormwake are
+    // weapon strikes: their percent of the weapon's damage plus the points; a school damage strike its value and the
+    // attack power share of its spell_bonus_data, as before).
+    using Emberfall::ClassKit::StrikeBase;
 
     // The instances of a pool (`first` .. `first + count - 1`) the caster has on `target`, and each one's time left
     // (-1: free).

@@ -484,6 +484,44 @@ namespace Emberfall::ClassKit
         return info && info->Effects[EFFECT_0].TargetA.GetTarget() == TARGET_UNIT_CASTER;
     }
 
+    bool IsWeaponEffect(SpellEffectInfo const& eff)
+    {
+        switch (eff.Effect)
+        {
+            case SPELL_EFFECT_WEAPON_DAMAGE:
+            case SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL:
+            case SPELL_EFFECT_NORMALIZED_WEAPON_DMG:
+            case SPELL_EFFECT_WEAPON_PERCENT_DAMAGE:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    bool IsDamageEffect(SpellEffectInfo const& eff)
+    {
+        return eff.Effect == SPELL_EFFECT_SCHOOL_DAMAGE || IsWeaponEffect(eff);
+    }
+
+    int32 StrikeBase(Unit* caster, SpellInfo const* info, uint8 index)
+    {
+        if (!caster || !info || index >= MAX_SPELL_EFFECTS)
+            return 0;
+        SpellEffectInfo const& eff = info->Effects[index];
+        int32 base = eff.CalcValue(caster);
+        if (IsWeaponEffect(eff) && eff.Effect != SPELL_EFFECT_WEAPON_PERCENT_DAMAGE)
+        {
+            WeaponAttackType const hand = info->HasAttribute(SPELL_ATTR3_REQUIRES_OFF_HAND_WEAPON) ? OFF_ATTACK
+                : (info->DmgClass == SPELL_DAMAGE_CLASS_RANGED && info->IsRangedWeaponSpell()) ? RANGED_ATTACK : BASE_ATTACK;
+            bool const normalized = eff.Effect == SPELL_EFFECT_NORMALIZED_WEAPON_DMG;
+            int32 const weapon = int32(caster->CalculateDamage(hand, normalized, false));
+            return Logic::WeaponStrikeBase(weapon, eff.MiscValue, base);
+        }
+        if (SpellBonusEntry const* bonus = sSpellMgr->GetSpellBonusData(info->Id); bonus && bonus->ap_bonus > 0.0f)
+            base += int32(bonus->ap_bonus * caster->GetTotalAttackPowerValue(BASE_ATTACK));
+        return base;
+    }
+
     bool StrikesOthers(SpellInfo const* info)
     {
         if (!info)

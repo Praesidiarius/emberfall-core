@@ -32,9 +32,10 @@
 //                           = the spell cast at the other enemies, value = how many, misc B = yards round the target: after
 //                           the hit on the target, while the caster holds the aura (it is not spent: Sweeping Deathblow's
 //                           6 s), the trigger strikes that many other enemies nearest the target, once a cast (Deathblow)
-//   spell_ef_kit_sweep_hit  effect 1 deals the damage, its misc = the percent of it that lands (Sweeping Deathblow's other
-//                           targets, Relentless Follow-Up's second strike, Aftershock, Storm of Blades: 50 % of their
-//                           ability's own numbers)
+//   spell_ef_kit_sweep_hit  effect 1 deals the damage, its misc B = the percent of it that lands (Sweeping Deathblow's
+//                           other targets, Relentless Follow-Up's second strike, Aftershock, Storm of Blades: 50 % of their
+//                           ability's own numbers; misc B since 2026-10-30: a weapon strike's misc is its weapon percent,
+//                           the core's PATCHES.md #28)
 //   spell_ef_kit_rules      the caster's talent rules for this ability (EfClassKit.h Rules; a rule is a talent passive bound
 //                           to a spell_ef_kit_rule_* aura script, which does nothing itself, its numbers in its dummy):
 //                           on each enemy before the damage   _low_health_damage (+value % at or below misc B % health),
@@ -216,7 +217,7 @@ class spell_ef_kit_sweep_hit : public SpellScript
         Unit* target = GetHitUnit();
         if (!target || target == GetCaster() || GetHitDamage() <= 0)
             return;
-        SetHitDamage(Emberfall::ClassKit::Logic::SweepDamage(GetHitDamage(), GetSpellInfo()->Effects[EFFECT_0].MiscValue));
+        SetHitDamage(Emberfall::ClassKit::Logic::SweepDamage(GetHitDamage(), GetSpellInfo()->Effects[EFFECT_0].MiscValueB));
     }
 
     void Register() override

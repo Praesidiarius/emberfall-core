@@ -55,6 +55,7 @@
 #include "EmberfallCombatLog.h"
 #include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "EmberfallMissRules.h" // EMBERFALL: the miss rules (PATCHES.md #26)
+#include "EmberfallKitWeapon.h" // EMBERFALL: the class kits' weapon strikes (PATCHES.md #28)
 #include "TemporarySummon.h"
 #include "Totem.h"
 #include "Transport.h"
@@ -3608,11 +3609,25 @@ void Spell::EffectWeaponDmg(SpellEffIndex effIndex)
     if (!unitTarget || !unitTarget->IsAlive())
         return;
 
+    // EMBERFALL: a class kit's weapon strike (PATCHES.md #28) counts only the weapon effects that reach this unit, and a
+    // weapon effect's misc value is its percent of the weapon's damage (EmberfallKitWeapon.h)
+    bool const kitStrike = Emberfall::KitWeapon::IsKitFamily(m_spellInfo->SpellFamilyName);
+    uint32 reachMask = (1 << MAX_SPELL_EFFECTS) - 1;
+    if (kitStrike)
+        for (TargetInfo const& info : m_UniqueTargetInfo)
+            if (info.targetGUID == unitTarget->GetGUID())
+            {
+                reachMask = info.effectMask;
+                break;
+            }
+
     // multiple weapon dmg effect workaround
     // execute only the last weapon damage
     // and handle all effects at once
     for (uint32 j = effIndex + 1; j < MAX_SPELL_EFFECTS; ++j)
     {
+        if (!(reachMask & (1 << j))) // EMBERFALL: #28, every bit set but for a kit strike
+            continue;
         switch (m_spellInfo->Effects[j].Effect)
         {
             case SPELL_EFFECT_WEAPON_DAMAGE:
@@ -3842,15 +3857,21 @@ void Spell::EffectWeaponDmg(SpellEffIndex effIndex)
 
     for (int j = 0; j < MAX_SPELL_EFFECTS; ++j)
     {
+        if (!(reachMask & (1 << j))) // EMBERFALL: #28
+            continue;
         switch (m_spellInfo->Effects[j].Effect)
         {
             case SPELL_EFFECT_WEAPON_DAMAGE:
             case SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL:
                 fixed_bonus += CalculateSpellDamage(j, unitTarget);
+                if (kitStrike) // EMBERFALL: #28, misc = the weapon's percent
+                    weaponDamagePercentMod = weaponDamagePercentMod * Emberfall::KitWeapon::EffectPct(m_spellInfo->Effects[j].MiscValue) / 100.0f;
                 break;
             case SPELL_EFFECT_NORMALIZED_WEAPON_DMG:
                 fixed_bonus += CalculateSpellDamage(j, unitTarget);
                 normalized = true;
+                if (kitStrike) // EMBERFALL: #28, misc = the weapon's percent
+                    weaponDamagePercentMod = weaponDamagePercentMod * Emberfall::KitWeapon::EffectPct(m_spellInfo->Effects[j].MiscValue) / 100.0f;
                 break;
             case SPELL_EFFECT_WEAPON_PERCENT_DAMAGE:
                 ApplyPct(weaponDamagePercentMod, CalculateSpellDamage(j, unitTarget));
@@ -3898,6 +3919,9 @@ void Spell::EffectWeaponDmg(SpellEffIndex effIndex)
     }
 
     // Sequence is important
+    if (kitStrike) // EMBERFALL: #28, the percent of the weapon's damage, then the points
+        weaponDamage = Emberfall::KitWeapon::Strike(weaponDamage, weaponDamagePercentMod, fixed_bonus);
+    else
     for (int j = 0; j < MAX_SPELL_EFFECTS; ++j)
     {
         // We assume that a spell have at most one fixed_bonus

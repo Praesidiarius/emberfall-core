@@ -482,6 +482,15 @@ namespace Emberfall::ClassKit::Logic
         return std::clamp<int32_t>(found, 0, std::max<int32_t>(0, most));
     }
 
+    // A weapon strike's base before the crit and the hit's modifiers (EfClassKit.h StrikeBase; docs/design/classes.md §4.8):
+    // `pct` percent of the weapon's rolled damage (the effect's misc; 0: 100 %, as the core's PATCHES.md #28 reads it),
+    // then the effect's points; never below 0.
+    constexpr int32_t WeaponStrikeBase(int32_t weapon, int32_t pct, int32_t points)
+    {
+        int64_t const share = int64_t(std::max<int32_t>(0, weapon)) * (pct > 0 ? pct : 100) / 100;
+        return int32_t(std::clamp<int64_t>(share + points, 0, INT32_MAX));
+    }
+
     // A sweep hit (spell_ef_kit_sweep_hit): `pct` percent (50; Red Harvest's spell mod on the helper's damage makes it
     // 75 of Deathblow's base) of the hit the helper rolled with Deathblow's own numbers.
     constexpr int32_t SweepDamage(int32_t damage, int32_t pct)
