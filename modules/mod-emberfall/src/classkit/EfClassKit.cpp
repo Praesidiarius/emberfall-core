@@ -1009,6 +1009,24 @@ namespace Emberfall::ClassKit
                          player->GetGUID().GetCounter(), n, when, list);
             }
         }
+
+        // The player's own passives whose values grow with the level (Spell.dbc RealPointsPerLevel: the Marksman's
+        // Vantage since Emberfall feedback #170) take the new level's amount: the core computes an aura's amount once,
+        // when it is applied, and a passive stays applied through a level up (Player::GiveLevel recalculates no aura).
+        // An area aura's copies on the companion share the effect, so they follow.
+        void RecalculateLevelPassives(Player* player)
+        {
+            for (auto const& [id, aura] : player->GetOwnedAuras())
+            {
+                SpellInfo const* info = aura->GetSpellInfo();
+                if (!info->IsPassive() || aura->GetCasterGUID() != player->GetGUID())
+                    continue;
+                for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+                    if (info->Effects[i].RealPointsPerLevel != 0.0f)
+                        if (AuraEffect* eff = aura->GetEffect(i))
+                            eff->RecalculateAmount(player);
+            }
+        }
     }
 
     void OnLogin(Player* player)
@@ -1021,6 +1039,7 @@ namespace Emberfall::ClassKit
     {
         PurgeAndLog(player, "level change");
         ApplySpecPower(player);
+        RecalculateLevelPassives(player);
     }
 
     void Dump(Player* player, std::vector<std::string>& lines)
