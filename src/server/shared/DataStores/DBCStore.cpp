@@ -17,6 +17,7 @@
 
 #include "DBCStore.h"
 #include "DBCDatabaseLoader.h"
+#include <cstring>
 
 DBCStorageBase::DBCStorageBase(char const* fmt) : _fieldCount(0), _fileFormat(fmt), _dataTable(nullptr), _indexTableSize(0)
 {
@@ -41,11 +42,18 @@ bool DBCStorageBase::Load(char const* path, char**& indexTable)
 
     _fieldCount = dbc.GetCols();
 
+    // EMBERFALL: two-column gt files (PATCHES.md #30): a one-float gt store ("f", the stock client's one-column files)
+    // reads a file of two columns (Emberfall's: ID, value) with its first column as the row's index, as the core did
+    // up to upstream #27933 ("df"); the two layouts give the same entries. Stock files never have the second column
+    char const* fileFormat = _fileFormat;
+    if (_fieldCount == 2 && std::strcmp(_fileFormat, "f") == 0)
+        fileFormat = "df";
+
     // load raw non-string data
-    _dataTable = dbc.AutoProduceData(_fileFormat, _indexTableSize, indexTable);
+    _dataTable = dbc.AutoProduceData(fileFormat, _indexTableSize, indexTable);
 
     // load strings from dbc data
-    if (char* stringBlock = dbc.AutoProduceStrings(_fileFormat, _dataTable))
+    if (char* stringBlock = dbc.AutoProduceStrings(fileFormat, _dataTable))
         _stringPool.push_back(stringBlock);
 
     // error in dbc file at loading if nullptr
