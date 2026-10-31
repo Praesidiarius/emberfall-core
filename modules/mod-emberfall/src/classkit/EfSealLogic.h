@@ -19,7 +19,8 @@
 
 // The arithmetic of the Damnator's scripts (Emberfall docs/design/classes/warlock-damnator.md, v3.0 since 2026-10-28;
 // src/emberfall_classkit_seal.cpp), free of the core so tests/classkit_tests.cpp can run it: a curse's tick bonus, the
-// tick multiplied, the ticks left, Crimson Collapse's burst, Sanguine Torrent's points, extension and healing, Blood
+// tick multiplied, the ticks left, Crimson Collapse's burst (the detonation before 2026-10-31) and its execute rule,
+// Sanguine Torrent's points, extension, flares and healing, a lengthened curse's max duration (feedback #239), Blood
 // Tide's picks, Seals and copy cap, the tick counters (Blood Harvest, Crimson Flow) and Lingering Ruin's ticks.
 
 #include <algorithm>
@@ -78,6 +79,31 @@ namespace Emberfall::ClassKit::Seal
     constexpr int32_t Extended(int32_t leftMs, int32_t extensionMs)
     {
         return std::max<int32_t>(0, leftMs) + std::max<int32_t>(0, extensionMs);
+    }
+
+    // Feedback #239: the max duration a curse needs after it is lengthened to `newLeftMs` (the Torrent, Blood Tide's copy
+    // onto an older curse). The core ticks a periodic aura at most GetMaxDuration() / amplitude times counted from its
+    // application (AuraEffect::Update, GetTotalTicks), so the max duration must grow by what the curse has already run
+    // (`maxMs` - `leftMs`) on top of its new time left; raising it only to the new time left stopped the ticks where the
+    // base duration would have (18 s Vow, 12 s Brine: the lengthened curse sat on the enemy silent). Never shorter.
+    constexpr int32_t ExtendedMaxDuration(int32_t maxMs, int32_t leftMs, int32_t newLeftMs)
+    {
+        int64_t const elapsed = std::max<int64_t>(0, int64_t(maxMs) - std::max<int32_t>(0, leftMs));
+        int64_t const want = elapsed + std::max<int32_t>(0, newLeftMs);
+        return int32_t(std::min<int64_t>(std::max<int64_t>(maxMs, want), 0x7FFFFFFF));
+    }
+
+    // Sanguine Torrent's flares (2026-10-31, ankarna): `perPoint` percent more for each point spent (Violent Torrent 5;
+    // Freeflow Ritual's free one counts as its 10) plus `extra` (Eternal Torrent's 100: 200 % of a tick).
+    constexpr int32_t FlarePct(int32_t perPoint, int32_t points, int32_t extra)
+    {
+        return std::max<int32_t>(0, perPoint) * std::max<int32_t>(0, points) + std::max<int32_t>(0, extra);
+    }
+
+    // Crimson Collapse's target (2026-10-31): at or below `pct` percent health (30); 0 or less: any.
+    constexpr bool ExecuteReady(float healthPct, int32_t pct)
+    {
+        return pct <= 0 || healthPct <= float(pct) + 0.0001f;
     }
 
     // Blood Tide's candidates: how many of the target's curses each lacks and its distance (squared) to the target.

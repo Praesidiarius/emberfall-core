@@ -42,7 +42,9 @@
 //                                trigger, misc B 3: each tick a chance of value percent, value more after each tick that
 //                                  missed, kept per caster (through recasts) until it hits: the trigger on the caster
 //                                  (Crimson Flow);
-//                                trigger, misc B 4: the trigger at the enemy while the curse holds there (Binding Grasp).
+//                                trigger, misc B 4: the trigger at the enemy while the curse holds there (Binding Grasp);
+//                                trigger, misc B 5: the trigger on the caster when the enemy dies with the curse on it
+//                                  (Final Offering: an instant Bloodcurrent).
 //                              The multiplier is applied in the periodic damage hook (before mitigation, after the
 //                              snapshot of spell power and spell mods), so Torrent's flares and the window count for
 //                              curses cast before it. A Torrent's flare is a tick too (the counters, the chance). Every
@@ -50,32 +52,41 @@
 //                              "regardless of distance", on the caster's map).
 //   spell_ef_kit_torrent       a channel spending the spec power: effect 1 a periodic dummy on the caster (the flares),
 //                              effect 2 a dummy at the enemy it starts at, value = ms added to every curse of the caster
-//                              per point spent (Eternal Torrent), past every cap, misc B = the least points it needs (5);
-//                              effect 3 a dummy on the caster, value = percent more damage of the flares (Violent Torrent),
-//                              misc = an aura of the caster's that makes it free (Freeflow Ritual: taken by the cast, no
-//                              point taken, no least), misc B = the points it counts as then (10). At the channel's start
-//                              the power is taken and the cursed enemies are fixed; each period every curse of the caster
-//                              still on them ticks once more (its own tick: the bonuses). The caster's dummy auras naming
-//                              it: with a trigger, after each flare the trigger healing the caster for value per mille of
-//                              its maximum health for each curse that ticked (Sanguine Leech); without one, only the
-//                              enemy it starts at is fixed (Eternal Torrent). The enemy it starts at is dropped from the
-//                              targets (feedback #228): only the warlock holds the channel, so neither a resisted dummy
-//                              nor that enemy's death ends it.
-//   spell_ef_kit_collapse      effect 1 a dummy on the caster: value = percent of what the curses still had to deal
-//                              (Devastating Collapse), trigger = the hit cast at each cursed enemy with that amount; the
-//                              curses go. Remaining = the ticks left (rounded up) x the tick as it would land now. Then the
-//                              caster's dummy auras naming it with a trigger cast that on the caster (Ritual Aftershock).
-//                              Refused when no curse of the caster is up. Its other effects are free (charges).
+//                              per point spent, past every cap, misc B = the least points it needs (5); effect 3 a dummy
+//                              on the caster, value = percent more damage of the flares for each point spent (Violent
+//                              Torrent 5, 2026-10-31), misc = an aura of the caster's that makes it free (Freeflow Ritual:
+//                              taken by the cast, no point taken, no least), misc B = the points it counts as then (10;
+//                              the flares' per-point percent counts them too). At the channel's start the power is taken
+//                              and the cursed enemies are fixed; each period every curse of the caster still on them ticks
+//                              once more (its own tick: the bonuses). The caster's dummy auras naming it: with a trigger,
+//                              after each flare the trigger healing the caster for value per mille of its maximum health
+//                              for each curse that ticked (Sanguine Leech); without one, only the enemy it starts at is
+//                              fixed and the flares deal value percent more (Eternal Torrent: 100, 200 % a flare). The
+//                              enemy it starts at is dropped from the targets (feedback #228): only the warlock holds the
+//                              channel, so neither a resisted dummy nor that enemy's death ends it. A lengthened curse's
+//                              max duration grows by what it has run too (feedback #239: Seal::ExtendedMaxDuration), or the
+//                              core stops its ticks where its base duration would have ended.
+//   spell_ef_kit_seal_execute       an execute at an enemy (Crimson Collapse since 2026-10-31, ankarna; the detonation of the
+//                              curses before, spell_ef_kit_collapse, retired): effect 1 its damage; effect 3 a dummy on the
+//                              caster, misc = the health percent at or below which the target must be (30; refused above
+//                              it), value = spec power points back when the strike kills the target (1 Blood Seal). The
+//                              caster's dummy auras naming it: with a trigger, value more enemies within misc B yards of the
+//                              target, each at or below that health too, the closest first, take the trigger (Crimson
+//                              Cataclysm: its own hit at half); without one, a kill of the target gives a charge back
+//                              (Relentless Execution: the charge aura of the spell's charge effect, spell_ef_kit_charges;
+//                              without charges the cooldown ends). Only the target's death pays. Effect 2 is free
+//                              (charges). No curse is touched.
 //   spell_ef_kit_spread_dots   effect 1 a dummy at the enemy: value = how many more enemies (Rising Tide), its radius
 //                              round the target (Expanding Tide), misc = a talent with which a copy carries at most the
 //                              curse's base duration (Eternal Torrent); effects 2 and 3 name the curses it copies (misc);
+//                              a copy onto an older curse grows its max duration as the Torrent does (feedback #239);
 //                              effect 2's value = power per newly affected enemy (v3.0: 0), misc B = at most that many
 //                              pay. The enemies lacking the most of the target's curses first, then the closest; each copy
 //                              gets the target's time left and tick phase, never shortening a longer one. Refused without
 //                              one of them on the target.
 //   spell_ef_kit_damage_echo   a damage spell: the caster's dummy auras naming it with a trigger (a periodic damage aura)
 //                              cast that at the enemy struck with value percent of the damage dealt, over its ticks
-//                              (Lingering Ruin on Crimson Collapse's hit).
+//                              (Lingering Ruin on Crimson Collapse's hit until 2026-10-31; unused since).
 //   spell_ef_kit_marked_bonus  a dummy at the enemy names an aura of the caster's: on an enemy carrying it, the caster's
 //                              dummy auras naming this spell without a trigger add their value in percent to its damage
 //                              (unused since v3.0).
@@ -105,6 +116,7 @@
 #include <list>
 #include <map>
 #include <set>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -195,17 +207,6 @@ namespace
             if (uint32(eff->GetMiscValue()) == spell && eff->GetMiscValueB() == kind && HasTrigger(eff))
                 out.push_back({ TriggerOf(eff), eff->GetAmount() });
         return out;
-    }
-
-    // Whether the caster has a dummy aura naming `spell` without a trigger and with misc B `kind`.
-    bool NamedPlain(Unit* caster, uint32 spell, int32 kind)
-    {
-        if (!caster)
-            return false;
-        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
-            if (uint32(eff->GetMiscValue()) == spell && eff->GetMiscValueB() == kind && !HasTrigger(eff))
-                return true;
-        return false;
     }
 
     // The percent more a curse's tick deals on `target` now (without a flare's).
@@ -322,15 +323,19 @@ class aura_ef_kit_seal_dot : public AuraScript
             caster->CastSpell(target, trigger, true);
     }
 
-    // the curse goes: off the list, its companions with it
+    // the curse goes: off the list, its companions with it; the enemy died with it on (misc B 5: Final Offering)
     void Removed(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
         Unit* caster = GetCaster();
         Unit* target = GetTarget();
         Track(caster, target, GetId(), false);
-        if (caster && target)
-            for (auto const& [trigger, value] : Named(caster, GetId(), 4))
-                target->RemoveAurasDueToSpell(trigger, GetCasterGUID());
+        if (!caster || !target)
+            return;
+        for (auto const& [trigger, value] : Named(caster, GetId(), 4))
+            target->RemoveAurasDueToSpell(trigger, GetCasterGUID());
+        if (GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_DEATH && caster->IsAlive() && caster->IsInWorld())
+            for (auto const& [trigger, value] : Named(caster, GetId(), 5))
+                caster->CastSpell(caster, trigger, true);
     }
 
     // inside AuraEffect::PeriodicTick, before the damage (a Torrent's flare too): Seals under a shared cooldown (none in
@@ -458,6 +463,7 @@ class aura_ef_kit_torrent : public AuraScript
     PrepareAuraScript(aura_ef_kit_torrent);
 
     std::vector<std::pair<ObjectGuid, uint32>> _fixed;
+    int32 _flarePct = 0;     // the flares' percent more, fixed at the start (Violent Torrent per point, Eternal Torrent)
 
     // the channel starts: the points spent (or the free aura's), the cursed enemies fixed (Eternal Torrent: only the one
     // it started at), each curse on them lengthened past its cap
@@ -476,8 +482,19 @@ class aura_ef_kit_torrent : public AuraScript
         else if (spend.takesPower)
             Emberfall::ClassKit::SetSpecPowerPoints(caster, 0);
         int32 const ext = Seal::TorrentExtension(spend.points, info->Effects[EFFECT_1].CalcValue(caster));
+        // the caster's dummies naming the Torrent without a trigger (Eternal Torrent): only the enemy it started at, and
+        // their value in percent more on the flares
+        bool onlyTarget = false;
+        int32 extra = 0;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (uint32(eff->GetMiscValue()) == GetId() && eff->GetMiscValueB() == 0 && !HasTrigger(eff))
+            {
+                onlyTarget = true;
+                extra += eff->GetAmount();
+            }
+        _flarePct = Seal::FlarePct(info->Effects[EFFECT_2].CalcValue(caster), spend.points, extra);
         ObjectGuid only;
-        if (NamedPlain(caster, GetId(), 0))
+        if (onlyTarget)
             if (TorrentTarget const* t = caster->CustomData.Get<TorrentTarget>(kTorrentKey))
                 only = t->target;
         _fixed.clear();
@@ -489,7 +506,8 @@ class aura_ef_kit_torrent : public AuraScript
             if (ext <= 0)
                 continue;
             int32 const total = Seal::Extended(h.aura->GetDuration(), ext);
-            h.aura->SetMaxDuration(std::max(h.aura->GetMaxDuration(), total));
+            // feedback #239: the max duration grows by what the curse has run, so its ticks go on to the new end
+            h.aura->SetMaxDuration(Seal::ExtendedMaxDuration(h.aura->GetMaxDuration(), h.aura->GetDuration(), total));
             h.aura->SetDuration(total);
         }
     }
@@ -500,7 +518,7 @@ class aura_ef_kit_torrent : public AuraScript
         Unit* caster = GetCaster();
         if (!caster)
             return;
-        int32 const flare = GetSpellInfo()->Effects[EFFECT_2].CalcValue(caster);
+        int32 const flare = _flarePct;
         std::vector<std::pair<ObjectGuid, uint32>> const fixed = _fixed;   // a tick may kill and change nothing here
         int32 ticked = 0;
         for (auto const& [guid, spell] : fixed)
@@ -535,65 +553,112 @@ class aura_ef_kit_torrent : public AuraScript
     }
 };
 
-// ---- Crimson Collapse -----------------------------------------------------------------------------------------------
+// ---- Crimson Collapse (an execute since 2026-10-31) -------------------------------------------------------------------
 
-class spell_ef_kit_collapse : public SpellScript
+class spell_ef_kit_seal_execute : public SpellScript
 {
-    PrepareSpellScript(spell_ef_kit_collapse);
+    PrepareSpellScript(spell_ef_kit_seal_execute);
 
-    SpellCastResult CheckCast()
+    SpellEffectInfo const& Rule()
     {
-        return CursesOf(GetCaster()).empty() ? SPELL_FAILED_NO_VALID_TARGETS : SPELL_CAST_OK;
+        return GetSpellInfo()->Effects[EFFECT_2];
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    // the target at or below effect 3's health percent (30)
+    SpellCastResult CheckCast()
+    {
+        Unit* target = GetExplTargetUnit();
+        if (!target)
+            return SPELL_FAILED_BAD_TARGETS;
+        return Seal::ExecuteReady(target->GetHealthPct(), Rule().MiscValue) ? SPELL_CAST_OK : SPELL_FAILED_TARGET_AURASTATE;
+    }
+
+    // the charge aura of the spell's charge effect (spell_ef_kit_charges: a dummy whose trigger is a stacking aura)
+    uint32 ChargeAura()
+    {
+        for (SpellEffectInfo const& eff : GetSpellInfo()->Effects)
+            if (SpellInfo const* aura = eff.TriggerSpell ? sSpellMgr->GetSpellInfo(eff.TriggerSpell) : nullptr)
+                if (eff.Effect == SPELL_EFFECT_DUMMY && aura->StackAmount > 1 && eff.MiscValue)
+                    return eff.TriggerSpell;
+        return 0;
+    }
+
+    // Crimson Cataclysm: `count` more enemies within `radius` of the target, each at or below `pct` health, the closest
+    // first, take `trigger`
+    void Cleave(Unit* caster, Unit* target, uint32 trigger, int32 count, float radius, int32 pct)
+    {
+        if (count <= 0 || radius <= 0.0f)
+            return;
+        std::list<Unit*> near;
+        Acore::AnyUnfriendlyUnitInObjectRangeCheck check(target, caster, radius);
+        Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(target, near, check);
+        Cell::VisitObjects(target, searcher, radius);
+        std::vector<std::pair<float, ObjectGuid>> picks;
+        for (Unit* unit : near)
+        {
+            if (unit == target || unit == caster || !unit->IsAlive() || !caster->IsValidAttackTarget(unit)
+                || !target->IsWithinLOSInMap(unit) || !Seal::ExecuteReady(unit->GetHealthPct(), pct))
+                continue;
+            picks.push_back({ target->GetExactDist2dSq(unit), unit->GetGUID() });
+        }
+        std::sort(picks.begin(), picks.end());
+        if (int32(picks.size()) > count)
+            picks.resize(std::size_t(count));
+        for (auto const& [dist, guid] : picks)
+            if (Unit* unit = ObjectAccessor::GetUnit(*caster, guid))
+                caster->CastSpell(unit, trigger, true);
+    }
+
+    void AfterHitTarget()
     {
         Unit* caster = GetCaster();
-        if (!caster || GetHitUnit() != caster)
+        Unit* target = GetHitUnit();
+        if (!caster || !target || target == caster)
             return;
-        SpellInfo const* info = GetSpellInfo();
-        int32 const pct = info->Effects[EFFECT_0].CalcValue(caster);
-        uint32 const hit = info->Effects[EFFECT_0].TriggerSpell;
-
-        struct Burst
+        uint32 const id = GetSpellInfo()->Id;
+        int32 const pct = Rule().MiscValue;
+        // the caster's dummies naming it: with a trigger the cleave (taken first: the casts may change the aura list),
+        // without one the charge back on a kill
+        std::vector<std::tuple<uint32, int32, int32>> cleaves;
+        bool chargeBack = false;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
         {
-            ObjectGuid target;
-            int64 remaining = 0;
-            std::vector<uint32> removed;
-        };
-        std::map<ObjectGuid, Burst> bursts;
-        for (Held const& h : CursesOf(caster))
-        {
-            AuraEffect const* eff = h.aura->GetEffect(EFFECT_0);
-            if (!eff)
+            if (uint32(eff->GetMiscValue()) != id)
                 continue;
-            Burst& b = bursts[h.target->GetGUID()];
-            b.target = h.target->GetGUID();
-            b.remaining += Seal::Remaining(h.aura->GetDuration(), eff->GetAmplitude(), TickNow(caster, h.target, eff, 0));
-            b.removed.push_back(h.aura->GetId());
+            if (HasTrigger(eff))
+                cleaves.emplace_back(TriggerOf(eff), eff->GetAmount(), eff->GetMiscValueB());
+            else
+                chargeBack = true;
         }
-        // every curse goes, then each enemy takes its hit (Lingering Ruin rides on the hit: spell_ef_kit_damage_echo)
-        for (auto& [guid, b] : bursts)
+        for (auto const& [trigger, count, yards] : cleaves)
+            Cleave(caster, target, trigger, count, float(yards), pct);
+        // only the target's death pays: a Blood Seal back, Relentless Execution's charge
+        if (target->IsAlive())
+            return;
+        int32 const back = Rule().CalcValue(caster);
+        if (back > 0)
+            Emberfall::ClassKit::GainSpecPower(caster, back, id);
+        Player* player = caster->ToPlayer();
+        if (!chargeBack || !player)
+            return;
+        // after the cast (spell_ef_kit_charges spends this cast's charge in AfterCast, which runs after the hit)
+        uint32 const chargeAura = ChargeAura();
+        ObjectGuid const guid = player->GetGUID();
+        player->m_Events.AddEventAtOffset([player, guid, id, chargeAura]()
         {
-            Unit* target = ObjectAccessor::GetUnit(*caster, guid);
-            if (!target)
-                continue;
-            for (uint32 spell : b.removed)
-                target->RemoveAurasDueToSpell(spell, caster->GetGUID());
-            int32 const amount = Seal::CollapseHit(b.remaining, pct);
-            if (hit && amount > 0)
-                caster->CastCustomSpell(target, hit, &amount, nullptr, nullptr, true);
-        }
-        // Ritual Aftershock: the caster's dummies naming the Collapse with a trigger, after it consumed a curse
-        if (!bursts.empty())
-            for (auto const& [trigger, value] : Named(caster, info->Id, 0))
-                caster->CastSpell(caster, trigger, true);
+            if (!player->IsInWorld() || player->GetGUID() != guid)
+                return;
+            if (chargeAura && player->HasAura(chargeAura))
+                Emberfall::ClassKit::RestoreCharges(player, id, chargeAura, 1);
+            else
+                player->RemoveSpellCooldown(id, true);   // no charges (or every one at hand): the cooldown ends
+        }, Milliseconds(1));
     }
 
     void Register() override
     {
-        OnCheckCast += SpellCheckCastFn(spell_ef_kit_collapse::CheckCast);
-        OnEffectHitTarget += SpellEffectFn(spell_ef_kit_collapse::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+        OnCheckCast += SpellCheckCastFn(spell_ef_kit_seal_execute::CheckCast);
+        AfterHit += SpellHitFn(spell_ef_kit_seal_execute::AfterHitTarget);
     }
 };
 
@@ -678,7 +743,9 @@ class spell_ef_kit_spread_dots : public SpellScript
                 if (!aura)
                     continue;
                 gained = gained || !own;
-                aura->SetMaxDuration(std::max(aura->GetMaxDuration(), left));
+                // feedback #239: an older curse lengthened keeps ticking to its new end (what it has run counted)
+                aura->SetMaxDuration(own ? Seal::ExtendedMaxDuration(aura->GetMaxDuration(), aura->GetDuration(), left)
+                                         : std::max(aura->GetMaxDuration(), left));
                 aura->SetDuration(left);
                 // the tick phase of the target's curse
                 AuraEffect const* phase = from->GetEffect(EFFECT_0);
@@ -770,7 +837,7 @@ void AddEmberfallClassKitSealScripts()
 {
     RegisterSpellAndAuraScriptPair(spell_ef_kit_seal_dot, aura_ef_kit_seal_dot);
     RegisterSpellAndAuraScriptPair(spell_ef_kit_torrent, aura_ef_kit_torrent);
-    RegisterSpellScript(spell_ef_kit_collapse);
+    RegisterSpellScript(spell_ef_kit_seal_execute);
     RegisterSpellScript(spell_ef_kit_spread_dots);
     RegisterSpellScript(spell_ef_kit_marked_bonus);
     RegisterSpellScript(spell_ef_kit_damage_echo);

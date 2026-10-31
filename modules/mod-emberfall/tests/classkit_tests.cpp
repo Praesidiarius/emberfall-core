@@ -510,6 +510,19 @@ int main()
         check(SpreadSeals(3, 1, 2) == 2 && SpreadSeals(1, 1, 2) == 1 && SpreadSeals(0, 1, 2) == 0, "at most 2 Seals");
         check(CopyLengthens(9000, 4000) && !CopyLengthens(9000, 12000) && CopyLengthens(9000, -1), "never shortening");
         check(ShareOf(200, 3) == 6 && ShareOf(-5, 6) == 0, "Drink Deep's share");
+        // feedback #239: a lengthened curse's max duration grows by what it has run, so its ticks go on past its base
+        // duration (the core ticks at most max / amplitude times from the application)
+        check(ExtendedMaxDuration(18000, 8000, 18000) == 28000, "18 s Vow, 10 s run, 8 + 10 s left: 28 s, 28 ticks");
+        check(ExtendedMaxDuration(18000, 18000, 28000) == 28000, "a fresh curse: its new time");
+        check(ExtendedMaxDuration(30000, 25000, 26000) == 31000 && ExtendedMaxDuration(30000, 25000, 20000) == 30000,
+              "never shorter than it was");
+        check(ExtendedMaxDuration(18000, -1, 5000) == 23000, "no time left counted as none");
+        // the Torrent's flares (2026-10-31): Violent Torrent 5 % a Seal, Freeflow's as 10; Eternal Torrent +100 %
+        check(FlarePct(0, 8, 0) == 0 && FlarePct(5, 5, 0) == 25 && FlarePct(5, 10, 0) == 50, "Violent Torrent per Seal");
+        check(FlarePct(0, 7, 100) == 100 && FlarePct(5, 10, 100) == 150 && FlarePct(-5, 10, 0) == 0, "Eternal Torrent");
+        // Crimson Collapse: an execute at or below 30 %
+        check(ExecuteReady(30.0f, 30) && ExecuteReady(12.5f, 30) && !ExecuteReady(30.5f, 30) && ExecuteReady(90.0f, 0),
+              "at or below 30 %");
     }
 
     // the Earthwarden's (EfEarthLogic.h)
