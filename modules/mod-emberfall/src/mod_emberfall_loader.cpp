@@ -39,6 +39,7 @@ void AddEmberfallProfessionsScripts();
 void AddEmberfallLeashScripts();
 void AddEmberfallHomebindScripts();
 void AddEmberfallSkillLevelsScripts();
+void AddEmberfallAuraScalingScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -63,4 +64,5 @@ void Addmod_emberfallScripts()
     AddEmberfallLeashScripts();
     AddEmberfallHomebindScripts();
     AddEmberfallSkillLevelsScripts();
+    AddEmberfallAuraScalingScripts();
 }

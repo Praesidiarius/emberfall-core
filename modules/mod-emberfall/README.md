@@ -486,3 +486,15 @@ bags, or by mail when they are full.
 |---|---|
 | `src/emberfall_skill_levels.cpp` | `emberfall_skill_levels_world` (`OnStartup`: reads the rows), `emberfall_skill_levels_player` (`OnPlayerLogin`, `OnPlayerLevelChanged`: `Player::SetSkill`, `SendProficiency`, the unequip) |
 | `data/sql/db-world/mod_emberfall_2026_10_29_00_skill_level.sql` | `ef_skill_level` |
+
+## Buffs at any level (Emberfall feedback #237)
+
+The core scales a player's positive aura to its target's level: a target more than 10 levels under the spell's
+SpellLevel gets a lower rank, and with none it is dropped (`SPELL_FAILED_LOWLEVEL` when no target is left). The class
+kits have no ranks, so Verdant Cocoon (SpellLevel 27, a pick at 10) failed on level-10 group members. Emberfall's
+compiler gives every kit aura cast on someone else `SPELL_ATTR2_ALLOW_LOW_LEVEL_BUFF`; for such a spell the hook keeps
+the target with the spell itself (`SpellInfo::GetAuraRankForLevel` returns it for the attribute).
+
+| File | What |
+|---|---|
+| `src/emberfall_aura_scaling.cpp` | `emberfall_aura_scaling` (`OnScaleAuraUnitAdd`: the target scaled for an `ALLOW_LOW_LEVEL_BUFF` spell) |
