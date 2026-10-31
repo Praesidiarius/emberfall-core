@@ -235,4 +235,27 @@ namespace Emberfall::Companions
     void RegisterRunOut(uint32 spell, float radius);
     float RunOutRadius(uint32 spell);   // 0: not a run-out mark
     std::vector<std::pair<uint32, float>> const& RunOuts();
+
+    // A soak (dungeon-barrows.md §5b, the toolkit): a creature of `entry` marks a circle of `radius` that `needed` of the
+    // group must stand in when it goes off; `needed` 0 is a shelter, everyone should be in one (the safe spots of an
+    // ultimate). Companions that are not the tank walk in near its end, the nearest first, as many as are missing.
+    struct SoakRule
+    {
+        uint32 entry = 0;
+        float radius = 0;
+        uint32 needed = 0;
+    };
+    void RegisterSoak(uint32 entry, float radius, uint32 needed);
+    std::vector<SoakRule> const& Soaks();
+    // A moving hazard: keep `radius` yards from any hostile carrying `aura` (the Burrow-Mother's furrow under the earth).
+    void RegisterHazard(uint32 aura, float radius);
+    std::vector<std::pair<uint32, float>> const& Hazards();
+    // An arena that has shrunk: while the boss carries one, the companions stay within `radius` of (x, y).
+    // A boss's ground marker (a creature of `entry`, not in the fight itself) whose telegraphed casts are read like an
+    // enemy's: the companions step out of them.
+    void RegisterTelegraphCaster(uint32 entry);
+    std::vector<uint32> const& TelegraphCasters();
+    void SetArena(Unit* boss, float x, float y, float radius);
+    void ClearArena(Unit* boss);
+    bool ArenaOf(Unit const* boss, float& x, float& y, float& radius);
 }
