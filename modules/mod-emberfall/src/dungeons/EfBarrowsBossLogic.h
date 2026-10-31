@@ -82,7 +82,7 @@ namespace Emberfall::Barrows
         SPELL_KNEEL = 97030,                // circle 10 yd round it, 3 s
         SPELL_GRAVE_WARD = 97031,           // the ward (intermission): no damage taken while its bearers live
         SPELL_BEAR_THE_WARD = 97032,        // a bearer's channel on it
-        SPELL_IMPERIAL_TITHE = 97048,       // the tithe's look (a soak of two, 7 s)
+        SPELL_IMPERIAL_TITHE = 97048,       // the tithe's look (a soak of two, 8 s)
         SPELL_TITHE_PAID = 97049,           // the soak's hit (custom base points)
         SPELL_TITHE_UNPAID = 97025,         // the tithe unpaid: the whole barrow
         SPELL_THE_MOUND_FALLS = 97051,      // the 40 % transition (5 s)
@@ -183,7 +183,7 @@ namespace Emberfall::Barrows
         constexpr Timer kSentence{ 6000, 9000, 12000 };
         constexpr Timer kKneel{ 14000, 20000, 24000 };
         constexpr Timer kTithe{ 8000, 25000, 30000 };           // phases 2 and 3
-        constexpr std::uint32_t kTitheFuseMs = 7000;
+        constexpr std::uint32_t kTitheFuseMs = 8000;
         constexpr std::uint32_t kMoundFallsMs = 5000;           // the transition: immune, then the arena
         constexpr std::uint32_t kArenaPulseMs = 1000;
         constexpr std::uint32_t kHardEnrageMs = 480000;         // Long Patience Ends (8 min; the fight's paper time ~4.5)
