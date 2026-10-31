@@ -542,6 +542,34 @@ namespace Emberfall::Companions
     // Is someone else's run-out mark a danger to us: within its radius plus a margin.
     inline bool NearRunOut(Vec2 bearer, Vec2 self, float radius, float margin) { return Dist(bearer, self) <= radius + margin; }
 
+    // A soak (the boss toolkit, dungeon-barrows.md §5b): `needed` of the group in it when it goes off (0: a shelter,
+    // everyone). `inside`: the group members already in it (us not counted); `rank`: our place among the companions
+    // outside it that may soak (the tank does not, except in a shelter), nearest first. Whether we go in (or, inside
+    // already, stay).
+    inline bool ShouldSoak(uint32_t needed, uint32_t inside, uint32_t rank)
+    {
+        if (!needed)
+            return true;
+        return inside < needed && rank < needed - inside;
+    }
+
+    // When to walk into a soak: in its last `leadMs` (its circle stays clear of the group until then, the healer keeps
+    // healing), or at once for a shelter, which is up for one cast only.
+    inline bool SoakTime(uint32_t needed, uint32_t msLeft, uint32_t leadMs) { return !needed || msLeft <= leadMs; }
+
+    // Back inside an arena that has shrunk: from outside `radius` - `margin`, the point `margin` + 2 yd inside its edge
+    // on the line to its middle; `self` itself when it is inside already.
+    inline Vec2 ArenaReturnPoint(Vec2 self, Vec2 centre, float radius, float margin)
+    {
+        float const d = Dist(self, centre);
+        if (d <= radius - margin)
+            return self;
+        float const r = std::max(radius - margin - 2.0f, 0.0f);
+        if (d < 0.01f)
+            return centre;
+        return Vec2{ centre.x + (self.x - centre.x) / d * r, centre.y + (self.y - centre.y) / d * r };
+    }
+
     // Interrupts: whether to kick a cast now. A cast is worth a kick once it has run `reactMs` (a human's reaction) and
     // while it has more than `minLeftMs` to go (the kick must land before it ends). Bosses' casts before anyone else's:
     // while a boss is in the fight, a companion keeps its interrupt for the boss.

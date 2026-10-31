@@ -270,6 +270,28 @@ namespace
         check(NearRunOut(Vec2{ 0, 0 }, Vec2{ 9, 0 }, 8.0f, 1.5f) && !NearRunOut(Vec2{ 0, 0 }, Vec2{ 10, 0 }, 8.0f, 1.5f), "near a mark");
     }
 
+    // The boss toolkit's soaks, shelters and arena (EfCompanionLogic.h; dungeon-barrows.md §5b).
+    void TestSoakAndArena()
+    {
+        // A soak of one: the nearest companion goes, the next does not; with someone in it already, nobody more.
+        check(ShouldSoak(1, 0, 0) && !ShouldSoak(1, 0, 1), "one needed: the nearest only");
+        check(!ShouldSoak(1, 1, 0), "already soaked: nobody more");
+        // A soak of two with one player in it: one companion more.
+        check(ShouldSoak(2, 1, 0) && !ShouldSoak(2, 1, 1) && ShouldSoak(2, 0, 1) && !ShouldSoak(2, 0, 2), "two needed");
+        // A shelter: everyone, always.
+        check(ShouldSoak(0, 4, 3), "a shelter for all");
+        // When: a soak in its last seconds, a shelter at once.
+        check(!SoakTime(1, 7000, 3500) && SoakTime(1, 3000, 3500) && SoakTime(0, 6000, 3500), "when to walk in");
+        // The arena: inside stays put; at the edge or past it back in, 2 yd inside the margin.
+        Vec2 const c{ 0, 0 };
+        Vec2 const in = ArenaReturnPoint(Vec2{ 10, 0 }, c, 20.0f, 1.5f);
+        check(near(in.x, 10) && near(in.y, 0), "inside: no move");
+        Vec2 const back = ArenaReturnPoint(Vec2{ 0, 25 }, c, 20.0f, 1.5f);
+        check(near(back.x, 0) && near(back.y, 16.5f), "outside: back in on the line to the middle");
+        Vec2 const edge = ArenaReturnPoint(Vec2{ 19, 0 }, c, 20.0f, 1.5f);
+        check(near(edge.x, 16.5f), "on the edge: a step in");
+    }
+
     void TestKicks()
     {
         KickRule const r;
@@ -288,6 +310,7 @@ int main()
     TestDangers();
     TestRunOut();
     TestKicks();
+    TestSoakAndArena();
     TestRoles();
     TestAddArgs();
     TestFormation();

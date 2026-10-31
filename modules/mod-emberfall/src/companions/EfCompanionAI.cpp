@@ -36,6 +36,8 @@
 #include "TemporarySummon.h"
 #include "ThreatManager.h"
 
+#include <algorithm>
+#include <list>
 #include <map>
 
 namespace Emberfall::Companions
@@ -440,7 +442,18 @@ namespace Emberfall::Companions
                 if (_dodgeMs)
                     return true;
                 Vec2 const self{ me->GetPositionX(), me->GetPositionY() };
-                for (Unit* e : enemies)
+                // The engaged enemies and the boss's ground markers that cast where they stand (RegisterTelegraphCaster:
+                // out of the fight themselves, so not among the enemies).
+                std::vector<Unit*> casters = enemies;
+                if (!TelegraphCasters().empty())
+                {
+                    std::list<Creature*> markers;
+                    me->GetCreatureListWithEntryInGrid(markers, TelegraphCasters(), 40.0f);
+                    for (Creature* m : markers)
+                        if (m->IsAlive() && me->IsHostileTo(m))
+                            casters.push_back(m);
+                }
+                for (Unit* e : casters)
                 {
                     Spell* spell = e->GetCurrentSpell(CURRENT_GENERIC_SPELL);
                     if (!spell || spell->getState() != SPELL_STATE_PREPARING || spell->GetCastTime() < 1000)
@@ -546,6 +559,128 @@ namespace Emberfall::Companions
                             to = Vec2{ bearer.x + std::cos(b) * (radius + 3.0f), bearer.y + std::sin(b) * (radius + 3.0f) };
                         }
                         Dodge(to.x, to.y, 1500, Acore::StringFormat("away from {}'s {}", u->GetName(), spell));
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            // ---- the boss toolkit's mechanics (dungeon-barrows.md §5b): an arena that shrank, moving hazards, soaks ----
+            // Back inside the arena of a boss in the fight (EfCompanions.h SetArena) when we stand at or past its edge.
+            bool KeepInArena(std::vector<Unit*> const& enemies)
+            {
+                if (_dodgeMs)
+                    return true;
+                Vec2 const self{ me->GetPositionX(), me->GetPositionY() };
+                for (Unit* e : enemies)
+                {
+                    float x = 0, y = 0, r = 0;
+                    if (!ArenaOf(e, x, y, r))
+                        continue;
+                    Vec2 const to = ArenaReturnPoint(self, Vec2{ x, y }, r, 1.5f);
+                    if (Dist(to, self) < 0.5f)
+                        return false;
+                    Dodge(to.x, to.y, 1500, Acore::StringFormat("back inside {}'s arena", e->GetName()));
+                    return true;
+                }
+                return false;
+            }
+
+            // Away from a hostile carrying a hazard aura (RegisterHazard): out to its radius and a step more.
+            bool AvoidHazards(std::vector<Unit*> const& enemies)
+            {
+                if (Hazards().empty())
+                    return false;
+                if (_dodgeMs)
+                    return true;
+                float const z = me->GetPositionZ();
+                for (Unit* e : enemies)
+                    for (auto const& [aura, radius] : Hazards())
+                    {
+                        if (!e->HasAura(aura))
+                            continue;
+                        float const d = e->GetExactDist2d(me);
+                        if (d > radius + 1.5f)
+                            continue;
+                        float const a = d < 0.3f ? e->GetOrientation() + float(M_PI) * 0.5f : e->GetAbsoluteAngle(me);
+                        Vec2 to{ e->GetPositionX() + std::cos(a) * (radius + 3.5f), e->GetPositionY() + std::sin(a) * (radius + 3.5f) };
+                        for (int i = 1; i <= 6 && !Walkable(to.x, to.y, z); ++i)
+                        {
+                            float const b = a + (i % 2 ? 1.0f : -1.0f) * 0.6f * float((i + 1) / 2);
+                            to = Vec2{ e->GetPositionX() + std::cos(b) * (radius + 3.5f), e->GetPositionY() + std::sin(b) * (radius + 3.5f) };
+                        }
+                        Dodge(to.x, to.y, 1200, Acore::StringFormat("away from {}'s {}", e->GetName(), aura));
+                        return true;
+                    }
+                return false;
+            }
+
+            // Into a soak near its end (RegisterSoak): as many of the companions as the group is short of, the nearest
+            // first, the tank only into a shelter; a shelter (needed 0) everyone, into the nearest. Inside and needed: we
+            // stay.
+            bool Soak(Player* owner)
+            {
+                if (Soaks().empty())
+                    return false;
+                if (_dodgeMs)
+                    return true;
+                Vec2 const self{ me->GetPositionX(), me->GetPositionY() };
+                Unit* const tank = Tank(owner);
+                std::vector<Unit*> const group = GroupUnits(owner, 60.0f);
+                for (SoakRule const& rule : Soaks())
+                {
+                    std::list<Creature*> markers;
+                    me->GetCreatureListWithEntryInGrid(markers, rule.entry, 40.0f);
+                    markers.sort([&](Creature* a, Creature* b) { return a->GetExactDist2d(me) < b->GetExactDist2d(me); });
+                    bool first = true;
+                    for (Creature* m : markers)
+                    {
+                        if (!m->IsAlive() || !m->IsInWorld())
+                            continue;
+                        if (rule.needed && me == tank)
+                            continue;
+                        int32 left = 0;
+                        for (auto const& [id, app] : m->GetAppliedAuras())
+                            left = std::max(left, app->GetBase()->GetDuration());
+                        if (left <= 150 || !SoakTime(rule.needed, uint32(left), 3500))
+                            continue;
+                        Vec2 const c{ m->GetPositionX(), m->GetPositionY() };
+                        float const myDist = Dist(self, c);
+                        uint32 inside = 0;
+                        std::vector<float> rivals;      // the companions outside that may soak, by distance
+                        for (Unit* u : group)
+                        {
+                            if (u == me || !u->IsAlive())
+                                continue;
+                            float const d = u->GetExactDist2d(m);
+                            if (d <= rule.radius)
+                                ++inside;
+                            else if (!u->IsPlayer() && !(rule.needed && u == tank))
+                                rivals.push_back(d);
+                        }
+                        if (myDist <= rule.radius - 1.0f)
+                        {
+                            if (!ShouldSoak(rule.needed, inside, 0))
+                                continue;
+                            if (me->GetVictim() && _a.range > 0.0f)
+                                me->AttackStop();
+                            Halt();
+                            _holding = true;
+                            _why = Acore::StringFormat("in {}'s circle", m->GetName());
+                            return true;
+                        }
+                        // A shelter: only the nearest one is ours; a soak: when we are wanted.
+                        bool const nearest = first;
+                        first = false;
+                        if (myDist > 35.0f || (!rule.needed && !nearest))
+                            continue;
+                        uint32 const rank = uint32(std::count_if(rivals.begin(), rivals.end(), [&](float d) { return d < myDist; }));
+                        if (!ShouldSoak(rule.needed, inside, rank))
+                            continue;
+                        float const a = myDist > 0.3f ? std::atan2(self.y - c.y, self.x - c.x) : 0.0f;
+                        float const in = std::min(1.5f, rule.radius * 0.5f);
+                        Dodge(c.x + std::cos(a) * in, c.y + std::sin(a) * in, std::min<uint32>(uint32(left) + 300, 5000),
+                              Acore::StringFormat("into {}'s circle", m->GetName()));
                         return true;
                     }
                 }
@@ -848,6 +983,8 @@ namespace Emberfall::Companions
                 if (AvoidTelegraphs(owner, enemies))
                     return;
                 if (RunOut(owner))
+                    return;
+                if (KeepInArena(enemies) || AvoidHazards(enemies) || Soak(owner))
                     return;
                 if (TryInterrupt(owner, roster, enemies))
                     return;

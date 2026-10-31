@@ -631,6 +631,98 @@ namespace Emberfall::Companions
 
     std::vector<std::pair<uint32, float>> const& RunOuts() { return RunOutList(); }
 
+    namespace
+    {
+        constexpr char kArenaKey[] = "EfBossArena";
+        struct ArenaMark : DataMap::Base
+        {
+            float x = 0, y = 0, radius = 0;
+        };
+
+        // Filled by the script loaders before any map updates, read-only afterwards (as the run-outs).
+        std::vector<SoakRule>& SoakList()
+        {
+            static std::vector<SoakRule> list;
+            return list;
+        }
+        std::vector<std::pair<uint32, float>>& HazardList()
+        {
+            static std::vector<std::pair<uint32, float>> list;
+            return list;
+        }
+    }
+
+    void RegisterSoak(uint32 entry, float radius, uint32 needed)
+    {
+        for (SoakRule& r : SoakList())
+            if (r.entry == entry)
+            {
+                r.radius = radius;
+                r.needed = needed;
+                return;
+            }
+        SoakList().push_back(SoakRule{ entry, radius, needed });
+    }
+
+    std::vector<SoakRule> const& Soaks() { return SoakList(); }
+
+    void RegisterHazard(uint32 aura, float radius)
+    {
+        for (auto& [id, r] : HazardList())
+            if (id == aura)
+            {
+                r = radius;
+                return;
+            }
+        HazardList().emplace_back(aura, radius);
+    }
+
+    std::vector<std::pair<uint32, float>> const& Hazards() { return HazardList(); }
+
+    namespace
+    {
+        std::vector<uint32>& TelegraphCasterList()
+        {
+            static std::vector<uint32> list;
+            return list;
+        }
+    }
+
+    void RegisterTelegraphCaster(uint32 entry)
+    {
+        if (std::find(TelegraphCasterList().begin(), TelegraphCasterList().end(), entry) == TelegraphCasterList().end())
+            TelegraphCasterList().push_back(entry);
+    }
+
+    std::vector<uint32> const& TelegraphCasters() { return TelegraphCasterList(); }
+
+    void SetArena(Unit* boss, float x, float y, float radius)
+    {
+        if (!boss)
+            return;
+        ArenaMark* a = boss->CustomData.GetDefault<ArenaMark>(kArenaKey);
+        a->x = x;
+        a->y = y;
+        a->radius = radius;
+    }
+
+    void ClearArena(Unit* boss)
+    {
+        if (boss)
+            boss->CustomData.Erase(kArenaKey);
+    }
+
+    bool ArenaOf(Unit const* boss, float& x, float& y, float& radius)
+    {
+        ArenaMark const* a = boss ? boss->CustomData.Get<ArenaMark>(kArenaKey) : nullptr;
+        if (!a)
+            return false;
+        x = a->x;
+        y = a->y;
+        radius = a->radius;
+        return true;
+    }
+
     // ---- scaling ----------------------------------------------------------------------------------------------------
     void ApplyScaling(Creature* c, Archetype const& arch, uint8 level)
     {
