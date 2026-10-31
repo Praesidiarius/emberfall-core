@@ -68,7 +68,14 @@
 //                                                             the last that struck gives value points of the spec power and the
 //                                                             trigger anew; the rule passive's other effect's trigger is the
 //                                                             tracking marker, a fight marker whose amount is that last spell:
-//                                                             Perfect Rhythm)
+//                                                             Perfect Rhythm); the Spirit Caller v2.0's (hunter-spiritcaller.md):
+//                                                             _exact_count_damage (on each enemy before the damage: +value %
+//                                                             when exactly misc B enemies were struck: Focused Fury),
+//                                                             _dot_burst (before the hit on an enemy that still carries this
+//                                                             spell's own damage over time: trigger at it with value % of what
+//                                                             that has left: Serpent's Judgment); _delayed_area misc B -1 on a
+//                                                             charge to an enemy (no destination): at that enemy value ms
+//                                                             after the charge's hit lands (Eagle Flight's Eagle's Descent)
 //                           The build rules (_build_low_health, _build_count, _build_floor) are spell_ef_kit_build_power's;
 //                           _kill_cut with no ability named (Opportunistic Throw: any killing blow) the kill hook's below.
 //   spell_ef_kit_rule_*     the rules' own aura scripts: markers (nothing happens in them)
@@ -78,6 +85,7 @@
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
 #include "EfFlowLogic.h"
+#include "EfSpiritLogic.h"
 
 #include "CellImpl.h"
 #include "Creature.h"
@@ -231,6 +239,7 @@ class spell_ef_kit_rules : public SpellScript
     PrepareSpellScript(spell_ef_kit_rules);
 
     uint32 _hits = 0;                  // enemies struck (AfterHit runs only for a hit)
+    bool _landed = false;              // Eagle's Descent cast at the enemy a charge struck (once a cast)
     bool _crit = false;                // an enemy struck critically
     std::vector<uint32> _lowCrits;     // the triggers of _crit_low_health rules a crit earned (cast once, after the cast)
     std::vector<std::pair<ObjectGuid, int32>> _struck;  // each enemy struck and the damage done to it (before armour)
@@ -273,6 +282,8 @@ class spell_ef_kit_rules : public SpellScript
             pct += Logic::CountBonusPct(struck, eff->GetAmount(), eff->GetMiscValueB());
         for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_single_damage", id))
             pct += Logic::SingleTargetPct(struck, eff->GetAmount());
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_exact_count_damage", id))
+            pct += SpiritLogic::ExactCountPct(struck, uint32(std::max(0, eff->GetMiscValueB())), eff->GetAmount());
         if (pct > 0 && GetHitDamage() > 0)
             SetHitDamage(Logic::DamageWithPct(GetHitDamage(), pct));
         _struck.emplace_back(target->GetGUID(), GetHitDamage());
@@ -295,6 +306,56 @@ class spell_ef_kit_rules : public SpellScript
         ++_hits;
         if (!target->IsAlive())
             KillCuts(caster, GetSpellInfo()->Id);
+        // Eagle's Descent on a charge to an enemy (Eagle Flight since v2.0): no destination, so at the enemy, value ms after
+        // the charge's hit (a spell speed: the hit waits for the landing); once a cast
+        if (_landed || GetExplTargetDest())
+            return;
+        _landed = true;
+        for (AuraEffect const* eff : Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_delayed_area", GetSpellInfo()->Id))
+        {
+            uint32 const trigger = TriggerOf(eff);
+            if (!trigger || eff->GetMiscValueB() >= 0)
+                continue;
+            float const x = target->GetPositionX(), y = target->GetPositionY(), z = target->GetPositionZ();
+            caster->m_Events.AddEventAtOffset([caster, trigger, x, y, z]()
+            {
+                if (caster->IsInWorld())
+                    caster->CastSpell(x, y, z, trigger, true);
+            }, Milliseconds(std::max(0, eff->GetAmount())));
+        }
+    }
+
+    // before the hit lands (the aura not yet renewed): Serpent's Judgment's bite of what this spell's own damage over time
+    // on the enemy has left
+    void BeforeHitTarget(SpellMissInfo missInfo)
+    {
+        using namespace Emberfall::ClassKit;
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (missInfo != SPELL_MISS_NONE || !caster || !target || target == caster)
+            return;
+        uint32 const id = GetSpellInfo()->Id;
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_dot_burst", id))
+        {
+            uint32 const trigger = TriggerOf(eff);
+            Aura const* dot = trigger ? target->GetAura(id, caster->GetGUID()) : nullptr;
+            if (!dot)
+                continue;
+            int32 burst = 0;
+            for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+            {
+                AuraEffect const* tick = dot->GetEffect(i);
+                if (!tick || tick->GetAuraType() != SPELL_AURA_PERIODIC_DAMAGE)
+                    continue;
+                // the tick as it would land: the caster's bonuses are in the amount (unit auras), the target's are not
+                int32 const perTick = int32(target->SpellDamageBonusTaken(caster, dot->GetSpellInfo(),
+                    uint32(std::max(0, tick->GetAmount())), DOT, dot->GetStackAmount()));
+                burst += SpiritLogic::BurstOfLeft(perTick,
+                    SpiritLogic::TicksLeft(uint32(std::max(0, tick->GetTotalTicks())), tick->GetTickNumber()), eff->GetAmount());
+            }
+            if (burst > 0)
+                caster->CastCustomSpell(target, trigger, &burst, nullptr, nullptr, true);
+        }
     }
 
     void Finish()
@@ -508,6 +569,7 @@ class spell_ef_kit_rules : public SpellScript
 
     void Register() override
     {
+        BeforeHit += BeforeSpellHitFn(spell_ef_kit_rules::BeforeHitTarget);
         OnHit += SpellHitFn(spell_ef_kit_rules::HandleHit);
         AfterHit += SpellHitFn(spell_ef_kit_rules::AfterHitTarget);
         AfterCast += SpellCastFn(spell_ef_kit_rules::Finish);

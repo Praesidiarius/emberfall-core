@@ -918,6 +918,7 @@ void AddEmberfallClassKitSealScripts();
 void AddEmberfallClassKitStormScripts();
 void AddEmberfallClassKitLustScripts();
 void AddEmberfallClassKitEarthScripts();
+void AddEmberfallClassKitSpiritScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -958,4 +959,5 @@ void AddEmberfallClassKitScripts()
     AddEmberfallClassKitStormScripts(); // the Druid Stormbringer's storm loop: src/emberfall_classkit_storm.cpp
     AddEmberfallClassKitLustScripts();  // the Warrior's Barbarian: src/emberfall_classkit_lust.cpp
     AddEmberfallClassKitEarthScripts(); // the Druid's Earthwarden: src/emberfall_classkit_earth.cpp
+    AddEmberfallClassKitSpiritScripts(); // the Hunter's Spirit Caller v2.0: src/emberfall_classkit_spirit.cpp
 }

@@ -175,7 +175,9 @@ namespace Emberfall::ClassKit
     // Embrace on Hoarstorm). Nothing while that spell is not cooling down.
     void CooldownByStacks(Unit* caster, uint32 stackSpell, uint32 consumed);
     // Shortens the caster's running cooldown of `spell` by `cutMs` (never below nothing; SMSG_MODIFY_COOLDOWN tells the
-    // client). Returns the ms taken (Oathbound Rush on Oathblade, Endless Crown on Crown of Blades).
+    // client). Returns the ms taken (Oathbound Rush on Oathblade, Endless Crown on Crown of Blades). A spell with charges
+    // whose charge is recharging: the charge's time instead, the cooldown with it (ShortenCharge; Spirit Swiftness on the
+    // Spirit Caller's Rabbit, 2026-10-31).
     int32 ShortenCooldown(Unit* caster, uint32 spell, int32 cutMs);
     // A link of the Oathkeeper's chain (spell_ef_kit_cooldown_cut_pct): takes `pct` percent of the base cooldown of
     // `spell` (Spell.dbc's) off the caster's running cooldown, never more than is left (100: all of it), never cutting that cooldown as a whole below `floorMs` (0:
@@ -293,6 +295,9 @@ namespace Emberfall::ClassKit
     // The next charge of `spell` comes `ms` sooner (Boundless Mercy): the charge aura's time left, and the spell's cooldown
     // with it while no charge is at hand; at 0 the charge is back.
     void ShortenCharge(Player* player, uint32 spell, uint32 chargeAura, int32 ms);
+    // The charge aura of a spell with charges (its spell_ef_kit_charges dummy's trigger, the stacking aura whose effect 1
+    // misc names the spell), or 0. ShortenCooldown cuts the charge recharging through it (the Spirit Caller's v2.0).
+    uint32 ChargeAuraOf(uint32 spell);
 
     // ---- A class's own power (Emberfall docs/design/classes/hunter-marksman.md: the Hunter's Focus; EfSpecPower.cpp) ----
     // ef_class_kit_class_power (class, power, max_power, regen_per_second, regen_out_of_combat; optional table): a power
