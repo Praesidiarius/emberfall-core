@@ -22,6 +22,13 @@
 // The never-trust-the-client rule: every request runs §6.3's checklist in order (access, parse, set, zone, lock,
 // presence, whitelist, ground, values, density, rate) and is audited (ef_audit), accepted or refused. A position the
 // client sends is only a wish: the stored Z is the map's ground.
+//
+// On the normal realm (§19): the role is the account's GM level (account_access, this realm or -1): 1 contributor, 2
+// and up maintainer. A maintainer's set is `live`: its ops change the world for everyone at once (as on the build
+// realm). A contributor's open set is a draft: what it adds, and a copy of every release spawn it moves or changes,
+// stand in the editor phase (kDraftPhase), seen only by editors with the editor open (VIEW on), and a spawn it removes
+// is hidden from those editors only (EmberfallVisibility.h); everyone else sees the release world. Accepted (the site's
+// review state), the set applies for everyone; rejected or withdrawn, the drafts go.
 
 #include "EfEditor.h"
 #include "EfEditorLogic.h"
@@ -32,6 +39,7 @@
 #include "CreatureData.h"
 #include "DataMap.h"
 #include "DatabaseEnv.h"
+#include "EmberfallVisibility.h"
 #include "GameGraveyard.h"
 #include "Log.h"
 #include "Map.h"
@@ -39,7 +47,9 @@
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "PassiveAI.h"
 #include "Player.h"
+#include "Realm.h"
 #include "SharedDefines.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
@@ -90,10 +100,19 @@ namespace Emberfall::Editor
             std::string ownerName, title, description, zone, state;
             std::vector<Op> ops;
             uint64 firstOpMs = 0;
+            bool live = true;   // a maintainer's (applies for everyone at once); false: a contributor's draft (§19)
         };
         std::map<uint32, ChangeSet> s_sets;
         std::map<std::pair<char, uint32>, uint32> s_locks;                // object -> its open set
         std::map<uint32, CreatureData> s_backup;                          // deleted spawns' data (undo, withdraw)
+
+        // The drafts (§19): release spawn -> its draft copy in the editor phase; the release spawns a draft removes
+        // (hidden from viewers only); the players whose editor is open (they are in the editor phase).
+        std::map<uint32, uint32> s_copies;
+        std::map<uint32, uint32> s_copyOf;                                // copy -> release spawn
+        std::set<uint32> s_hidden;
+        std::set<ObjectGuid> s_viewers;
+        uint32 s_nextCopy = kCopyIdBase;
 
         struct Access
         {
@@ -103,16 +122,20 @@ namespace Emberfall::Editor
         std::map<uint32, Access> s_access;
         std::map<uint32, Rate> s_rates;
         std::set<ObjectGuid> s_editors;                                   // players who got ROLE this session
-        uint32 s_nextTemp = kTempIdBase, s_nextSet = 1, s_refreshTimer = 0;
+        uint32 s_nextTemp = kTempIdBase, s_nextSet = 1, s_refreshTimer = 0, s_tickTimer = 0;
 
         class Session : public DataMap::Base
         {
         public:
-            bool role = false, mode = false;
+            bool role = false, mode = false, view = false;
             uint32 active = 0, scanId = 0;
             eft::Reassembly submit;
             eft::RateLimit requests{40, 10000};
             float savedSpeed = 1.0f;
+            // where editor mode was turned on (a contributor goes back there when it goes off, §19)
+            bool hasReturn = false, returnDue = false;
+            uint32 returnMap = 0;
+            Pos returnPos;
         };
 
         uint64 NowMs()
@@ -200,6 +223,12 @@ namespace Emberfall::Editor
         }
 
         bool IsTemp(uint32 id) { return id >= kTempIdBase && id <= kTempIdMax; }
+        bool IsCopy(uint32 id) { return id >= kCopyIdBase && id <= kCopyIdMax; }
+
+        // Whether a set's ops are in the world for everyone: a maintainer's, every set in local mode, an accepted one.
+        bool Live(ChangeSet const& cs) { return s_config.local || cs.live || !state::open(cs.state); }
+
+        bool Viewing(Player const* p) { return p && s_viewers.count(p->GetGUID()); }
 
         Fields StateOf(CreatureData const& d)
         {
@@ -265,7 +294,9 @@ namespace Emberfall::Editor
             Assign(s_backup[id], data);
         }
 
-        // A spawn that the editor creates (an add, or an undone delete): its data, then the unit when the grid is loaded.
+        // A spawn that the editor creates (an add, an undone delete, a draft copy): its data, then the unit when the grid
+        // is loaded. The id has no data, so a unit of it on the map is one on its way out (a draft made live, a redo):
+        // the new one loads beside it.
         bool Spawn(uint32 id, CreatureData const& from)
         {
             if (sObjectMgr->GetCreatureData(id))
@@ -278,7 +309,7 @@ namespace Emberfall::Editor
             if (map && map->IsGridLoaded(data.posX, data.posY))
             {
                 Creature* c = new Creature();
-                if (!c->LoadCreatureFromDB(id, map, true))
+                if (!c->LoadCreatureFromDB(id, map, true, true))
                 {
                     delete c;
                     LOG_WARN("module", "Emberfall.Editor: spawn {} has data but its unit did not load", id);
@@ -287,12 +318,12 @@ namespace Emberfall::Editor
             return true;
         }
 
-        CreatureData NewData(uint32 entry, uint32 mapId, Pos const& p, float wander, uint32 respawn)
+        CreatureData NewData(uint32 entry, uint32 mapId, Pos const& p, float wander, uint32 respawn, uint32 phase = PHASEMASK_NORMAL)
         {
             CreatureData d;
             d.id = entry;
             d.mapid = uint16(mapId);
-            d.phaseMask = PHASEMASK_NORMAL;
+            d.phaseMask = phase;
             d.spawnMask = 1;
             d.posX = p.x, d.posY = p.y, d.posZ = p.z, d.orientation = p.o;
             d.spawntimesecs = respawn;
@@ -304,12 +335,13 @@ namespace Emberfall::Editor
             return d;
         }
 
-        void Despawn(uint32 id)
+        void Despawn(uint32 id, bool backup = true)
         {
             CreatureData const* data = sObjectMgr->GetCreatureData(id);
             if (!data)
                 return;
-            Backup(id, *data);
+            if (backup)
+                Backup(id, *data);
             for (Creature* c : LiveCreatures(*data, id))
             {
                 c->CombatStop(true);
@@ -376,6 +408,149 @@ namespace Emberfall::Editor
             return false;
         }
 
+        // --------------------------------------------------------------------------------------- drafts (§19)
+
+        // The open draft (a contributor's set) that holds this object, if any.
+        ChangeSet* DraftSetOf(char kind, uint32 id)
+        {
+            auto lock = s_locks.find({kind, id});
+            if (lock == s_locks.end())
+                return nullptr;
+            auto it = s_sets.find(lock->second);
+            return it != s_sets.end() && !Live(it->second) ? &it->second : nullptr;
+        }
+
+        std::vector<Op> OpsOn(ChangeSet const& cs, uint32 id)
+        {
+            std::vector<Op> out;
+            for (Op const& op : cs.ops)
+                if (op.target == id)
+                    out.push_back(op);
+            return out;
+        }
+
+        // A release spawn's units shown or hidden again for the viewers (a draft removes it, or no longer does).
+        void UpdateVisibility(uint32 id)
+        {
+            if (CreatureData const* d = sObjectMgr->GetCreatureData(id))
+                for (Creature* c : LiveCreatures(*d, id))
+                    c->UpdateObjectVisibility();
+        }
+
+        // An existing spawn's data and units brought to a state (position, wander, respawn), in place.
+        void SetState(uint32 id, CreatureData& data, Fields const& st)
+        {
+            if (auto p = posOf(st); p && !posNear(StateOf(data), st))
+                Relocate(id, data, *p);
+            if (auto w = st.find("wander"); w != st.end() && w->second.type == Value::Type::Number &&
+                std::fabs(data.wander_distance - w->second.number) > 0.05)
+                SetWander(id, data, float(w->second.number));
+            if (auto r = st.find("respawn"); r != st.end() && r->second.type == Value::Type::Number &&
+                data.spawntimesecs != uint32(r->second.number))
+                SetRespawn(id, data, uint32(r->second.number));
+        }
+
+        // The editor phase made to show what the open draft holding this object makes of it: nothing, a copy of the
+        // release spawn where the draft has it, the spawn the draft adds, or the release spawn hidden from viewers.
+        // Called after every change of a draft (an op, undo, redo, withdraw, reject, accept, freeze, the replay).
+        // Returns false on a conflict (the draft meets a newer state; the op is not drafted).
+        bool RebuildTarget(char kind, uint32 id)
+        {
+            ChangeSet* cs = DraftSetOf(kind, id);
+            std::vector<Op> const ops = cs ? OpsOn(*cs, id) : std::vector<Op>{};
+            if (IsTemp(id))
+            {
+                // a spawn a draft adds stands in the editor phase itself; a live set's add is not a draft's
+                CreatureData* data = const_cast<CreatureData*>(sObjectMgr->GetCreatureData(id));
+                if (data && !(data->phaseMask & kDraftPhase))
+                    return true;
+                Draft const d = foldDraft(std::nullopt, ops);
+                if (!d.present)
+                {
+                    if (data)
+                        Despawn(id, false);
+                    return !d.conflict;
+                }
+                if (data)
+                {
+                    SetState(id, *data, d.state);
+                    return !d.conflict;
+                }
+                auto p = posOf(d.state);
+                auto entry = d.state.find("entry"), map = d.state.find("map");
+                if (!p || entry == d.state.end() || map == d.state.end())
+                    return false;
+                auto w = d.state.find("wander");
+                auto r = d.state.find("respawn");
+                Spawn(id, NewData(uint32(entry->second.number), uint32(map->second.number), *p,
+                    w != d.state.end() ? float(w->second.number) : 0.0f, r != d.state.end() ? uint32(r->second.number) : 120, kDraftPhase));
+                return !d.conflict;
+            }
+            bool const wasHidden = s_hidden.erase(id) > 0;
+            CreatureData const* orig = sObjectMgr->GetCreatureData(id);
+            Draft d;
+            if (cs && orig)
+                d = foldDraft(StateOf(*orig), ops);
+            bool const hide = cs && orig && !d.present;
+            bool const needCopy = cs && orig && d.present && d.changed;
+            auto copy = s_copies.find(id);
+            if (needCopy && copy != s_copies.end())
+            {
+                if (CreatureData* cd = const_cast<CreatureData*>(sObjectMgr->GetCreatureData(copy->second)))
+                    SetState(copy->second, *cd, d.state);
+            }
+            else if (needCopy && s_nextCopy <= kCopyIdMax)
+            {
+                uint32 const cid = s_nextCopy++;
+                CreatureData cd;
+                Assign(cd, *orig);
+                cd.phaseMask = kDraftPhase;
+                cd.poolId = 0, cd.spawnGroupId = 0, cd.dbData = false;
+                if (auto p = posOf(d.state))
+                    cd.posX = p->x, cd.posY = p->y, cd.posZ = p->z, cd.orientation = p->o;
+                if (auto w = d.state.find("wander"); w != d.state.end())
+                {
+                    cd.wander_distance = float(w->second.number);
+                    cd.movementType = cd.wander_distance > 0 ? RANDOM_MOTION_TYPE : IDLE_MOTION_TYPE;
+                }
+                if (auto r = d.state.find("respawn"); r != d.state.end())
+                    cd.spawntimesecs = uint32(r->second.number);
+                Spawn(cid, cd);
+                s_copies[id] = cid;
+                s_copyOf[cid] = id;
+            }
+            else if (!needCopy && copy != s_copies.end())
+            {
+                Despawn(copy->second, false);
+                s_copyOf.erase(copy->second);
+                s_copies.erase(copy);
+            }
+            if (hide)
+                s_hidden.insert(id);
+            if (hide != wasHidden)
+                UpdateVisibility(id);
+            return !(cs && (!orig || d.conflict));
+        }
+
+        // The data an op on this object starts from: its draft copy's while a draft has one.
+        CreatureData* EffectiveData(uint32 id)
+        {
+            if (auto copy = s_copies.find(id); copy != s_copies.end())
+                if (CreatureData const* cd = sObjectMgr->GetCreatureData(copy->second))
+                    return const_cast<CreatureData*>(cd);
+            return const_cast<CreatureData*>(sObjectMgr->GetCreatureData(id));
+        }
+
+        // Every object of a set rebuilt (after its state changed: withdrawn, rejected, accepted, frozen).
+        void RebuildSet(ChangeSet const& cs)
+        {
+            std::set<std::pair<char, uint32>> targets;
+            for (Op const& op : cs.ops)
+                targets.insert({char(op.kind), op.target});
+            for (auto const& [k, id] : targets)
+                RebuildTarget(k, id);
+        }
+
         // --------------------------------------------------------------------------------------- markers
 
         std::string FlagsFor(uint32 viewer, char kind, uint32 id, CreatureData const& data)
@@ -421,16 +596,30 @@ namespace Emberfall::Editor
             return id == data.id ? 'n' : 'c';   // an NPC's GUID is its template id (npcs.yaml)
         }
 
+        // A spawn's marker as the viewer sees it. With a draft copy (§19) the marker is the draft (its place, its unit)
+        // and carries the original's place for the ghost ring; a spawn a draft removes is flagged so.
         Marker MarkerOf(uint32 viewer, uint32 id, CreatureData const& data)
         {
             Marker m;
             char const k = KindOf(id, data);
             m.kind = k == 'n' ? Kind::Npc : Kind::Creature;
             m.id = id, m.entry = data.id;
-            m.pos = {data.posX, data.posY, data.posZ, data.orientation};
-            m.wander = data.wander_distance, m.respawn = data.spawntimesecs;
+            CreatureData const* shown = &data;
+            uint32 shownId = id;
+            if (auto copy = s_copies.find(id); copy != s_copies.end())
+                if (CreatureData const* cd = sObjectMgr->GetCreatureData(copy->second))
+                {
+                    shown = cd, shownId = copy->second;
+                    m.ghost = Pos{data.posX, data.posY, data.posZ, data.orientation};
+                }
+            m.pos = {shown->posX, shown->posY, shown->posZ, shown->orientation};
+            m.wander = shown->wander_distance, m.respawn = shown->spawntimesecs;
             m.flags = FlagsFor(viewer, k, id, data);
-            for (Creature* c : LiveCreatures(data, id))
+            if (m.ghost)
+                m.flags += flag::Ghost;
+            if (s_hidden.count(id))
+                m.flags += flag::Removed;
+            for (Creature* c : LiveCreatures(*shown, shownId))
                 if (c->IsAlive())
                 {
                     m.lowguid = c->GetGUID().GetCounter();
@@ -463,12 +652,17 @@ namespace Emberfall::Editor
 
         // --------------------------------------------------------------------------------------- change sets
 
-        void SendSet(Player* player, ChangeSet const& cs)
+        // CS: a set's state for its owner; `active` (sixth field 1) makes it the client's active set (one the realm
+        // opened by itself for a change made without one).
+        void SendSet(Player* player, ChangeSet const& cs, bool active = false)
         {
-            size_t active = 0;
+            size_t n = 0;
             for (Op const& op : cs.ops)
-                active += !op.undone;
-            SendBody(player, eft::body(0, "CS", {std::to_string(cs.id), cs.state, std::to_string(active), eft::encodeName(cs.title)}));
+                n += !op.undone;
+            std::vector<std::string> f{std::to_string(cs.id), cs.state, std::to_string(n), eft::encodeName(cs.title)};
+            if (active)
+                f.push_back("1");
+            SendBody(player, eft::body(0, "CS", f));
         }
 
         // OPS: the set's ops for the panel, newest last: n,op,k,id,entry,detail,undone (detail: moved yards, field>value).
@@ -538,9 +732,39 @@ namespace Emberfall::Editor
             CharacterDatabase.DirectExecute("DELETE FROM " + Table("ef_lock") + " WHERE `changeset_id` = {}", set);
         }
 
-        // Reverts a set's active ops live, newest first (withdraw, reject, freeze).
-        void RevertLive(ChangeSet& cs)
+        // Every object of a set broadcast as it stands now.
+        void BroadcastSet(ChangeSet const& cs)
         {
+            std::set<std::pair<char, uint32>> done;
+            for (Op const& op : cs.ops)
+            {
+                if (!done.insert({char(op.kind), op.target}).second)
+                    continue;
+                Pos at = posOf(op.to).value_or(posOf(op.from).value_or(Pos{}));
+                uint32 mapId = 0;
+                if (CreatureData const* d = sObjectMgr->GetCreatureData(op.target))
+                    at = {d->posX, d->posY, d->posZ, 0}, mapId = d->mapid;
+                else if (auto m = op.to.find("map"); m != op.to.end())
+                    mapId = uint32(m->second.number);
+                else if (auto m2 = op.from.find("map"); m2 != op.from.end())
+                    mapId = uint32(m2->second.number);
+                else if (auto z = s_zones.find(cs.zone); z != s_zones.end())
+                    mapId = z->second.map;
+                Broadcast(char(op.kind), op.target, mapId, at);
+            }
+        }
+
+        // Reverts a set's active ops live, newest first (withdraw, reject, freeze). A draft (`wasDraft`: a contributor's
+        // set while it was open) never changed the world: it is unlocked and its drafts go.
+        void RevertLive(ChangeSet& cs, bool wasDraft)
+        {
+            if (wasDraft)
+            {
+                Unlock(cs.id);
+                RebuildSet(cs);
+                BroadcastSet(cs);
+                return;
+            }
             for (size_t i = cs.ops.size(); i-- > 0;)
             {
                 Op const& op = cs.ops[i];
@@ -592,9 +816,11 @@ namespace Emberfall::Editor
         Code CheckTarget(char kind, uint32 id, Target& t)
         {
             t.kind = kind, t.id = id;
-            t.data = const_cast<CreatureData*>(sObjectMgr->GetCreatureData(id));
-            if (!t.data)
-                return Code::Unknown;
+            if (IsCopy(id))
+                return Code::Unknown;   // a draft copy is edited through its release spawn
+            t.data = EffectiveData(id);
+            if (!t.data || s_hidden.count(id))
+                return Code::Unknown;   // gone, or a draft removes it (undo that first)
             if (IsTemp(id))
             {
                 if (kind != 'c')
@@ -634,7 +860,7 @@ namespace Emberfall::Editor
             std::vector<Neighbour> near;
             for (auto const& [id, d] : sObjectMgr->GetAllCreatureData())
             {
-                if (d.mapid != mapId || std::fabs(d.posX - at.x) > 31 || std::fabs(d.posY - at.y) > 31)
+                if (IsCopy(id) || d.mapid != mapId || std::fabs(d.posX - at.x) > 31 || std::fabs(d.posY - at.y) > 31)
                     continue;
                 Neighbour n;
                 n.pos = {d.posX, d.posY, d.posZ, 0};
@@ -692,7 +918,8 @@ namespace Emberfall::Editor
             uint64 const now = NowMs();
             if (!rate.allows(op.op, now))
                 return Code::Rate;
-            if (!Apply(op))
+            bool const live = Live(cs);
+            if (live && !Apply(op))
                 return Code::Internal;
             rate.record(op.op, now);
             op.seq = cs.ops.empty() ? 1 : cs.ops.back().seq + 1;
@@ -703,6 +930,9 @@ namespace Emberfall::Editor
             cs.ops.push_back(op);
             StoreOp(cs, op);
             Lock(char(op.kind), op.target, cs.id);
+            // a contributor's: the editor phase shows it (§19); the world stays the release's for everyone else
+            if (!live && !RebuildTarget(char(op.kind), op.target))
+                LOG_WARN("module", "Emberfall.Editor: {} op {} on {} meets a newer state in its draft", CsName(cs.id), op.seq, op.target);
             Broadcast(char(op.kind), op.target, player->GetMapId(), at);
             id = std::to_string(op.target);
             return Code::Ok;
@@ -735,13 +965,24 @@ namespace Emberfall::Editor
             }
         }
 
-        void SetMode(Player* player, Session& s, bool on)
+        // Editor mode (§6.4, §19): flight, run speed x3, nobody attacks you and you attack nobody, no casting, no
+        // looting objects. An explicit toggle, off by default: the panel works without it. Turned off, it takes a
+        // contributor back to where they turned it on (`back`: at once; otherwise the next tick, e.g. after a map
+        // change), so flight is no travel shortcut; a maintainer stays where they are.
+        Code SetMode(Player* player, Session& s, bool on, Level level, bool back = true)
         {
             if (s.mode == on)
-                return;
-            s.mode = on;
+                return Code::Ok;
             if (on)
             {
+                Map* map = player->GetMap();
+                if (Code c = checkModeOn(player->IsInCombat(), player->IsAlive(), player->IsInFlight(), map && map->Instanceable());
+                    c != Code::Ok)
+                    return c;
+                s.mode = true;
+                s.hasReturn = returnsOnModeOff(level);
+                s.returnMap = player->GetMapId();
+                s.returnPos = {player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetOrientation()};
                 s.savedSpeed = player->GetSpeedRate(MOVE_RUN);
                 player->SetCanFly(true);
                 player->SetSpeed(MOVE_RUN, 3.0f, true);
@@ -749,15 +990,42 @@ namespace Emberfall::Editor
                 player->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                 player->SetImmuneToNPC(true);
                 player->CombatStop(true);
+                return Code::Ok;
             }
-            else
+            s.mode = false;
+            player->SetCanFly(false);
+            player->SetSpeed(MOVE_RUN, s.savedSpeed > 0 ? s.savedSpeed : 1.0f, true);
+            player->SetSpeed(MOVE_FLIGHT, 1.0f, true);
+            player->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
+            player->SetImmuneToNPC(false);
+            if (s.hasReturn)
             {
-                player->SetCanFly(false);
-                player->SetSpeed(MOVE_RUN, s.savedSpeed > 0 ? s.savedSpeed : 1.0f, true);
-                player->SetSpeed(MOVE_FLIGHT, 1.0f, true);
-                player->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
-                player->SetImmuneToNPC(false);
+                s.hasReturn = false;
+                if (back)
+                    player->TeleportTo(s.returnMap, s.returnPos.x, s.returnPos.y, s.returnPos.z, s.returnPos.o);
+                else
+                    s.returnDue = true;
             }
+            return Code::Ok;
+        }
+
+        // The editor open or closed (VIEW, §19): open, the player is in the editor phase too and sees the drafts, and
+        // no longer sees the release spawns a draft removes.
+        void SetView(Player* player, Session& s, bool on)
+        {
+            if (s.view == on)
+                return;
+            s.view = on;
+            if (on)
+                s_viewers.insert(player->GetGUID());
+            else
+                s_viewers.erase(player->GetGUID());
+            uint32 const mask = player->GetPhaseMask();
+            uint32 const want = on ? (mask | kDraftPhase) : (mask & ~kDraftPhase);
+            if (!player->IsGameMaster() && want != mask)
+                player->SetPhaseMask(want ? want : uint32(PHASEMASK_NORMAL), true);
+            else
+                player->UpdateObjectVisibility();
         }
 
         void DoScan(Player* player, uint32 seq, ef::editor::Scan const& sc)
@@ -772,14 +1040,114 @@ namespace Emberfall::Editor
             std::vector<std::string> entries;
             for (auto const& [id, d] : sObjectMgr->GetAllCreatureData())
             {
-                if (d.mapid != sc.map || std::hypot(d.posX - sc.x, d.posY - sc.y) > sc.radius)
-                    continue;
+                if (IsCopy(id) || d.mapid != sc.map || std::hypot(d.posX - sc.x, d.posY - sc.y) > sc.radius)
+                    continue;   // a draft copy is shown through its release spawn's marker
                 entries.push_back(encodeMarker(MarkerOf(viewer, id, d)));
             }
             s.scanId = (s.scanId % 9999) + 1;
             for (std::string const& body : pages("MARK", {std::to_string(s.scanId)}, entries))
                 SendBody(player, body);
             SendOk(player, seq, std::to_string(s.scanId));
+        }
+
+        // A new draft set in the zone the player stands in, made active. `live`: a maintainer's (§19).
+        ChangeSet* NewSet(Player* player, Session& s, Access const& a, std::string const& title, Code& code)
+        {
+            uint32 const account = player->GetSession()->GetAccountId();
+            ZoneInfo const* zone = ZoneAt(player->GetMapId(), {player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), 0});
+            if (!zone)
+            {
+                code = Code::Zone;
+                return nullptr;
+            }
+            size_t open = 0;
+            for (auto const& [id, cs] : s_sets)
+                open += cs.owner == account && state::open(cs.state);
+            if (open >= LimitsOf(a.level).openSets)
+            {
+                code = Code::Limit;
+                return nullptr;
+            }
+            ChangeSet cs;
+            cs.id = s_nextSet++;
+            cs.owner = account;
+            cs.ownerName = player->GetName();
+            cs.title = title;
+            cs.zone = zone->key;
+            cs.state = std::string(state::Draft);
+            cs.live = s_config.local || appliesLive(a.level);
+            CharacterDatabase.DirectExecute("INSERT INTO " + Table("ef_changeset") +
+                " (`id`, `owner`, `owner_name`, `title`, `description`, `zone`, `state`, `live`, `created_at`) VALUES ({}, {}, '{}', '{}', '', '{}', 'draft', {}, NOW())",
+                cs.id, account, Escaped(cs.ownerName), Escaped(title), Escaped(cs.zone), cs.live ? 1 : 0);
+            ChangeSet& stored = s_sets[cs.id] = cs;
+            s.active = cs.id;
+            SendSet(player, stored, true);
+            Audit(player, "NEW", Code::Ok, {{"cs", Value::of(cs.id)}, {"live", Value::of(cs.live ? 1 : 0)}});
+            code = Code::Ok;
+            return &stored;
+        }
+
+        // A change made without an active set: the player's newest editable set of the zone they stand in, or a new one
+        // titled "<Zone> edits <date>".
+        ChangeSet* AutoSet(Player* player, Session& s, Access const& a, Code& code)
+        {
+            uint32 const account = player->GetSession()->GetAccountId();
+            ZoneInfo const* zone = ZoneAt(player->GetMapId(), {player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), 0});
+            if (!zone)
+            {
+                code = Code::Zone;
+                return nullptr;
+            }
+            for (auto it = s_sets.rbegin(); it != s_sets.rend(); ++it)
+                if (it->second.owner == account && it->second.zone == zone->key && state::editable(it->second.state))
+                {
+                    s.active = it->first;
+                    SendSet(player, it->second, true);
+                    SendOps(player, it->second);
+                    code = Code::Ok;
+                    return &it->second;
+                }
+            char date[16];
+            std::time_t const t = std::time(nullptr);
+            std::tm tm{};
+            gmtime_r(&t, &tm);
+            std::strftime(date, sizeof date, "%Y-%m-%d", &tm);
+            return NewSet(player, s, a, autoTitle(zone->name.empty() ? zone->key : zone->name, date), code);
+        }
+
+        // To review: submitted (the bot opens the merge request), or accepted at once in local mode (make editor-pull).
+        void Submit(ChangeSet& cs, std::string const& description)
+        {
+            cs.description = description;
+            cs.state = std::string(s_config.local ? state::Accepted : state::Submitted);
+            CharacterDatabase.DirectExecute("UPDATE " + Table("ef_changeset") +
+                " SET `description` = '{}', `state` = '{}', `submitted_at` = NOW() WHERE `id` = {}",
+                Escaped(description), cs.state, cs.id);
+            if (s_config.local)
+                Unlock(cs.id);   // accepted: replayed until make editor-pull marks it saved
+        }
+
+        // A maintainer's live sets with changes go to review by themselves when the editor closes or they log out:
+        // the bot opens the merge request (§19), Nathanael merges.
+        void SubmitLive(Player* player)
+        {
+            uint32 const account = player->GetSession()->GetAccountId();
+            Session& s = SessionOf(player);
+            for (auto& [id, cs] : s_sets)
+            {
+                if (cs.owner != account || !cs.live || s_config.local || cs.state != state::Draft)
+                    continue;
+                bool any = false;
+                for (Op const& op : cs.ops)
+                    any = any || !op.undone;
+                if (!any)
+                    continue;
+                Submit(cs, "Maintainer edits, live on the realm since they were made.");
+                if (s.active == cs.id)
+                    s.active = 0;
+                SendSet(player, cs);
+                Audit(player, "SUBMIT", Code::Ok, {{"cs", Value::of(cs.id)}, {"auto", Value::of(1)}});
+            }
         }
 
         void Handle(Player* player, Session& s, Access const& a, eft::Request const& rq)
@@ -791,12 +1159,21 @@ namespace Emberfall::Editor
                 SendErr(player, seq, code, detail);
                 Audit(player, rq.cmd, code, {{"seq", Value::of(seq)}, {"detail", Value::str(detail.substr(0, 120))}});
             };
-            if (rq.cmd == "MODE")
+            if (rq.cmd == "MODE" || rq.cmd == "VIEW")
             {
                 if (f.size() != 1 || (f[0] != "on" && f[0] != "off"))
                     return refuse(Code::Decode);
-                SetMode(player, s, f[0] == "on");
+                bool const on = f[0] == "on";
+                if (rq.cmd == "VIEW")
+                {
+                    SetView(player, s, on);
+                    if (!on)
+                        SubmitLive(player);   // a maintainer's live changes go to review when the editor closes
+                }
+                else if (Code c = SetMode(player, s, on, a.level); c != Code::Ok)
+                    return refuse(c);
                 SendOk(player, seq);
+                Audit(player, rq.cmd, Code::Ok, {{"on", Value::of(on ? 1 : 0)}});
                 return;
             }
             if (rq.cmd == "SCAN")
@@ -812,29 +1189,11 @@ namespace Emberfall::Editor
                 std::string title = f.size() == 1 ? eft::decodeName(f[0]).value_or("") : "";
                 if (checkText(title, kMinTitle, kMaxTitle) != Code::Ok)
                     return refuse(Code::Text);
-                ZoneInfo const* zone = ZoneAt(player->GetMapId(), {player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), 0});
-                if (!zone)
-                    return refuse(Code::Zone);
-                size_t open = 0;
-                for (auto const& [id, cs] : s_sets)
-                    open += cs.owner == account && state::open(cs.state);
-                if (open >= LimitsOf(a.level).openSets)
-                    return refuse(Code::Limit, "open sets");
-                ChangeSet cs;
-                cs.id = s_nextSet++;
-                cs.owner = account;
-                cs.ownerName = player->GetName();
-                cs.title = title;
-                cs.zone = zone->key;
-                cs.state = std::string(state::Draft);
-                CharacterDatabase.DirectExecute("INSERT INTO " + Table("ef_changeset") +
-                    " (`id`, `owner`, `owner_name`, `title`, `description`, `zone`, `state`, `created_at`) VALUES ({}, {}, '{}', '{}', '', '{}', 'draft', NOW())",
-                    cs.id, account, Escaped(cs.ownerName), Escaped(title), Escaped(cs.zone));
-                s_sets[cs.id] = cs;
-                s.active = cs.id;
-                SendSet(player, cs);
-                SendOk(player, seq, std::to_string(cs.id));
-                Audit(player, "NEW", Code::Ok, {{"cs", Value::of(cs.id)}});
+                Code code = Code::Ok;
+                ChangeSet* cs = NewSet(player, s, a, title, code);
+                if (!cs)
+                    return refuse(code, code == Code::Limit ? "open sets" : "");
+                SendOk(player, seq, std::to_string(cs->id));
                 return;
             }
             if (rq.cmd == "OPEN" || rq.cmd == "UNDO" || rq.cmd == "REDO" || rq.cmd == "WITHDRAW" || rq.cmd == "SUBMIT")
@@ -858,7 +1217,7 @@ namespace Emberfall::Editor
                 {
                     if (!state::open(cs.state))
                         return refuse(Code::State);
-                    RevertLive(cs);
+                    RevertLive(cs, !Live(cs));
                     cs.state = std::string(state::Withdrawn);
                     StoreState(cs);
                     Unlock(cs.id);
@@ -896,13 +1255,7 @@ namespace Emberfall::Editor
                     if (rate.submits.full(NowMs()))
                         return refuse(Code::Rate, "submits");
                     rate.submits.add(NowMs());
-                    cs.description = description;
-                    cs.state = std::string(s_config.local ? state::Accepted : state::Submitted);
-                    CharacterDatabase.DirectExecute("UPDATE " + Table("ef_changeset") +
-                        " SET `description` = '{}', `state` = '{}', `submitted_at` = NOW() WHERE `id` = {}",
-                        Escaped(description), cs.state, cs.id);
-                    if (s_config.local)
-                        Unlock(cs.id);   // accepted: replayed until make editor-pull marks it saved
+                    Submit(cs, description);
                     s.active = 0;
                     SendSet(player, cs);
                     SendOk(player, seq, std::to_string(cs.id));
@@ -914,11 +1267,14 @@ namespace Emberfall::Editor
                 if (!index)
                     return refuse(Code::Unknown, undo ? "nothing to undo" : "nothing to redo");
                 Op& op = cs.ops[*index];
-                CreatureData const* d = sObjectMgr->GetCreatureData(op.target);
+                CreatureData const* d = EffectiveData(op.target);
                 Pos at = d ? Pos{d->posX, d->posY, d->posZ, 0} : posOf(op.from).value_or(posOf(op.to).value_or(Pos{}));
-                if (!Apply(undo ? inverse(op) : op))
+                bool const live = Live(cs);
+                if (live && !Apply(undo ? inverse(op) : op))
                     return refuse(Code::Internal);
                 op.undone = undo;
+                if (!live)
+                    RebuildTarget(char(op.kind), op.target);
                 CharacterDatabase.DirectExecute("UPDATE " + Table("ef_op") + " SET `undone` = {} WHERE `changeset_id` = {} AND `seq` = {}",
                     undo ? 1 : 0, cs.id, op.seq);
                 Broadcast(char(op.kind), op.target, player->GetMapId(), at);
@@ -930,8 +1286,12 @@ namespace Emberfall::Editor
             }
 
             // ---- the ops: ADD, MOVE, SET, DEL
+            if (rq.cmd != "ADD" && rq.cmd != "MOVE" && rq.cmd != "SET" && rq.cmd != "DEL")
+                return refuse(Code::Decode, "unknown command");
             Code code = Code::Ok;
             ChangeSet* cs = ActiveSet(player, s, code);
+            if (!cs && code == Code::Set)
+                cs = AutoSet(player, s, a, code);   // edit and go on playing: the realm opens a set by itself (§19)
             if (!cs)
                 return refuse(code);
             ZoneInfo const& zone = s_zones[cs->zone];
@@ -1109,18 +1469,35 @@ namespace Emberfall::Editor
             return r != nullptr;
         }
 
+        bool s_freezeTable = false;   // the auth database has ef_editor_access (the site's freeze and licence record)
+
+        // The role is the account's GM level for this realm (account_access, RealmID this realm's or -1; §19): 1 the
+        // contributor, 2 and up the maintainer. ef_editor_access only freezes (the site's `editor:freeze`).
         void LoadAccess(uint32 only)
         {
-            QueryResult r = only ? LoginDatabase.Query("SELECT `account_id`, `level`, `frozen` FROM `ef_editor_access` WHERE `account_id` = {}", only)
-                                 : LoginDatabase.Query("SELECT `account_id`, `level`, `frozen` FROM `ef_editor_access`");
+            std::string const which = only ? fmt::format(" AND `id` = {}", only) : std::string();
+            QueryResult r = LoginDatabase.Query("SELECT `id`, MAX(`gmlevel`) FROM `account_access` WHERE `RealmID` IN ({}, -1){} GROUP BY `id`",
+                int32(realm.Id.Realm), which);
             std::map<uint32, Access> fresh;
             if (r)
                 do
                 {
                     Field* f = r->Fetch();
-                    uint8 const level = f[1].Get<uint8>();
-                    fresh[f[0].Get<uint32>()] = {Level(std::min<uint8>(level, 3)), f[2].Get<uint8>() != 0};
+                    Level const level = levelOfSecurity(f[1].Get<uint8>());
+                    if (level != Level::None)
+                        fresh[f[0].Get<uint32>()] = {level, false};
                 } while (r->NextRow());
+            if (s_freezeTable)
+            {
+                std::string const whichFrozen = only ? fmt::format(" AND `account_id` = {}", only) : std::string();
+                if (QueryResult z = LoginDatabase.Query("SELECT `account_id` FROM `ef_editor_access` WHERE `frozen` <> 0{}", whichFrozen))
+                    do
+                    {
+                        auto it = fresh.find(z->Fetch()[0].Get<uint32>());
+                        if (it != fresh.end())
+                            it->second.frozen = true;
+                    } while (z->NextRow());
+            }
             if (only)
             {
                 if (fresh.count(only))
@@ -1145,7 +1522,8 @@ namespace Emberfall::Editor
                 if (a.level == Level::None || a.frozen)
                 {
                     Session& s = SessionOf(p);
-                    SetMode(p, s, false);
+                    SetMode(p, s, false, Level::Contributor);
+                    SetView(p, s, false);
                     s.role = false;
                     s.active = 0;
                     SendBody(p, eft::body(0, "ROLE", {"0", "", "", ""}));
@@ -1163,12 +1541,62 @@ namespace Emberfall::Editor
                         anyLock = anyLock || set == cs.id;
                     if (anyLock)
                     {
-                        RevertLive(cs);
+                        RevertLive(cs, !Live(cs));
                         Unlock(cs.id);
                         LOG_INFO("module", "Emberfall.Editor: {} of frozen account {} reverted live", CsName(cs.id), cs.owner);
                     }
                 }
             }
+        }
+
+        // A live set's ops applied as the replay applies them (§7.3): skipped when in effect (shipped), a conflict when
+        // the target meets a newer state; an open set takes its locks. `finals`: temporary ids whose adds shipped.
+        bool ReplayLiveSet(ChangeSet& cs, std::map<uint32, uint32> const& finals, uint32& applied, uint32& skipped, uint32& conflicts)
+        {
+            bool conflict = false;
+            for (Op op : cs.ops)
+            {
+                if (op.undone)
+                    continue;
+                if (auto fin = finals.find(op.target); fin != finals.end())
+                {
+                    if (op.op == OpKind::Add)
+                    {
+                        ++skipped;   // released
+                        continue;
+                    }
+                    op.target = fin->second;
+                }
+                CreatureData const* d = sObjectMgr->GetCreatureData(op.target);
+                Replay how = Replay::Apply;
+                if (op.op == OpKind::Add)
+                    how = d ? Replay::AlreadyDone : Replay::Apply;
+                else if (op.op == OpKind::Delete)
+                {
+                    if (!d)
+                        how = Replay::AlreadyDone;
+                    else if (auto was = posOf(op.from); was && dist2d(*was, {d->posX, d->posY, 0, 0}) > 0.5f && !IsTemp(op.target))
+                        how = Replay::Conflict;
+                }
+                else if (!d)
+                    how = Replay::Conflict;
+                else
+                    how = replayState(op, StateOf(*d));
+                if (how == Replay::Apply && Apply(op))
+                    ++applied;
+                else if (how == Replay::Conflict)
+                {
+                    ++conflicts;
+                    conflict = true;
+                    LOG_WARN("module", "Emberfall.Editor: {} op {} ({} {}) meets a newer state; skipped", CsName(cs.id), op.seq,
+                        opName(op.op), op.target);
+                }
+                else
+                    ++skipped;
+                if (state::open(cs.state) && how != Replay::Conflict)
+                    s_locks[{char(op.kind), op.target}] = cs.id;
+            }
+            return !conflict;
         }
 
         // The site writes review states (§10): rejected sets are reverted live, the owner hears about every change.
@@ -1189,11 +1617,26 @@ namespace Emberfall::Editor
                     continue;
                 ChangeSet& cs = it->second;
                 bool const wasLive = state::replayed(cs.state);
+                bool const wasDraft = !Live(cs);
                 cs.state = st;
                 if (wasLive && (st == state::Rejected || st == state::Withdrawn))
                 {
-                    RevertLive(cs);
+                    RevertLive(cs, wasDraft);
                     Unlock(cs.id);
+                }
+                else if (wasDraft && !state::open(st))
+                {
+                    // a contributor's draft accepted (or released): its drafts go and it applies for everyone (§19)
+                    Unlock(cs.id);
+                    RebuildSet(cs);
+                    if (st == state::Accepted)
+                    {
+                        uint32 applied = 0, skipped = 0, conflicts = 0;
+                        ReplayLiveSet(cs, {}, applied, skipped, conflicts);
+                        LOG_INFO("module", "Emberfall.Editor: {} accepted: live for everyone ({} op(s), {} in effect, {} conflict(s))",
+                            CsName(cs.id), applied, skipped, conflicts);
+                    }
+                    BroadcastSet(cs);
                 }
                 if (st == state::Accepted || st == state::Released)
                     Unlock(cs.id);
@@ -1235,7 +1678,7 @@ namespace Emberfall::Editor
         // frozen, in the order of its first op; each op skipped when already in effect, a conflict marks its set.
         void ReplayAll()
         {
-            s_sets.clear(), s_locks.clear();
+            s_sets.clear(), s_locks.clear(), s_copies.clear(), s_copyOf.clear(), s_hidden.clear();
             std::map<uint32, std::vector<Op>> ops;
             uint32 maxTemp = 0;
             if (QueryResult r = CharacterDatabase.Query("SELECT `changeset_id`, `seq`, `op`, `kind`, `target_id`, IFNULL(`temp_id`, 0), "
@@ -1262,7 +1705,7 @@ namespace Emberfall::Editor
             s_nextTemp = std::max<uint32>(kTempIdBase, maxTemp + 1);
 
             uint32 maxSet = 0;
-            if (QueryResult r = CharacterDatabase.Query("SELECT `id`, `owner`, IFNULL(`owner_name`, ''), `title`, IFNULL(`description`, ''), `zone`, `state` FROM " +
+            if (QueryResult r = CharacterDatabase.Query("SELECT `id`, `owner`, IFNULL(`owner_name`, ''), `title`, IFNULL(`description`, ''), `zone`, `state`, `live` FROM " +
                     Table("ef_changeset") + " ORDER BY `id`"))
                 do
                 {
@@ -1271,6 +1714,7 @@ namespace Emberfall::Editor
                     cs.id = f[0].Get<uint32>(), cs.owner = f[1].Get<uint32>(), cs.ownerName = f[2].Get<std::string>();
                     cs.title = f[3].Get<std::string>(), cs.description = f[4].Get<std::string>(), cs.zone = f[5].Get<std::string>();
                     cs.state = f[6].Get<std::string>();
+                    cs.live = f[7].Get<uint8>() != 0;
                     cs.ops = std::move(ops[cs.id]);
                     for (Op const& op : cs.ops)
                         if (cs.firstOpMs == 0 || op.createdMs < cs.firstOpMs)
@@ -1303,56 +1747,48 @@ namespace Emberfall::Editor
                     if (op.op == OpKind::Add && op.finalId && sObjectMgr->GetCreatureData(op.finalId))
                         finals[op.tempId] = op.finalId;
 
-            uint32 applied = 0, skipped = 0, conflicts = 0;
+            // Live sets (accepted ones, a maintainer's open ones) change the world; then a contributor's open sets take
+            // their locks and their drafts go into the editor phase (§19), the same in-effect rules for both.
+            uint32 applied = 0, skipped = 0, conflicts = 0, drafted = 0;
+            std::vector<ChangeSet*> drafts;
             for (ChangeSet* cs : order)
             {
-                bool conflict = false;
-                for (Op op : cs->ops)
+                bool ok = true;
+                if (Live(*cs))
+                    ok = ReplayLiveSet(*cs, finals, applied, skipped, conflicts);
+                else
                 {
-                    if (op.undone)
-                        continue;
-                    if (auto fin = finals.find(op.target); fin != finals.end())
-                    {
-                        if (op.op == OpKind::Add)
-                        {
-                            ++skipped;   // released
-                            continue;
-                        }
-                        op.target = fin->second;
-                    }
-                    CreatureData const* d = sObjectMgr->GetCreatureData(op.target);
-                    Replay how = Replay::Apply;
-                    if (op.op == OpKind::Add)
-                        how = d ? Replay::AlreadyDone : Replay::Apply;
-                    else if (op.op == OpKind::Delete)
-                    {
-                        if (!d)
-                            how = Replay::AlreadyDone;
-                        else if (auto was = posOf(op.from); was && dist2d(*was, {d->posX, d->posY, 0, 0}) > 0.5f && !IsTemp(op.target))
-                            how = Replay::Conflict;
-                    }
-                    else if (!d)
-                        how = Replay::Conflict;
-                    else
-                        how = replayState(op, StateOf(*d));
-                    if (how == Replay::Apply && Apply(op))
-                        ++applied;
-                    else if (how == Replay::Conflict)
-                    {
-                        ++conflicts;
-                        conflict = true;
-                        LOG_WARN("module", "Emberfall.Editor: {} op {} ({} {}) meets a newer state; skipped", CsName(cs->id), op.seq,
-                            opName(op.op), op.target);
-                    }
-                    else
-                        ++skipped;
-                    if (state::open(cs->state) && how != Replay::Conflict)
-                        s_locks[{char(op.kind), op.target}] = cs->id;
+                    for (Op const& op : cs->ops)
+                        if (!op.undone)
+                            s_locks[{char(op.kind), op.target}] = cs->id;
+                    drafts.push_back(cs);
                 }
-                if (conflict && state::open(cs->state) && cs->state != state::Conflict)
+                if (!ok && state::open(cs->state) && cs->state != state::Conflict)
                 {
                     cs->state = std::string(state::Conflict);
                     StoreState(*cs);
+                }
+            }
+            for (ChangeSet* cs : drafts)
+            {
+                std::set<std::pair<char, uint32>> targets;
+                for (Op const& op : cs->ops)
+                    if (!op.undone)
+                        targets.insert({char(op.kind), op.target});
+                bool ok = true;
+                for (auto const& [k, id] : targets)
+                {
+                    ok = RebuildTarget(k, id) && ok;
+                    ++drafted;
+                }
+                if (!ok)
+                {
+                    ++conflicts;
+                    if (cs->state != state::Conflict)
+                    {
+                        cs->state = std::string(state::Conflict);
+                        StoreState(*cs);
+                    }
                 }
             }
             CharacterDatabase.DirectExecute("DELETE FROM " + Table("ef_lock"));
@@ -1374,8 +1810,8 @@ namespace Emberfall::Editor
                         if (op.op == OpKind::Delete)
                             r.deletes.add(op.createdMs);
                     }
-            LOG_INFO("server.loading", ">> Emberfall.Editor: {} zone(s), {} editable spawn(s), {} set(s) replayed: {} op(s) applied, {} already in effect, {} conflict(s)",
-                s_zones.size(), s_spawns.size(), order.size(), applied, skipped, conflicts);
+            LOG_INFO("server.loading", ">> Emberfall.Editor: {} zone(s), {} editable spawn(s), {} set(s) replayed: {} op(s) applied, {} already in effect, {} conflict(s); {} object(s) of {} draft(s) in the editor phase",
+                s_zones.size(), s_spawns.size(), order.size(), applied, skipped, conflicts, drafted, drafts.size());
         }
     }
 
@@ -1396,9 +1832,18 @@ namespace Emberfall::Editor
 
     bool Enabled() { return s_ready; }
 
+
+    // The core's hook (EmberfallVisibility.h): a release spawn a contributor's draft removes is hidden from the editors
+    // whose editor is open; everyone else still sees it until the set is accepted (§19).
+    static bool HideFromViewer(Creature const* creature, Player const* viewer)
+    {
+        return !s_hidden.empty() && s_hidden.count(creature->GetSpawnId()) && Viewing(viewer);
+    }
+
     void OnStartup()
     {
         s_ready = false;
+        Emberfall::Visibility::SetCreatureFilter(nullptr);
         if (!s_config.enable)
             return;
         if (s_config.db.empty())
@@ -1412,29 +1857,56 @@ namespace Emberfall::Editor
                 LOG_ERROR("module", "Emberfall.Editor: {}.{} is missing (data/sql/db-editor): the editor stays off", s_config.db, t);
                 return;
             }
+        if (!CharacterDatabase.Query("SHOW COLUMNS FROM `{}`.`ef_changeset` LIKE 'live'", s_config.db))
+        {
+            LOG_ERROR("module", "Emberfall.Editor: {}.ef_changeset has no `live` column (apply data/sql/db-editor/editor.sql again): the editor stays off",
+                s_config.db);
+            return;
+        }
         for (char const* t : {"ef_editor_zone", "ef_editor_spawn", "ef_editor_entry"})
             if (!TableExists(t, true))
             {
                 LOG_ERROR("module", "Emberfall.Editor: world table {} is missing (dist/server/editor_world.sql): the editor stays off", t);
                 return;
             }
-        if (!s_config.local && !LoginDatabase.Query("SHOW TABLES LIKE 'ef_editor_access'"))
-        {
-            LOG_ERROR("module", "Emberfall.Editor: auth table ef_editor_access is missing: the editor stays off");
-            return;
-        }
+        s_freezeTable = LoginDatabase.Query("SHOW TABLES LIKE 'ef_editor_access'") != nullptr;
+        if (!s_config.local && !s_freezeTable)
+            LOG_WARN("module", "Emberfall.Editor: auth table ef_editor_access is missing: nobody can be frozen (data/sql/db-auth)");
         LoadRelease();
         if (!s_config.local)
             LoadAccess(0);
         ReplayAll();
+        Emberfall::Visibility::SetCreatureFilter(&HideFromViewer);
         s_ready = true;
-        LOG_INFO("server.loading", ">> Emberfall.Editor: on ({} mode, database {})", s_config.local ? "local" : "realm", s_config.db);
+        LOG_INFO("server.loading", ">> Emberfall.Editor: on ({} mode, database {}; role: the GM level of realm {}, 1 contributor, 2+ maintainer)",
+            s_config.local ? "local" : "realm", s_config.db, realm.Id.Realm);
     }
 
     void OnUpdate(uint32 diff)
     {
         if (!s_ready)
             return;
+        // every second: the viewers keep the editor phase (a phase aura, a memory, resets the mask), a return due
+        // after a map change happens
+        s_tickTimer += diff;
+        if (s_tickTimer >= 1000)
+        {
+            s_tickTimer = 0;
+            for (ObjectGuid const& g : std::vector<ObjectGuid>(s_editors.begin(), s_editors.end()))
+            {
+                Player* p = ObjectAccessor::FindPlayer(g);
+                if (!p || !p->IsInWorld() || p->IsBeingTeleported())
+                    continue;
+                Session& s = SessionOf(p);
+                if (s.view && !p->IsGameMaster() && !(p->GetPhaseMask() & kDraftPhase))
+                    p->SetPhaseMask(p->GetPhaseMask() | kDraftPhase, true);
+                if (s.returnDue)
+                {
+                    s.returnDue = false;
+                    p->TeleportTo(s.returnMap, s.returnPos.x, s.returnPos.y, s.returnPos.z, s.returnPos.o);
+                }
+            }
+        }
         s_refreshTimer += diff;
         if (s_refreshTimer < s_config.refreshMs)
             return;
@@ -1454,13 +1926,68 @@ namespace Emberfall::Editor
 
     void OnLogin(Player* /*player*/) { }
 
-    void OnLogout(Player* player)
+    // Before the character is saved: editor mode ends where it began (a contributor's flight is no travel shortcut),
+    // the editor phase is left, and a maintainer's live changes go to review.
+    void OnBeforeLogout(Player* player)
     {
         if (!s_ready)
             return;
         Session& s = SessionOf(player);
-        SetMode(player, s, false);
+        if (s.mode)
+        {
+            bool const back = s.hasReturn && s.returnMap == player->GetMapId();
+            Pos const to = s.returnPos;
+            s.hasReturn = false;
+            SetMode(player, s, false, Level::Maintainer);
+            if (back)
+                player->Relocate(to.x, to.y, to.z, to.o);
+        }
+        SetView(player, s, false);
+        if (s.role)
+            SubmitLive(player);
+    }
+
+    void OnLogout(Player* player)
+    {
+        if (!s_ready)
+            return;
+        s_viewers.erase(player->GetGUID());
         s_editors.erase(player->GetGUID());
+    }
+
+    // Another map (a portal, a hearthstone, a dungeon): editor mode ends, and a contributor goes back to where it began.
+    void OnMapChanged(Player* player)
+    {
+        if (!s_ready)
+            return;
+        Session& s = SessionOf(player);
+        if (s.mode)
+            SetMode(player, s, false, AccessOf(player->GetSession()->GetAccountId()).level, false);
+    }
+
+    bool InEditorMode(Player const* player)
+    {
+        if (!s_ready || !player)
+            return false;
+        auto const* s = const_cast<Player*>(player)->CustomData.Get<Session>(kSessionKey);
+        return s && s->mode;
+    }
+
+    // A draft copy, or a spawn a draft adds (§19): seen only in the editor phase, and it does nothing there: nobody
+    // attacks it, it attacks nobody, it has no menu, no quest, no loot, no AI.
+    void OnCreatureAdd(Creature* creature)
+    {
+        if (!s_ready)
+            return;
+        uint32 const id = creature->GetSpawnId();
+        if (!IsCopy(id) && !(IsTemp(id) && (creature->GetPhaseMask() & kDraftPhase)))
+            return;
+        creature->SetFaction(FACTION_FRIENDLY);
+        creature->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
+        creature->SetImmuneToAll(true);
+        creature->ReplaceAllNpcFlags(UNIT_NPC_FLAG_NONE);
+        creature->AIM_Initialize(new NullCreatureAI(creature));
+        creature->SetReactState(REACT_PASSIVE);
     }
 
     void HandleForeign(Player* player)
@@ -1481,7 +2008,10 @@ namespace Emberfall::Editor
         eft::ParseResult const parsed = eft::parse(body);
         if (a.level == Level::None || a.frozen)
         {
-            // HELLO from a non-editor: silence (the UI stays hidden). Anything else is a forged or patched client.
+            // HELLO from a player without the role: silence (the UI stays hidden), and not audited: on the normal realm
+            // every client says HELLO once. Anything else is a forged or patched client.
+            if (parsed.ok() && parsed.request.cmd == "HELLO" && !a.frozen)
+                return;
             Code const code = Code::Access;
             if (!parsed.ok() || parsed.request.cmd != "HELLO")
             {
@@ -1512,7 +2042,7 @@ namespace Emberfall::Editor
             SendRole(player, a);
             for (auto const& [id, cs] : s_sets)
                 if (cs.owner == account && (state::open(cs.state) || cs.state == state::Accepted))
-                    SendSet(player, cs);
+                    SendSet(player, cs, id == s.active);
             SendOk(player, rq.seq);
             Audit(player, "HELLO", Code::Ok, {{"level", Value::of(uint32(a.level))}});
             return;
@@ -1530,12 +2060,17 @@ namespace Emberfall::Editor
         lines.push_back(std::string("Emberfall world editor: ") + (s_ready ? "on" : "off") + (s_config.local ? " (local)" : ""));
         if (!s_ready)
             return;
-        size_t open = 0;
+        size_t open = 0, drafts = 0;
         for (auto const& [id, cs] : s_sets)
+        {
             open += state::open(cs.state);
-        lines.push_back(fmt::format("zones {}, editable spawns {}, accounts with access {}, sets live {} ({} open), locks {}, editors online {}",
-            s_zones.size(), s_spawns.size(), s_access.size(), s_sets.size(), open, s_locks.size(), s_editors.size()));
+            drafts += !Live(cs);
+        }
+        lines.push_back(fmt::format("zones {}, editable spawns {}, accounts with access {}, sets live {} ({} open, {} drafts), locks {}, editors online {} ({} with the editor open)",
+            s_zones.size(), s_spawns.size(), s_access.size(), s_sets.size(), open, drafts, s_locks.size(), s_editors.size(), s_viewers.size()));
+        lines.push_back(fmt::format("editor phase: {} draft copies, {} spawns hidden from viewers", s_copies.size(), s_hidden.size()));
         for (auto const& [id, cs] : s_sets)
-            lines.push_back(fmt::format("  {} {} by {} ({}): {} op(s), {}", CsName(cs.id), cs.state, cs.ownerName, cs.owner, cs.ops.size(), cs.title));
+            lines.push_back(fmt::format("  {} {}{} by {} ({}): {} op(s), {}", CsName(cs.id), cs.state, Live(cs) ? "" : " (draft)", cs.ownerName, cs.owner,
+                cs.ops.size(), cs.title));
     }
 }

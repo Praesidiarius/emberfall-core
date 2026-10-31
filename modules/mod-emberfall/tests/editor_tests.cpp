@@ -226,6 +226,73 @@ static void ops()
     CHECK(!state::open("withdrawn") && state::known("conflict") && !state::known("bogus"));
 }
 
+// The normal realm (world-editor.md §19): the role from the GM level, the drafts in the editor phase, editor mode.
+static void normalRealm()
+{
+    CHECK(levelOfSecurity(0) == Level::None && levelOfSecurity(1) == Level::Contributor);
+    CHECK(levelOfSecurity(2) == Level::Maintainer && levelOfSecurity(3) == Level::Maintainer && levelOfSecurity(4) == Level::Maintainer);
+    CHECK(!appliesLive(Level::Contributor) && !appliesLive(Level::Reviewer) && appliesLive(Level::Maintainer));
+    CHECK(kDraftPhase == (1u << 31) && kCopyIdMax < kTempIdBase);
+
+    // a ghost marker carries the original's place, and the old 11 fields still parse
+    Marker m;
+    m.kind = Kind::Creature, m.id = 91019, m.entry = 90203, m.pos = {10, 20, 30, 1}, m.flags = "mg", m.lowguid = 7;
+    m.ghost = Pos{1, 2, 3, 0.5f};
+    std::string const e = encodeMarker(m);
+    CHECK(e == "c,91019,90203,10.00,20.00,30.00,1.000,0.0,0,mg,7,1.00,2.00,3.00,0.500");
+    auto back = decodeMarker(e);
+    CHECK(back && back->ghost && std::fabs(back->ghost->y - 2) < 1e-4f && back->flags == "mg");
+    CHECK(!decodeMarker(e + ",1"));
+    CHECK(!decodeMarker("c,91019,90203,10.00,20.00,30.00,1.000,0.0,0,mg,7,1.00,2.00,x,0.500"));
+
+    // the fold: the release state with a set's active ops
+    Fields release = posObject({0, 0, 0, 0});
+    release["wander"] = Value::of(6), release["respawn"] = Value::of(120), release["entry"] = Value::of(90203);
+    Op move;
+    move.op = OpKind::Move, move.from = posObject({0, 0, 0, 0}), move.to = posObject({5, 0, 0, 1});
+    Op set;
+    set.op = OpKind::Set, set.from = {{"wander", Value::of(6)}}, set.to = {{"wander", Value::of(10)}};
+    Draft d = foldDraft(release, {move, set});
+    CHECK(d.present && d.changed && !d.conflict);
+    CHECK(posNear(d.state, posObject({5, 0, 0, 1})) && d.state["wander"] == Value::of(10) && d.state["respawn"] == Value::of(120));
+    Op back2 = move;
+    back2.from = move.to, back2.to = move.from;
+    d = foldDraft(release, {move, back2});
+    CHECK(d.present && !d.changed);                         // moved and moved back: no copy
+    Op undone = move;
+    undone.undone = true;
+    CHECK(!foldDraft(release, {undone}).changed);
+    Op del;
+    del.op = OpKind::Delete;
+    d = foldDraft(release, {move, del});
+    CHECK(!d.present && d.changed);                         // removed in the draft
+    d = foldDraft(posObject({5, 0, 0, 1}), {move});
+    CHECK(d.present && !d.changed && !d.conflict);          // the release already has it (shipped)
+    d = foldDraft(posObject({9, 9, 0, 0}), {move});
+    CHECK(d.conflict && !d.changed);                        // a newer state: conflict, nothing drafted
+    Op add;
+    add.op = OpKind::Add, add.to = posObject({1, 1, 1, 0});
+    add.to["entry"] = Value::of(90203);
+    d = foldDraft(std::nullopt, {add, move});
+    CHECK(d.present && d.changed && d.conflict);            // an add, then a move whose from it never had
+    Op addMove = move;
+    addMove.from = posObject({1, 1, 1, 0});
+    d = foldDraft(std::nullopt, {add, addMove});
+    CHECK(d.present && !d.conflict && posNear(d.state, move.to) && d.state["entry"] == Value::of(90203));
+    CHECK(!foldDraft(std::nullopt, {add, del}).present && !foldDraft(std::nullopt, {add, del}).changed);
+    CHECK(!foldDraft(std::nullopt, {}).present);
+
+    // editor mode
+    CHECK(checkModeOn(false, true, false, false) == Code::Ok);
+    CHECK(checkModeOn(true, true, false, false) == Code::Mode && checkModeOn(false, false, false, false) == Code::Mode);
+    CHECK(checkModeOn(false, true, true, false) == Code::Mode && checkModeOn(false, true, false, true) == Code::Mode);
+    CHECK(returnsOnModeOff(Level::Contributor) && !returnsOnModeOff(Level::Maintainer));
+    CHECK(std::string(codeName(Code::Mode)) == "MODE");
+    CHECK(autoTitle("Elderwood", "2026-10-31 12:00") == "Elderwood edits 2026-10-31");
+    CHECK(autoTitle(std::string(200, 'z'), "2026-10-31").size() <= kMaxTitle);
+    CHECK(checkText(autoTitle("the Sunken Terrace", "2026-10-31"), kMinTitle, kMaxTitle) == Code::Ok);
+}
+
 // Random and mutated bodies through every parser: nothing may crash (ASan/UBSan watch) or accept garbage silently.
 static void fuzz()
 {
@@ -267,6 +334,7 @@ int main()
     json();
     markers();
     ops();
+    normalRealm();
     fuzz();
     if (s_failed)
     {

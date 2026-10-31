@@ -16,9 +16,17 @@
  */
 
 // Emberfall's world editor (Emberfall docs/design/world-editor.md): the hooks and the operator commands of
-// src/editor/EfEditor.h. Inert unless Emberfall.Editor.Enable = 1 with Emberfall.Editor.Database set (the build realm,
-// or a maintainer's local server); alpha1 runs with it off and never answers an EFE message.
+// src/editor/EfEditor.h. Inert unless Emberfall.Editor.Enable = 1 with Emberfall.Editor.Database set (alpha1 and the
+// build realm, or a maintainer's local server); off, it never answers an EFE message.
+//
+// And the editor role's guard (§19): GM level 1 is the editor's contributor and runs no GM command. The command table
+// lifts every level-1 command to 2 (data/sql/db-world, tests/command_security_check.py checks it); should one slip
+// through (an upstream merge), it stays invisible to level 1 here, `.efedit` aside.
 
+#include "AllCommandScript.h"
+#include "AllCreatureScript.h"
+#include "AllGameObjectScript.h"
+#include "AllSpellScript.h"
 #include "Chat.h"
 #include "ChatCommand.h"
 #include "CommandScript.h"
@@ -26,7 +34,9 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "SharedDefines.h"
+#include "Spell.h"
 #include "WorldScript.h"
+#include "WorldSession.h"
 
 using namespace Acore::ChatCommands;
 
@@ -49,10 +59,13 @@ namespace
     {
     public:
         emberfall_editor_player() : PlayerScript("emberfall_editor_player", {
-            PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT }) { }
+            PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_BEFORE_LOGOUT, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED,
+            PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT }) { }
 
         void OnPlayerLogin(Player* player) override { Emberfall::Editor::OnLogin(player); }
+        void OnPlayerBeforeLogout(Player* player) override { Emberfall::Editor::OnBeforeLogout(player); }
         void OnPlayerLogout(Player* player) override { Emberfall::Editor::OnLogout(player); }
+        void OnPlayerMapChanged(Player* player) override { Emberfall::Editor::OnMapChanged(player); }
 
         // The EFE protocol: every `EFE\t` addon whisper is consumed (never delivered to anyone); only the player's own
         // (to itself) is handled, anything else is refused and logged.
@@ -65,6 +78,57 @@ namespace
             else
                 Emberfall::Editor::HandleForeign(player);
             return false;
+        }
+    };
+
+    // Draft copies and a draft's added spawns are inert in the editor phase (§19).
+    class emberfall_editor_creature : public AllCreatureScript
+    {
+    public:
+        emberfall_editor_creature() : AllCreatureScript("emberfall_editor_creature") { }
+
+        void OnCreatureAddWorld(Creature* creature) override { Emberfall::Editor::OnCreatureAdd(creature); }
+    };
+
+    // Editor mode (flight, speed, safety) is for looking and editing: no spells (gathering, opening, the hearthstone)
+    // and no objects used (chests, quest objects) while it is on.
+    class emberfall_editor_spell : public AllSpellScript
+    {
+    public:
+        emberfall_editor_spell() : AllSpellScript("emberfall_editor_spell", { ALLSPELLHOOK_CAN_PREPARE }) { }
+
+        bool CanPrepare(Spell* spell, SpellCastTargets const* /*targets*/, AuraEffect const* triggeredByAura) override
+        {
+            if (triggeredByAura || !spell || !spell->GetCaster())
+                return true;
+            return !Emberfall::Editor::InEditorMode(spell->GetCaster()->ToPlayer());
+        }
+    };
+
+    class emberfall_editor_gameobject : public AllGameObjectScript
+    {
+    public:
+        emberfall_editor_gameobject() : AllGameObjectScript("emberfall_editor_gameobject") { }
+
+        // true: handled (refused) while editor mode is on
+        bool CanGameObjectGossipHello(Player* player, GameObject* /*go*/) override { return Emberfall::Editor::InEditorMode(player); }
+    };
+
+    // GM level 1 (the editor's contributor) sees no level-1 command but `.efedit` (the command table lifts them all to
+    // 2; this catches one an upstream merge might add).
+    class emberfall_editor_command_guard : public AllCommandScript
+    {
+    public:
+        emberfall_editor_command_guard() : AllCommandScript("emberfall_editor_command_guard", { ALLCOMMANDHOOK_ON_BEFORE_IS_INVOKER_VISIBLE }) { }
+
+        bool OnBeforeIsInvokerVisible(std::string name, Acore::Impl::ChatCommands::CommandPermissions permissions, ChatHandler const& who) override
+        {
+            if (who.IsConsole() || permissions.RequiredLevel != uint32(SEC_MODERATOR))
+                return true;
+            WorldSession* session = const_cast<ChatHandler&>(who).GetSession();
+            if (!session || session->GetSecurity() != SEC_MODERATOR)
+                return true;
+            return name == "efedit" || name.rfind("efedit ", 0) == 0;
         }
     };
 
@@ -119,5 +183,9 @@ void AddEmberfallEditorScripts()
 {
     new emberfall_editor_world();
     new emberfall_editor_player();
+    new emberfall_editor_creature();
+    new emberfall_editor_spell();
+    new emberfall_editor_gameobject();
+    new emberfall_editor_command_guard();
     new emberfall_editor_commands();
 }

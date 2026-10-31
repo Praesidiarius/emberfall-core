@@ -55,7 +55,8 @@ void WhoListCacheMgr::Update()
 
         wstrToLower(wideGuildName);
 
-        _whoListStorage.emplace_back(player->GetGUID(), player->GetTeamId(), player->GetSession()->GetSecurity(), player->GetLevel(),
+        // Emberfall: GM level 1 (the world editor's contributor) is listed as a player (WorldSession::GetGameplaySecurity)
+        _whoListStorage.emplace_back(player->GetGUID(), player->GetTeamId(), player->GetSession()->GetGameplaySecurity(), player->GetLevel(),
             player->getClass(), player->getRace(),
             (player->IsSpectator() ? AREA_DALARAN : player->GetZoneId()), player->getGender(), player->IsVisible(),
             widePlayerName, wideGuildName, playerName, guildName);

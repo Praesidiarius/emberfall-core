@@ -15,16 +15,22 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// Emberfall's world editor on the build realm (Emberfall docs/design/world-editor.md §6-§7, phase A minimal): creature
-// spawns (add, move, turn, delete, wander, respawn) and NPC moves in the editable zones, kept as operations in a
-// database of their own (`Emberfall.Editor.Database`, build_editor) and applied in memory, live and again at every
+// Emberfall's world editor (Emberfall docs/design/world-editor.md §6-§7, phase A minimal, and §19, the normal realm):
+// creature spawns (add, move, turn, delete, wander, respawn) and NPC moves in the editable zones, kept as operations in
+// a database of their own (`Emberfall.Editor.Database`, <realm>_editor) and applied in memory, live and again at every
 // start. The world database is never written. Off unless Emberfall.Editor.Enable = 1 and the database is set; off, the
 // module answers no EFE message at all.
 //
+// On the normal realm (alpha1, §19): the role is the account's GM level for the realm (1 contributor, 2 and up
+// maintainer; level 1 has no GM command and plays as a player everywhere else). A contributor's open sets are drafts in
+// the editor phase, seen only by editors with the editor open; a maintainer's apply for everyone at once and go to
+// review by themselves. Editor mode (flight, speed, safety) is an explicit toggle, off by default.
+//
 // Config (worldserver.conf or AC_EMBERFALL_EDITOR_* environment):
 //   Emberfall.Editor.Enable     0/1
-//   Emberfall.Editor.Database   the editor database's name (build_editor); the realm's MySQL user owns it
-//   (editor access: the realm's own auth database, table ef_editor_access, written by the account site)
+//   Emberfall.Editor.Database   the editor database's name (<realm>_editor); the realm's MySQL user owns it
+//   (the role: the realm's auth database, account_access (RealmID this realm's or -1), written by the account site's
+//   `editor:grant` for level 1, by hand for 2 and up; ef_editor_access only freezes, `editor:freeze`)
 //   Emberfall.Editor.Mode       realm (default) | local: a maintainer's server (§15): every account is a maintainer, no
 //                               limits, Submit accepts the set at once (make editor-pull writes it into the YAML)
 //   Emberfall.Editor.RefreshSeconds  access and review state re-read (default 60)
@@ -37,6 +43,7 @@
 #include <string_view>
 #include <vector>
 
+class Creature;
 class Player;
 
 namespace Emberfall::Editor
@@ -47,7 +54,14 @@ namespace Emberfall::Editor
     void OnStartup();
     void OnUpdate(uint32 diff);
     void OnLogin(Player* player);
+    // Before the character is saved (editor mode ends where it began) and after.
+    void OnBeforeLogout(Player* player);
     void OnLogout(Player* player);
+    void OnMapChanged(Player* player);
+    // A creature entering the world: a draft copy or a draft's added spawn is made inert (§19).
+    void OnCreatureAdd(Creature* creature);
+    // Editor mode is on for this player (flight, speed, safety): no casting, no objects used.
+    bool InEditorMode(Player const* player);
     // The body of an `EFE\t` addon whisper the player sent to itself.
     void HandleMessage(Player* player, std::string_view body);
     // An addon whisper with the EFE prefix that was not to oneself (refused and logged).

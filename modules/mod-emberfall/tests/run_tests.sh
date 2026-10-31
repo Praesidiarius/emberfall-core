@@ -93,3 +93,7 @@ if [ $# -eq 0 ]; then set -- "$HERE/data/talent_rules_example.json"; fi
 for name in $(printf '%s\n' "$TESTS" | cut -d' ' -f1 | tail -n +2); do
     "$EF_TEST_OUT/$name"
 done
+
+# GM level 1 (the world editor's contributor, world-editor.md §19) runs no GM command: the C++ tables and the command
+# table after every update, and level 1's RBAC role (tests/command_security_check.py, Python 3, no database).
+python3 "$HERE/command_security_check.py"

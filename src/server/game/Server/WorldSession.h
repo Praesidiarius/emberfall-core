@@ -488,6 +488,10 @@ public:
     void SendClientCacheVersion(uint32 version);
 
     AccountTypes GetSecurity() const { return _security; }
+    // Emberfall: the security normal play compares (who lists, friends, channels, mail, breath, spectating, the flight
+    // check). GM level 1 is the world editor's contributor role (Emberfall docs/design/world-editor.md §19): it has no
+    // GM command and plays exactly as a player, so it is SEC_PLAYER here. Commands keep GetSecurity().
+    AccountTypes GetGameplaySecurity() const { return _security == SEC_MODERATOR ? SEC_PLAYER : _security; }
     bool CanSkipQueue() const { return _skipQueue; }
 
     // RBAC

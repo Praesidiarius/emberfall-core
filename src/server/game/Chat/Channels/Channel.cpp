@@ -714,7 +714,7 @@ void Channel::List(Player const* player)
         for (PlayerContainer::const_iterator i = playersStore.begin(); i != playersStore.end(); ++i)
             if (Player* member = i->second.plrPtr)
                 if ((player->GetSession()->HasPermission(rbac::RBAC_PERM_WHO_SEE_ALL_SEC_LEVELS) ||
-                     member->GetSession()->GetSecurity() <= AccountTypes(gmLevelInWhoList)) &&
+                     member->GetSession()->GetGameplaySecurity() <= AccountTypes(gmLevelInWhoList)) &&
                     member->IsVisibleGloballyFor(player))
                 {
                     data << i->first;

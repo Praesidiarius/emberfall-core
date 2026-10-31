@@ -19,13 +19,20 @@
 // plain functions, with no dependency on the core, so tests/editor_tests.cpp runs them standalone (vectors and a decode
 // fuzz). The transport is the talents' (EftProtocol.h): an addon whisper to oneself, `EFE\t<ver>;<seq>;<cmd>;...`.
 //
-//   C->S  HELLO;<data>  MODE;on|off  SCAN;<map>;<x>;<y>;<radius>  OPEN;<cs>  NEW;<title>
+//   C->S  HELLO;<data>  MODE;on|off  VIEW;on|off  SCAN;<map>;<x>;<y>;<radius>  OPEN;<cs>  NEW;<title>
 //         ADD;c;<entry>;<x>;<y>;<z>;<o>  MOVE;<k>;<id>;<x>;<y>;<z>;<o>  SET;c;<id>;wander|respawn;<value>
 //         DEL;c;<id>  UNDO;<cs>  REDO;<cs>  SUBMIT;<cs>;<p>/<t>;<description>  WITHDRAW;<cs>
 //   S->C  ROLE;<level>;<zones>;<limits>  MARK;<scan>;<p>/<t>;<entry|...>  DELTA;<entry>  GONE;<k>;<id>
-//         CS;<id>;<state>;<ops>;<title>  OPS;<cs>;<p>/<t>;<op|...>  OK;<seq>;<id>  ERR;<seq>;<code>;<detail>
+//         CS;<id>;<state>;<ops>;<title>[;1]  OPS;<cs>;<p>/<t>;<op|...>  OK;<seq>;<id>  ERR;<seq>;<code>;<detail>
+//         (CS's sixth field 1: the editor's active set, e.g. one the realm opened by itself for a change without one)
 //
-// A marker entry: k,id,entry,x,y,z,o,wander,respawn,flags,lowguid (k: c creature spawn, n NPC; flags letters, below).
+// A marker entry: k,id,entry,x,y,z,o,wander,respawn,flags,lowguid (k: c creature spawn, n NPC; flags letters, below),
+// and for a spawn with a draft (flag g) four more fields, gx,gy,gz,go: where the original stands for everyone else.
+//
+// On the normal realm (world-editor.md §19): the role is the account's GM level for the realm (1 contributor, 2 and up
+// maintainer). A contributor's open sets are drafts in one shared phase (kDraftPhase) that only editors with the
+// editor open see (VIEW on); a maintainer's ops apply for everyone at once. Kinds and ops stay open for the later steps
+// (props, buildings and ground layers as client overlays, §9): a new kind or field extends the marker and the op rows.
 // Everything here is bounds-checked and never throws: malformed input gives std::nullopt / an error value.
 
 #pragma once
@@ -50,8 +57,28 @@ namespace ef::editor
     constexpr float kPresence = 120.0f;         // the editor stands within this of what they edit (§6.3 step 6)
     constexpr float kGroundTolerance = 3.0f;    // a given Z may be this far from the ground (step 8)
     constexpr size_t kMaxTitle = 80, kMinTitle = 3, kMaxDescription = 1000;
+    // The draft copies of release spawns that a contributor's open set changes (§19): runtime only, never stored, never
+    // sent as a marker id (the marker names the release spawn).
+    constexpr uint32_t kCopyIdBase = 8000001;
+    constexpr uint32_t kCopyIdMax = 8999999;
+    // The editor phase: phase 32 (bit 31). Spawns there are the drafts; an editor sees them while the editor is open.
+    // The memories use phases 2-31 (Emberfall quests/memories.py refuses 32); the present is phase 1.
+    constexpr uint32_t kDraftPhase = 0x80000000u;
 
     enum class Level : uint8_t { None = 0, Contributor = 1, Reviewer = 2, Maintainer = 3 };
+
+    // The account's GM level for the realm (account_access) as the editor's role: 0 none, 1 (SEC_MODERATOR) the
+    // contributor (no GM command; plays as a player everywhere else), 2 and up the maintainer.
+    inline Level levelOfSecurity(uint32_t gmlevel)
+    {
+        if (gmlevel == 0)
+            return Level::None;
+        return gmlevel == 1 ? Level::Contributor : Level::Maintainer;
+    }
+
+    // Whether a set of this owner applies for everyone at once (a maintainer's) or stays a draft in the editor phase
+    // until it is accepted (a contributor's).
+    inline bool appliesLive(Level level) { return level == Level::Maintainer; }
 
     // The change set states (§5.2), as stored in build_editor.ef_changeset.state.
     namespace state
@@ -273,7 +300,7 @@ namespace ef::editor
     enum class Code : uint8_t
     {
         Ok, Access, Decode, Set, Zone, ReadOnly, Lock, Presence, Whitelist, Named, Ground, Water, Value, Distance,
-        Density, Spacing, Clearance, Rate, Limit, Unknown, State, Text, Busy, Internal,
+        Density, Spacing, Clearance, Rate, Limit, Unknown, State, Text, Busy, Internal, Mode,
     };
 
     inline char const* codeName(Code c)
@@ -304,6 +331,7 @@ namespace ef::editor
             case Code::Text: return "TEXT";
             case Code::Busy: return "BUSY";
             case Code::Internal: return "INTERNAL";
+            case Code::Mode: return "MODE";
         }
         return "INTERNAL";
     }
@@ -653,6 +681,8 @@ namespace ef::editor
         constexpr char Named = 'n';     // a named creature (contributors: no respawn change, no add)
         constexpr char Added = 'a';     // added on the realm (a temporary id)
         constexpr char Dead = 'd';      // no living unit right now
+        constexpr char Ghost = 'g';     // a draft moved or changed it: the marker is the draft, gx..go the original
+        constexpr char Removed = 'x';   // a draft removes it (editors with the editor open no longer see its unit)
     }
 
     struct Marker
@@ -664,19 +694,23 @@ namespace ef::editor
         uint32_t respawn = 0;
         std::string flags;
         uint32_t lowguid = 0;
+        std::optional<Pos> ghost;   // flag g: where the original stands
     };
 
     inline std::string encodeMarker(Marker const& m)
     {
-        return std::string(1, static_cast<char>(m.kind)) + "," + std::to_string(m.id) + "," + std::to_string(m.entry) + "," +
+        std::string out = std::string(1, static_cast<char>(m.kind)) + "," + std::to_string(m.id) + "," + std::to_string(m.entry) + "," +
                fixed(m.pos.x, 2) + "," + fixed(m.pos.y, 2) + "," + fixed(m.pos.z, 2) + "," + fixed(m.pos.o, 3) + "," +
                fixed(m.wander, 1) + "," + std::to_string(m.respawn) + "," + m.flags + "," + std::to_string(m.lowguid);
+        if (m.ghost)
+            out += "," + fixed(m.ghost->x, 2) + "," + fixed(m.ghost->y, 2) + "," + fixed(m.ghost->z, 2) + "," + fixed(m.ghost->o, 3);
+        return out;
     }
 
     inline std::optional<Marker> decodeMarker(std::string_view text)
     {
         auto v = eft::split(text, ',');
-        if (v.size() != 11)
+        if (v.size() != 11 && v.size() != 15)
             return std::nullopt;
         Marker m;
         auto k = kindOf(v[0]);
@@ -686,6 +720,13 @@ namespace ef::editor
             return std::nullopt;
         m.kind = *k, m.id = *id, m.entry = *entry, m.pos = {*x, *y, *z, *o}, m.wander = *w, m.respawn = *respawn;
         m.flags = std::string(v[9]), m.lowguid = *low;
+        if (v.size() == 15)
+        {
+            auto gx = decimal(v[11], 20000), gy = decimal(v[12], 20000), gz = decimal(v[13], 5000), go = decimal(v[14], 100);
+            if (!gx || !gy || !gz || !go)
+                return std::nullopt;
+            m.ghost = Pos{*gx, *gy, *gz, *go};
+        }
         return m;
     }
 
@@ -887,5 +928,94 @@ namespace ef::editor
             }
         }
         return Replay::Apply;
+    }
+
+    // ------------------------------------------------------------------------------------------ drafts (§19)
+
+    // What a contributor's open set makes of one object in the editor phase: its active ops folded onto the release
+    // state (`release`: x, y, z, o, wander, respawn, entry; nothing for a spawn the set adds), by the replay's rules
+    // (§7.3): an op already in effect is skipped (it shipped), one that meets neither its from nor its to is a conflict
+    // and changes nothing.
+    struct Draft
+    {
+        bool present = false;   // the object exists in the draft
+        bool changed = false;   // ... and differs from the release (a draft copy is needed), or the set adds it
+        bool conflict = false;
+        Fields state;
+    };
+
+    inline bool sameState(Fields const& a, Fields const& b)
+    {
+        if (!posNear(a, b))
+            return false;
+        for (char const* k : {"wander", "respawn", "entry"})
+        {
+            auto x = a.find(k), y = b.find(k);
+            if ((x == a.end()) != (y == b.end()) || (x != a.end() && !(x->second == y->second)))
+                return false;
+        }
+        return true;
+    }
+
+    inline Draft foldDraft(std::optional<Fields> const& release, std::vector<Op> const& ops)
+    {
+        Draft d;
+        if (release)
+            d.present = true, d.state = *release;
+        for (Op const& op : ops)
+        {
+            if (op.undone)
+                continue;
+            switch (op.op)
+            {
+                case OpKind::Add:
+                    if (!d.present)
+                    {
+                        d.present = true;
+                        d.state = op.to;
+                    }
+                    break;
+                case OpKind::Delete:
+                    d.present = false;
+                    break;
+                case OpKind::Move:
+                case OpKind::Set:
+                {
+                    if (!d.present)
+                    {
+                        d.conflict = true;
+                        break;
+                    }
+                    Replay const how = replayState(op, d.state);
+                    if (how == Replay::Conflict)
+                        d.conflict = true;
+                    else if (how == Replay::Apply)
+                        for (auto const& [k, v] : op.to)
+                            d.state[k] = v;
+                    break;
+                }
+            }
+        }
+        d.changed = !release ? d.present : (!d.present || !sameState(d.state, *release));
+        return d;
+    }
+
+    // ------------------------------------------------------------------------------------------ editor mode (§19)
+
+    // Flight, speed and safety are an explicit toggle (default off; the panel works without it). Not in combat, dead,
+    // on a flight path or in a dungeon or battleground.
+    inline Code checkModeOn(bool inCombat, bool alive, bool onTaxi, bool instance)
+    {
+        return inCombat || !alive || onTaxi || instance ? Code::Mode : Code::Ok;
+    }
+
+    // Turning editor mode off takes a contributor back to where they turned it on (flight is no travel shortcut); a
+    // maintainer stays where they are.
+    inline bool returnsOnModeOff(Level level) { return level != Level::Maintainer; }
+
+    // The title of a set the realm opens by itself for a change made without one: "<Zone> edits <YYYY-MM-DD>".
+    inline std::string autoTitle(std::string_view zoneName, std::string_view date)
+    {
+        return std::string(zoneName.substr(0, kMaxTitle - 18)) + " edits " + std::string(date.substr(0, 10));
     }
 }

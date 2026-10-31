@@ -17,6 +17,7 @@
 
 #include "Object.h"
 #include "EmberfallCombatLog.h"
+#include "EmberfallVisibility.h"
 #include "Battlefield.h"
 #include "BattlefieldMgr.h"
 #include "CellImpl.h"
@@ -1830,6 +1831,10 @@ bool WorldObject::CanSeeOrDetect(WorldObject const* obj, bool ignoreStealth, boo
         if (Player const* player = ToPlayer())
         {
             if (cObj->IsAIEnabled && !cObj->AI()->CanBeSeen(player))
+                return false;
+
+            // Emberfall: the world editor's drafts (EmberfallVisibility.h)
+            if (Emberfall::Visibility::HiddenFrom(cObj, player))
                 return false;
 
             if (!player->CanSeeObjectByVisibilityConditions(obj))

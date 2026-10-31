@@ -326,7 +326,9 @@ uint32 AccountMgr::GetCharactersCount(uint32 accountId)
 
 bool AccountMgr::IsPlayerAccount(uint32 gmlevel)
 {
-    return gmlevel == SEC_PLAYER;
+    // Emberfall: GM level 1 is the world editor's contributor role (Emberfall docs/design/world-editor.md §19): no GM
+    // command (mod-emberfall lifts every level-1 command to 2), and a player everywhere else.
+    return gmlevel <= SEC_MODERATOR;
 }
 
 bool AccountMgr::IsGMAccount(uint32 gmlevel)

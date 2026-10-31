@@ -1,5 +1,5 @@
--- mod-emberfall: the world editor's own database (Emberfall docs/design/world-editor.md §5.4), `build_editor` on the
--- build realm (`Emberfall.Editor.Database`). Not a dbimport database: tools/gameserver/realms.sh (and
+-- mod-emberfall: the world editor's own database (Emberfall docs/design/world-editor.md §5.4), `<realm>_editor`
+-- (alpha1_editor, build_editor; `Emberfall.Editor.Database`). Not a dbimport database: tools/gameserver/realms.sh (and
 -- tools/server/ef_server.sh editor, locally) creates it and applies this file, which is idempotent. `load-world` never
 -- touches it. The module writes every table; the account site reads them and writes only the review columns of
 -- ef_changeset (`state`, `mr_*`, `merge_sha`, `thread_id`), ef_op.final_id and ef_audit rows of its own.
@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `ef_changeset` (
   `description` TEXT NOT NULL,
   `zone` VARCHAR(32) NOT NULL COMMENT 'editor.yaml zone key',
   `state` VARCHAR(20) NOT NULL DEFAULT 'draft' COMMENT 'draft submitted in_review changes_requested accepted released rejected withdrawn conflict',
+  `live` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '1: a maintainer''s, in the world for everyone at once; 0: a contributor''s draft in the editor phase until accepted (world-editor.md §19)',
   `base_release` VARCHAR(32) NULL,
   `created_at` DATETIME NOT NULL,
   `submitted_at` DATETIME NULL,
@@ -58,3 +59,12 @@ CREATE TABLE IF NOT EXISTS `ef_audit` (
   PRIMARY KEY (`id`),
   KEY `account_at` (`account`, `at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Emberfall world editor: every request, accepted or refused';
+
+-- §19 (2026-10-31): a database made before the `live` column gets it (its sets were all live: phase A had no drafts).
+SET @ef_has_live = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ef_changeset' AND COLUMN_NAME = 'live');
+SET @ef_add_live = IF(@ef_has_live = 0,
+    'ALTER TABLE `ef_changeset` ADD COLUMN `live` TINYINT UNSIGNED NOT NULL DEFAULT 1 AFTER `state`', 'DO 0');
+PREPARE ef_stmt FROM @ef_add_live;
+EXECUTE ef_stmt;
+DEALLOCATE PREPARE ef_stmt;
