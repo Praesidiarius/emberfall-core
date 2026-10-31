@@ -383,6 +383,20 @@ int main()
     check(ScaleAutoAttack(1, 25.0f) == 1, "a swing that hit still deals 1");
     check(ScaleAutoAttack(0, 25.0f) == 0, "nothing stays nothing");
     check(ScaleAutoAttack(321, 100.0f) == 321 && ScaleAutoAttack(321, -1.0f) == 321, "100 % or no row: as it was");
+    {
+        int32_t const half[] = { 50 };
+        int32_t const two[] = { 50, 50 };
+        int32_t const none[] = { 0 };
+        check(AutoAttackPctWithRules(68.5f, nullptr, 0) == 68.5f && AutoAttackPctWithRules(-1.0f, nullptr, 0) == -1.0f,
+              "no swing rule: the level's percent as it is");
+        check(AutoAttackPctWithRules(100.0f, half, 1) == 50.0f, "a rule of 50 at 100 %: half the swing");
+        check(AutoAttackPctWithRules(-1.0f, half, 1) == 50.0f, "a rule without a level row: half the full swing");
+        check(AutoAttackPctWithRules(68.5f, half, 1) == 34.25f, "the rule on the level's percent");
+        check(AutoAttackPctWithRules(100.0f, two, 2) == 25.0f, "two rules multiply");
+        check(AutoAttackPctWithRules(100.0f, none, 1) == 0.0f && ScaleAutoAttack(80, 0.0f) == 1,
+              "a rule of 0: a swing that hit still deals 1");
+        check(ScaleAutoAttack(100, AutoAttackPctWithRules(100.0f, half, 1)) == 50, "the swing scaled by the rule");
+    }
     // the spec power's own maximum and its keeping
     check(SpecPowerMaxDelta(50, 1000) == -950, "Openings: 50 of the slot's 1000");
     check(SpecPowerMaxDelta(1000, 1000) == 0, "Static, Energy: the slot's");

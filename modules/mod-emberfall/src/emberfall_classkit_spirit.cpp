@@ -42,7 +42,10 @@
 //                                   ability): while the aura holds, the cast strikes none of its own targets, the aura goes
 //                                   and the trigger is cast at the caster instead, the cost and cooldown the ability's own
 //                                   (Venomous Fang -> Venom Spit after a Bear Claw)
-//   spell_ef_kit_rule_*             the rule markers of the four rules above (EfClassKit.h Rules): nothing happens in them
+//   spell_ef_kit_rule_*             the rule markers of the four rules above (EfClassKit.h Rules): nothing happens in them;
+//                                   and spell_ef_kit_rule_auto_attack_pct (a passive's dummy without misc: the owner's
+//                                   white swing keeps value % of its damage on top of the level's rule; the Spirit Caller's
+//                                   Spirit Bond, 50; read by src/emberfall_classkit_power.cpp's auto attack hook)
 
 #include "EfClassKit.h"
 #include "EfSpiritLogic.h"
@@ -354,6 +357,7 @@ void AddEmberfallClassKitSpiritScripts()
     RegisterSpellScript(spell_ef_kit_hit_cap);
     RegisterSpellScript(spell_ef_kit_becomes);
     for (char const* name : { "spell_ef_kit_rule_exact_count_damage", "spell_ef_kit_rule_low_health_hot",
-                              "spell_ef_kit_rule_hot_cheat_death", "spell_ef_kit_rule_dot_burst" })
+                              "spell_ef_kit_rule_hot_cheat_death", "spell_ef_kit_rule_dot_burst",
+                              "spell_ef_kit_rule_auto_attack_pct" })
         RegisterSpellScriptWithArgs(spell_ef_kit_spirit_rule, name);
 }

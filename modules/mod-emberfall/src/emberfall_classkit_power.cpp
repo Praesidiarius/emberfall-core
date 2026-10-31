@@ -112,7 +112,8 @@ namespace
     // A player's melee auto attack by level (Emberfall docs/design/classes.md §4.7, feedback #168; EfClassKit.h
     // AutoAttackPct): Unit::CalculateMeleeDamage calls the hook for the white swing only (main and off hand), before
     // armour and the crit roll; abilities and the Hunter's Autoshot (spells) never pass here, pets and companions are no
-    // players.
+    // players. A spec's spell_ef_kit_rule_auto_attack_pct passives (2026-10-31: the Spirit Caller's Spirit Bond, 50) keep
+    // their value in percent of what the level's rule leaves (EfClassKitLogic.h AutoAttackPctWithRules).
     class emberfall_classkit_auto_attack : public UnitScript
     {
     public:
@@ -123,7 +124,13 @@ namespace
             Player* player = attacker ? attacker->ToPlayer() : nullptr;
             if (!player || !Emberfall::ClassKit::KitOf(player))
                 return;
-            damage = Emberfall::ClassKit::Logic::ScaleAutoAttack(damage, Emberfall::ClassKit::AutoAttackPct(player->GetLevel()));
+            // a spec's own swing rules on top (the Spirit Caller's Spirit Bond: 50 % of the swing; misc 0, no spell named)
+            std::vector<int32> rules;
+            for (AuraEffect const* eff : Emberfall::ClassKit::Rules(player, "spell_ef_kit_rule_auto_attack_pct", 0))
+                rules.push_back(eff->GetAmount());
+            float const pct = Emberfall::ClassKit::Logic::AutoAttackPctWithRules(
+                Emberfall::ClassKit::AutoAttackPct(player->GetLevel()), rules.data(), uint32(rules.size()));
+            damage = Emberfall::ClassKit::Logic::ScaleAutoAttack(damage, pct);
         }
     };
 

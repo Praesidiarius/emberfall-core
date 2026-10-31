@@ -626,6 +626,19 @@ namespace Emberfall::ClassKit::Logic
         return scaled ? scaled : 1;
     }
 
+    // The level's percent (`levelPct`; < 0: no row, 100) times a spec's own swing rules (spell_ef_kit_rule_auto_attack_pct:
+    // each keeps `rulePct` percent of the swing, the Spirit Caller's Spirit Bond 50; several multiply): the percent the
+    // swing deals. Without rules (`rules` 0) the level's percent as it is (-1 stays -1).
+    constexpr float AutoAttackPctWithRules(float levelPct, int32_t const* rulePcts, uint32_t rules)
+    {
+        if (!rules)
+            return levelPct;
+        double pct = levelPct < 0.0f ? 100.0 : double(levelPct);
+        for (uint32_t i = 0; i < rules; ++i)
+            pct = pct * double(rulePcts[i] > 0 ? rulePcts[i] : 0) / 100.0;
+        return float(pct);
+    }
+
     // ---- a spec power's own maximum and its keeping (EfSpecPower.cpp) ----
 
     // A spec power with a maximum other than its slot's (Openings: 50 stored of runic power's 1000; the Pyromancer's Heat:
