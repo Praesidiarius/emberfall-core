@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <random>
+#include <set>
 #include <string>
 
 using namespace ef::editor;
@@ -300,7 +301,8 @@ static void fuzz()
     std::vector<std::string> seeds = {
         "1;5;ADD;c;90203;-290.1;96.0;41.7;4.1", "1;6;MOVE;n;90129;-158.17;91.83;42.23;3.9",
         "1;7;SET;c;91019;wander;10", "1;8;DEL;c;9000001", "1;9;SCAN;0;-280;100;120",
-        "{\"x\":1.5,\"y\":-2,\"z\":null,\"s\":\"t\"}", "c,91019,90203,-1137.11,-955.56,48.99,1.012,6.0,120,mp,4711"};
+        "{\"x\":1.5,\"y\":-2,\"z\":null,\"s\":\"t\"}", "c,91019,90203,-1137.11,-955.56,48.99,1.012,6.0,120,mp,4711",
+        "1;10;SET;c;91019;count;3", "c,91019,90203,-1137.11,-955.56,48.99,1.012,6.0,120,mp,4711,3:4712:4713"};
     char const alphabet[] = "0123456789.-;,|:/{}\"\\ acnxyzADDMOVESETwanderrespawnnull\t\x01\xff";
     for (int round = 0; round < 200000; ++round)
     {
@@ -364,6 +366,148 @@ static void role()
     CHECK(f.size() == 4 && ef::eft::split(f[1], ',').size() == many.size() - dropped);
 }
 
+// A spawn of several creatures (count): derived GUIDs, the ring, the rules, the marker field, the fold and replay.
+static void count()
+{
+    // GUIDs: content spawns + slot x 1,000,000, the realm's own ids + slot x 10,000,000; never 0, never a clash
+    CHECK(extraId(91019, 1) == 1091019 && extraId(91019, 7) == 7091019 && extraId(999999, 7) == 7999999);
+    CHECK(extraId(91019, 0) == 0 && extraId(91019, kMaxCount) == 0 && extraId(0, 1) == 0);
+    CHECK(extraId(kTempIdBase, 1) == 19000001 && extraId(kCopyIdBase, 2) == 28000001 && extraId(kTempIdMax, 7) == 79999999);
+    CHECK(extraId(1091019, 1) == 0 && extraId(19000001, 1) == 0);   // an extra has no extras of its own
+    CHECK(extraOf(1091019) && extraOf(1091019)->base == 91019 && extraOf(1091019)->slot == 1);
+    CHECK(extraOf(28000001) && extraOf(28000001)->base == kCopyIdBase && extraOf(28000001)->slot == 2);
+    CHECK(!extraOf(91019) && !extraOf(2000000) && !extraOf(kCopyIdBase) && !extraOf(kTempIdBase) && !extraOf(15000000));
+    CHECK(!extraOf(80000001) && baseOf(91019) == 91019 && baseOf(7091019) == 91019);
+    std::set<uint32_t> seen;
+    for (uint32_t id : {90001u, 91019u, 200001u, 999999u, kCopyIdBase, kCopyIdMax, kTempIdBase, kTempIdMax})
+        for (uint32_t slot = 1; slot < kMaxCount; ++slot)
+        {
+            uint32_t const e = extraId(id, slot);
+            CHECK(e != 0 && seen.insert(e).second);
+            CHECK(e > kContentGuidMax && !(e >= kCopyIdBase && e <= kTempIdMax));   // outside every spawn range
+            auto back = extraOf(e);
+            CHECK(back && back->base == id && back->slot == slot);
+        }
+    CHECK(*seen.rbegin() < 0xFFFFFFFFu);
+
+    // the ring: the same places whatever the count, every creature 3 yd or more from every other
+    Pos const at{100, 200, 30, 1};
+    auto five = groupPositions(at, 5), eight = groupPositions(at, 8);
+    CHECK(five.size() == 5 && eight.size() == 8 && groupPositions(at, 1).size() == 1 && groupPositions(at, 99).size() == kMaxCount);
+    for (size_t i = 0; i < five.size(); ++i)
+        CHECK(dist2d(five[i], eight[i]) < 1e-4f);
+    for (size_t i = 0; i < eight.size(); ++i)
+    {
+        CHECK(std::fabs(eight[i].z - 30) < 1e-4f);
+        for (size_t j = i + 1; j < eight.size(); ++j)
+            CHECK(dist2d(eight[i], eight[j]) >= 3.0f);
+        if (i)
+            CHECK(std::fabs(dist2d(at, eight[i]) - kCountRing) < 1e-3f);
+    }
+    // the vectors compile.py's count_slots matches (tools/py/tests/test_world_editor_count.py)
+    CHECK(fixed(slotPos(at, 1).x, 2) == "104.00" && fixed(slotPos(at, 1).y, 2) == "200.00");
+    CHECK(fixed(slotPos(at, 2).x, 2) == "96.40" && fixed(slotPos(at, 2).y, 2) == "198.26");
+    CHECK(fixed(slotPos(at, 1).o, 3) == "3.400");
+
+    // the value and who may set it
+    CHECK(checkCount(1, false, Level::Contributor) == Code::Ok && checkCount(8, false, Level::Contributor) == Code::Ok);
+    CHECK(checkCount(0, false, Level::Maintainer) == Code::Value && checkCount(9, false, Level::Maintainer) == Code::Value);
+    CHECK(checkCount(2.5f, false, Level::Maintainer) == Code::Value);
+    CHECK(checkCount(3, true, Level::Contributor) == Code::Named && checkCount(1, true, Level::Contributor) == Code::Ok);
+    CHECK(checkCount(3, true, Level::Maintainer) == Code::Ok);
+    auto set = parseSet(fields("1;7;SET;c;91019;count;3"));
+    CHECK(set && set->field == SetField::Count && set->value == 3);
+
+    // density for the whole group: 8 fit in an empty field, not beside 6 others (12 within 30 yd), not 2 yd off one
+    Limits const l;
+    CHECK(checkGroupDensity(groupPositions(at, 8), {}, l).density.code == Code::Ok);
+    std::vector<Neighbour> crowd;
+    for (int i = 0; i < 5; ++i)
+    {
+        Neighbour n;
+        n.pos = {at.x + 15 + 4 * i, at.y, at.z, 0}, n.hostile = true;
+        crowd.push_back(n);
+    }
+    CHECK(checkGroupDensity(groupPositions(at, 7), crowd, l).density.code == Code::Ok);      // 7 + 5 = 12
+    GroupDensity g = checkGroupDensity(groupPositions(at, 8), crowd, l);                       // 13
+    CHECK(g.density.code == Code::Density);
+    Neighbour close;
+    close.pos = slotPos(at, 3), close.pos.x += 1.5f, close.hostile = true;
+    g = checkGroupDensity(groupPositions(at, 4), {close}, l);
+    CHECK(g.density.code == Code::Spacing && g.member == 3);
+    close.self = true;   // the spawn's own others never count against it
+    CHECK(checkGroupDensity(groupPositions(at, 4), {close}, l).density.code == Code::Ok);
+
+    // the marker: the count and the others' units at the end; 1 is not written; the old forms still parse
+    Marker m;
+    m.kind = Kind::Creature, m.id = 91019, m.entry = 90203, m.pos = at, m.flags = "m", m.lowguid = 7;
+    CHECK(encodeMarker(m).find(",1,") == std::string::npos && ef::eft::split(encodeMarker(m), ',').size() == 11);
+    m.count = 3, m.others = {8, 9};
+    std::string e = encodeMarker(m);
+    CHECK(e == "c,91019,90203,100.00,200.00,30.00,1.000,0.0,0,m,7,3:8:9");
+    auto back = decodeMarker(e);
+    CHECK(back && back->count == 3 && back->others == std::vector<uint32_t>({8, 9}) && !back->ghost);
+    m.ghost = Pos{1, 2, 3, 0};
+    e = encodeMarker(m);
+    back = decodeMarker(e);
+    CHECK(back && back->count == 3 && back->ghost && back->others.size() == 2);
+    CHECK(!decodeMarker("c,91019,90203,100.00,200.00,30.00,1.000,0.0,0,m,7,1"));
+    CHECK(!decodeMarker("c,91019,90203,100.00,200.00,30.00,1.000,0.0,0,m,7,9"));
+    CHECK(!decodeMarker("c,91019,90203,100.00,200.00,30.00,1.000,0.0,0,m,7,3:x"));
+    CHECK(!decodeMarker("c,91019,90203,100.00,200.00,30.00,1.000,0.0,0,m,7,3:1:2:3:4:5:6:7:8"));
+    // the longest marker (temp id, every flag, a ghost, 8 creatures with 10-digit units) stays one message
+    Marker big;
+    big.kind = Kind::Creature, big.id = kTempIdMax, big.entry = 9999999, big.pos = {-19999.99f, -19999.99f, -4999.99f, 6.283f};
+    big.wander = 999.9f, big.respawn = 604800, big.flags = "plrnadgx", big.lowguid = 4000000000u;
+    big.ghost = Pos{-19999.99f, -19999.99f, -4999.99f, 6.283f}, big.count = 8;
+    big.others = std::vector<uint32_t>(7, 4000000000u);
+    std::string const be = encodeMarker(big);
+    CHECK(be.size() <= kMaxMarker);
+    auto bb = decodeMarker(be);
+    CHECK(bb && bb->count == 8 && bb->others.size() <= 7);
+    CHECK((ef::eft::body(0, "DELTA", {be})).size() <= ef::eft::kMaxBody);
+    for (std::string const& body : pages("MARK", {"9999"}, std::vector<std::string>(5, be)))
+        CHECK(body.size() <= ef::eft::kMaxBody);
+    CHECK(pages("MARK", {"9999"}, std::vector<std::string>(5, be)).size() == 5);   // nothing dropped
+
+    // the fold and replay: count is a field like wander; a release spawn with its count in effect is skipped
+    Fields release = posObject({0, 0, 0, 0});
+    release["wander"] = Value::of(6), release["respawn"] = Value::of(120), release["entry"] = Value::of(90203);
+    release["count"] = Value::of(1);
+    Op more;
+    more.op = OpKind::Set, more.from = {{"count", Value::of(1)}}, more.to = {{"count", Value::of(3)}};
+    Draft d = foldDraft(release, {more});
+    CHECK(d.present && d.changed && d.state["count"] == Value::of(3));
+    Fields shipped = release;
+    shipped["count"] = Value::of(3);
+    CHECK(replayState(more, shipped) == Replay::AlreadyDone);
+    CHECK(replayState(more, release) == Replay::Apply);
+    shipped["count"] = Value::of(5);
+    CHECK(replayState(more, shipped) == Replay::Conflict);
+    CHECK(!foldDraft(release, {inverse(more), more}).conflict);
+    Op undone = more;
+    undone.undone = true;
+    CHECK(!foldDraft(release, {undone}).changed);
+    CHECK(inverse(more).to == more.from);
+    // an add with a count later: the count is in the draft's state
+    Op add;
+    add.op = OpKind::Add, add.to = posObject({1, 1, 1, 0});
+    add.to["entry"] = Value::of(90203);
+    d = foldDraft(std::nullopt, {add, more});
+    CHECK(d.present && d.state["count"] == Value::of(3));
+
+    // a raised count counts against the day's adds
+    Rate r;
+    Limits lim;
+    lim.addsPerDay = 5;
+    r.configure(lim);
+    CHECK(r.allowsAdds(5, 1000) && !r.allowsAdds(6, 1000) && r.allowsAdds(0, 1000));
+    r.recordAdds(4, 1000);
+    CHECK(r.allowsAdds(1, 1000) && !r.allowsAdds(2, 1000) && r.allows(OpKind::Add, 1000));
+    r.recordAdds(1, 1000);
+    CHECK(!r.allows(OpKind::Add, 1000) && r.allowsAdds(3, 1000 + 86400000));
+}
+
 int main()
 {
     numbers();
@@ -376,6 +520,7 @@ int main()
     ops();
     normalRealm();
     role();
+    count();
     fuzz();
     if (s_failed)
     {

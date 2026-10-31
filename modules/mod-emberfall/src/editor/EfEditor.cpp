@@ -29,6 +29,11 @@
 // stand in the editor phase (kDraftPhase), seen only by editors with the editor open (VIEW on), and a spawn it removes
 // is hidden from those editors only (EmberfallVisibility.h); everyone else sees the release world. Accepted (the site's
 // review state), the set applies for everyone; rejected or withdrawn, the drafts go.
+//
+// A spawn of several creatures (`SET;c;<id>;count;<n>`, Emberfall world-editor.md §20): the spawn and n-1 others on a
+// ring round its point, each a spawn of its own under a GUID derived from the spawn's (EfEditorLogic.h extraId), made
+// from its data and kept with it (SetCount; a move, the wander radius, the respawn and a removal take them along). The
+// release compile writes the same ones into world.sql from the row's `count`, so replay finds the count in effect.
 
 #include "EfEditor.h"
 #include "EfEditorLogic.h"
@@ -224,22 +229,64 @@ namespace Emberfall::Editor
 
         bool IsTemp(uint32 id) { return id >= kTempIdBase && id <= kTempIdMax; }
         bool IsCopy(uint32 id) { return id >= kCopyIdBase && id <= kCopyIdMax; }
+        // the other creatures of a spawn of several (count, EfEditorLogic.h extraId): never edited themselves
+        bool IsExtra(uint32 id) { return extraOf(id).has_value(); }
+
+        CreatureData* DataOf(uint32 id) { return id ? const_cast<CreatureData*>(sObjectMgr->GetCreatureData(id)) : nullptr; }
+
+        // A spawn's creatures: 1 and every other one that exists, slot after slot.
+        uint32 CountOf(uint32 id)
+        {
+            uint32 n = 1;
+            while (n < kMaxCount && DataOf(extraId(id, n)))
+                ++n;
+            return n;
+        }
+
+        uint32 CountIn(Fields const& f)
+        {
+            auto c = f.find("count");
+            return c != f.end() && c->second.type == Value::Type::Number && c->second.number >= 1 ? uint32(c->second.number) : 1;
+        }
+
+        // The spawn and its other creatures.
+        std::vector<uint32> GroupIds(uint32 id)
+        {
+            std::vector<uint32> out{id};
+            for (uint32 slot = 1; slot < kMaxCount; ++slot)
+                if (uint32 const e = extraId(id, slot); e && DataOf(e))
+                    out.push_back(e);
+            return out;
+        }
+
+        // The ground under a point when its grid is loaded (vmaps on), else the given Z (the unit is put on its ground
+        // when it loads: OnCreatureAdd).
+        float GroundZ(uint32 mapId, uint32 phase, float x, float y, float z)
+        {
+            Map* map = LiveMap(mapId);
+            if (!map || !map->IsGridLoaded(x, y))
+                return z;
+            float const g = map->GetHeight(phase | PHASEMASK_NORMAL, x, y, z + 3.0f, true, 10.0f);
+            return std::isfinite(g) && g > INVALID_HEIGHT + 1.0f && std::fabs(g - z) <= 2 * kGroundTolerance ? std::round(g * 100) / 100 : z;
+        }
 
         // Whether a set's ops are in the world for everyone: a maintainer's, every set in local mode, an accepted one.
         bool Live(ChangeSet const& cs) { return s_config.local || cs.live || !state::open(cs.state); }
 
         bool Viewing(Player const* p) { return p && s_viewers.count(p->GetGUID()); }
 
-        Fields StateOf(CreatureData const& d)
+        // `id`: the spawn's own id (a draft copy's for its data), so the count is its own.
+        Fields StateOf(uint32 id, CreatureData const& d)
         {
             Fields o = posObject({d.posX, d.posY, d.posZ, d.orientation});
             o["wander"] = Value::of(std::round(d.wander_distance * 10) / 10);
             o["respawn"] = Value::of(d.spawntimesecs);
             o["entry"] = Value::of(d.id);
+            o["count"] = Value::of(CountOf(id));
             return o;
         }
 
-        void Relocate(uint32 id, CreatureData& data, Pos const& p)
+        void RelocateOne(uint32 id, CreatureData& data, Pos const& p)
         {
             sObjectMgr->RemoveCreatureFromGrid(id, &data);
             data.posX = p.x, data.posY = p.y, data.posZ = p.z, data.orientation = p.o;
@@ -256,24 +303,45 @@ namespace Emberfall::Editor
             }
         }
 
+        // A spawn moved: its other creatures keep their places on the ring round it.
+        void Relocate(uint32 id, CreatureData& data, Pos const& p)
+        {
+            RelocateOne(id, data, p);
+            for (uint32 slot = 1; slot < kMaxCount; ++slot)
+                if (CreatureData* e = DataOf(extraId(id, slot)))
+                {
+                    Pos q = slotPos(p, slot);
+                    q.z = GroundZ(data.mapid, data.phaseMask, q.x, q.y, p.z);
+                    RelocateOne(extraId(id, slot), *e, q);
+                }
+        }
+
         void SetWander(uint32 id, CreatureData& data, float wander)
         {
-            data.wander_distance = wander;
-            data.movementType = wander > 0 ? RANDOM_MOTION_TYPE : IDLE_MOTION_TYPE;
-            for (Creature* c : LiveCreatures(data, id))
+            for (uint32 gid : GroupIds(id))
             {
-                c->SetWanderDistance(wander);
-                c->SetDefaultMovementType(MovementGeneratorType(data.movementType));
-                if (c->IsAlive())
-                    c->GetMotionMaster()->Initialize();
+                CreatureData& d = gid == id ? data : *DataOf(gid);
+                d.wander_distance = wander;
+                d.movementType = wander > 0 ? RANDOM_MOTION_TYPE : IDLE_MOTION_TYPE;
+                for (Creature* c : LiveCreatures(d, gid))
+                {
+                    c->SetWanderDistance(wander);
+                    c->SetDefaultMovementType(MovementGeneratorType(d.movementType));
+                    if (c->IsAlive())
+                        c->GetMotionMaster()->Initialize();
+                }
             }
         }
 
         void SetRespawn(uint32 id, CreatureData& data, uint32 seconds)
         {
-            data.spawntimesecs = seconds;
-            for (Creature* c : LiveCreatures(data, id))
-                c->SetRespawnDelay(seconds);
+            for (uint32 gid : GroupIds(id))
+            {
+                CreatureData& d = gid == id ? data : *DataOf(gid);
+                d.spawntimesecs = seconds;
+                for (Creature* c : LiveCreatures(d, gid))
+                    c->SetRespawnDelay(seconds);
+            }
         }
 
         // CreatureData has a const member (SpawnData::type): no assignment operator, so field by field.
@@ -335,6 +403,20 @@ namespace Emberfall::Editor
             return d;
         }
 
+        void DespawnOne(uint32 id)
+        {
+            CreatureData const* data = sObjectMgr->GetCreatureData(id);
+            if (!data)
+                return;
+            for (Creature* c : LiveCreatures(*data, id))
+            {
+                c->CombatStop(true);
+                c->AddObjectToRemoveList();
+            }
+            sObjectMgr->DeleteCreatureData(id);
+        }
+
+        // A spawn removed, its other creatures with it (the op's `from` keeps the count for an undo).
         void Despawn(uint32 id, bool backup = true)
         {
             CreatureData const* data = sObjectMgr->GetCreatureData(id);
@@ -342,12 +424,35 @@ namespace Emberfall::Editor
                 return;
             if (backup)
                 Backup(id, *data);
-            for (Creature* c : LiveCreatures(*data, id))
+            for (uint32 slot = 1; slot < kMaxCount; ++slot)
+                DespawnOne(extraId(id, slot));
+            DespawnOne(id);
+        }
+
+        // A spawn of `count` creatures (EfEditorLogic.h, count): the others it lacks are made from its data on their
+        // slots of the ring, the ones over the count go.
+        void SetCount(uint32 id, CreatureData const& data, uint32 count)
+        {
+            Pos const at{data.posX, data.posY, data.posZ, data.orientation};
+            for (uint32 slot = 1; slot < kMaxCount; ++slot)
             {
-                c->CombatStop(true);
-                c->AddObjectToRemoveList();
+                uint32 const eid = extraId(id, slot);
+                if (!eid)
+                    return;
+                bool const has = DataOf(eid) != nullptr;
+                if (slot < count && !has)
+                {
+                    CreatureData e;
+                    Assign(e, data);
+                    Pos const q = slotPos(at, slot);
+                    e.posX = q.x, e.posY = q.y, e.orientation = q.o;
+                    e.posZ = GroundZ(data.mapid, data.phaseMask, q.x, q.y, at.z);
+                    e.poolId = 0, e.spawnGroupId = 0, e.dbData = false;
+                    Spawn(eid, e);
+                }
+                else if (slot >= count && has)
+                    DespawnOne(eid);
             }
-            sObjectMgr->DeleteCreatureData(id);
         }
 
         // Applies one op (live, or at replay). The op's `to` is the truth; `from` is for undo.
@@ -363,18 +468,25 @@ namespace Emberfall::Editor
                     auto map = op.to.find("map");
                     if (!p || entry == op.to.end() || map == op.to.end())
                         return false;
+                    CreatureData d;
                     if (s_backup.count(id) && s_backup[id].id == uint32(entry->second.number))
                     {
-                        CreatureData d;
                         Assign(d, s_backup[id]);   // an undone delete: the spawn as it was, where `to` says
                         d.posX = p->x, d.posY = p->y, d.posZ = p->z, d.orientation = p->o;
-                        return Spawn(id, d);
                     }
-                    auto w = op.to.find("wander");
-                    auto r = op.to.find("respawn");
-                    float const wander = w != op.to.end() ? float(w->second.number) : 0.0f;
-                    uint32 const respawn = r != op.to.end() ? uint32(r->second.number) : 120;
-                    return Spawn(id, NewData(uint32(entry->second.number), uint32(map->second.number), *p, wander, respawn));
+                    else
+                    {
+                        auto w = op.to.find("wander");
+                        auto r = op.to.find("respawn");
+                        float const wander = w != op.to.end() ? float(w->second.number) : 0.0f;
+                        uint32 const respawn = r != op.to.end() ? uint32(r->second.number) : 120;
+                        Assign(d, NewData(uint32(entry->second.number), uint32(map->second.number), *p, wander, respawn));
+                    }
+                    if (!Spawn(id, d))
+                        return false;
+                    if (CountIn(op.to) > 1)
+                        SetCount(id, d, CountIn(op.to));   // an undone delete of a spawn of several
+                    return true;
                 }
                 case OpKind::Move:
                 {
@@ -396,6 +508,8 @@ namespace Emberfall::Editor
                             SetWander(id, *data, float(v.number));
                         else if (k == "respawn" && v.type == Value::Type::Number)
                             SetRespawn(id, *data, uint32(v.number));
+                        else if (k == "count" && v.type == Value::Type::Number)
+                            SetCount(id, *data, std::clamp<uint32>(uint32(v.number), 1, kMaxCount));
                     }
                     return true;
                 }
@@ -432,15 +546,16 @@ namespace Emberfall::Editor
         // A release spawn's units shown or hidden again for the viewers (a draft removes it, or no longer does).
         void UpdateVisibility(uint32 id)
         {
-            if (CreatureData const* d = sObjectMgr->GetCreatureData(id))
-                for (Creature* c : LiveCreatures(*d, id))
-                    c->UpdateObjectVisibility();
+            for (uint32 gid : GroupIds(id))
+                if (CreatureData const* d = sObjectMgr->GetCreatureData(gid))
+                    for (Creature* c : LiveCreatures(*d, gid))
+                        c->UpdateObjectVisibility();
         }
 
         // An existing spawn's data and units brought to a state (position, wander, respawn), in place.
         void SetState(uint32 id, CreatureData& data, Fields const& st)
         {
-            if (auto p = posOf(st); p && !posNear(StateOf(data), st))
+            if (auto p = posOf(st); p && !posNear(StateOf(id, data), st))
                 Relocate(id, data, *p);
             if (auto w = st.find("wander"); w != st.end() && w->second.type == Value::Type::Number &&
                 std::fabs(data.wander_distance - w->second.number) > 0.05)
@@ -448,6 +563,8 @@ namespace Emberfall::Editor
             if (auto r = st.find("respawn"); r != st.end() && r->second.type == Value::Type::Number &&
                 data.spawntimesecs != uint32(r->second.number))
                 SetRespawn(id, data, uint32(r->second.number));
+            if (uint32 const n = CountIn(st); n != CountOf(id))
+                SetCount(id, data, n);
         }
 
         // The editor phase made to show what the open draft holding this object makes of it: nothing, a copy of the
@@ -482,15 +599,17 @@ namespace Emberfall::Editor
                     return false;
                 auto w = d.state.find("wander");
                 auto r = d.state.find("respawn");
-                Spawn(id, NewData(uint32(entry->second.number), uint32(map->second.number), *p,
-                    w != d.state.end() ? float(w->second.number) : 0.0f, r != d.state.end() ? uint32(r->second.number) : 120, kDraftPhase));
+                CreatureData const nd = NewData(uint32(entry->second.number), uint32(map->second.number), *p,
+                    w != d.state.end() ? float(w->second.number) : 0.0f, r != d.state.end() ? uint32(r->second.number) : 120, kDraftPhase);
+                if (Spawn(id, nd) && CountIn(d.state) > 1)
+                    SetCount(id, nd, CountIn(d.state));
                 return !d.conflict;
             }
             bool const wasHidden = s_hidden.erase(id) > 0;
             CreatureData const* orig = sObjectMgr->GetCreatureData(id);
             Draft d;
             if (cs && orig)
-                d = foldDraft(StateOf(*orig), ops);
+                d = foldDraft(StateOf(id, *orig), ops);
             bool const hide = cs && orig && !d.present;
             bool const needCopy = cs && orig && d.present && d.changed;
             auto copy = s_copies.find(id);
@@ -515,7 +634,8 @@ namespace Emberfall::Editor
                 }
                 if (auto r = d.state.find("respawn"); r != d.state.end())
                     cd.spawntimesecs = uint32(r->second.number);
-                Spawn(cid, cd);
+                if (Spawn(cid, cd) && CountIn(d.state) > 1)
+                    SetCount(cid, cd, CountIn(d.state));   // the draft's creatures, all of them in the editor phase
                 s_copies[id] = cid;
                 s_copyOf[cid] = id;
             }
@@ -533,6 +653,12 @@ namespace Emberfall::Editor
         }
 
         // The data an op on this object starts from: its draft copy's while a draft has one.
+        uint32 EffectiveId(uint32 id)
+        {
+            auto copy = s_copies.find(id);
+            return copy != s_copies.end() && sObjectMgr->GetCreatureData(copy->second) ? copy->second : id;
+        }
+
         CreatureData* EffectiveData(uint32 id)
         {
             if (auto copy = s_copies.find(id); copy != s_copies.end())
@@ -625,6 +751,16 @@ namespace Emberfall::Editor
                     m.lowguid = c->GetGUID().GetCounter();
                     break;
                 }
+            // a spawn of several: the count and the others' living units (the overlay rings them, Select target finds them)
+            m.count = CountOf(shownId);
+            for (uint32 slot = 1; slot < m.count; ++slot)
+                if (CreatureData const* e = sObjectMgr->GetCreatureData(extraId(shownId, slot)))
+                    for (Creature* c : LiveCreatures(*e, extraId(shownId, slot)))
+                        if (c->IsAlive())
+                        {
+                            m.others.push_back(c->GetGUID().GetCounter());
+                            break;
+                        }
             return m;
         }
 
@@ -854,17 +990,18 @@ namespace Emberfall::Editor
             return Code::Ok;
         }
 
-        // Step 10.
-        Density CheckNeighbours(uint32 mapId, Pos const& at, uint32 self, Limits const& l)
+        // Step 10's neighbours within `reach` (a square) of a point; `self` and its other creatures do not count.
+        std::vector<Neighbour> Neighbours(uint32 mapId, Pos const& at, uint32 self, float reach)
         {
             std::vector<Neighbour> near;
             for (auto const& [id, d] : sObjectMgr->GetAllCreatureData())
             {
-                if (IsCopy(id) || d.mapid != mapId || std::fabs(d.posX - at.x) > 31 || std::fabs(d.posY - at.y) > 31)
+                uint32 const base = baseOf(id);
+                if (IsCopy(base) || d.mapid != mapId || std::fabs(d.posX - at.x) > reach || std::fabs(d.posY - at.y) > reach)
                     continue;
                 Neighbour n;
                 n.pos = {d.posX, d.posY, d.posZ, 0};
-                n.self = id == self;
+                n.self = base == self;
                 if (CreatureTemplate const* t = sObjectMgr->GetCreatureTemplate(d.id))
                 {
                     uint32 const service = UNIT_NPC_FLAG_INNKEEPER | UNIT_NPC_FLAG_FLIGHTMASTER | UNIT_NPC_FLAG_SPIRITHEALER |
@@ -876,14 +1013,48 @@ namespace Emberfall::Editor
                 near.push_back(n);
             }
             for (auto const& [gid, g] : sGraveyard->GetGraveyardData())
-                if (g.Map == mapId && std::fabs(g.x - at.x) < 31 && std::fabs(g.y - at.y) < 31)
+                if (g.Map == mapId && std::fabs(g.x - at.x) < reach && std::fabs(g.y - at.y) < reach)
                 {
                     Neighbour n;
                     n.pos = {g.x, g.y, g.z, 0};
                     n.service = true;
                     near.push_back(n);
                 }
-            return checkDensity(at, near, l);
+            return near;
+        }
+
+        // Step 10.
+        Density CheckNeighbours(uint32 mapId, Pos const& at, uint32 self, Limits const& l)
+        {
+            return checkDensity(at, Neighbours(mapId, at, self, 31), l);
+        }
+
+        // Steps 4, 8 and 10 for a spawn of `count` creatures at `centre` (count, a move of a spawn of several): the
+        // others from slot `fromSlot` on stand in the zone, on the ground near the spawn's height and out of deep water,
+        // and every creature of the group keeps the density rules. `detail` names the one that failed.
+        Code CheckGroup(Player* player, std::string const& zone, uint32 mapId, Pos const& centre, uint32 count, uint32 fromSlot,
+                        uint32 self, Limits const& l, std::string& detail)
+        {
+            std::vector<Pos> const members = groupPositions(centre, count);
+            Map* map = player->GetMap();
+            for (uint32 slot = std::max<uint32>(1, fromSlot); slot < members.size(); ++slot)
+            {
+                Pos const& q = members[slot];
+                detail = fmt::format("creature {} of {}", slot + 1, count);
+                ZoneInfo const* at = ZoneAt(mapId, q);
+                if (!at || at->key != zone)
+                    return Code::Zone;
+                float const ground = map->GetHeight(player->GetPhaseMask(), q.x, q.y, centre.z + 3.0f, true, 25.0f);
+                if (Code const g = checkGround(centre.z, ground); g != Code::Ok)
+                    return g;
+                if (map->IsUnderWater(player->GetPhaseMask(), q.x, q.y, ground, 2.0f))
+                    return Code::Water;
+            }
+            GroupDensity const g = checkGroupDensity(members, Neighbours(mapId, centre, self, 31 + kCountRing), l);
+            detail = fmt::format("creature {} of {}", g.member + 1, count);
+            if (g.density.code == Code::Ok)
+                detail.clear();
+            return g.density.code;
         }
 
         ChangeSet* ActiveSet(Player* player, Session& s, Code& code)
@@ -916,12 +1087,15 @@ namespace Emberfall::Editor
                 return Code::Limit;
             Rate& rate = RateOf(account, level);
             uint64 const now = NowMs();
-            if (!rate.allows(op.op, now))
+            // a raised count places creatures: they count against the day's adds
+            uint32 const placed = op.op == OpKind::Set && op.to.count("count") ? CountIn(op.to) - std::min(CountIn(op.to), CountIn(op.from)) : 0;
+            if (!rate.allows(op.op, now) || !rate.allowsAdds(placed, now))
                 return Code::Rate;
             bool const live = Live(cs);
             if (live && !Apply(op))
                 return Code::Internal;
             rate.record(op.op, now);
+            rate.recordAdds(placed, now);
             op.seq = cs.ops.empty() ? 1 : cs.ops.back().seq + 1;
             op.createdMs = now;
             if (cs.firstOpMs == 0)
@@ -1044,8 +1218,8 @@ namespace Emberfall::Editor
             std::vector<std::string> entries;
             for (auto const& [id, d] : sObjectMgr->GetAllCreatureData())
             {
-                if (IsCopy(id) || d.mapid != sc.map || std::hypot(d.posX - sc.x, d.posY - sc.y) > sc.radius)
-                    continue;   // a draft copy is shown through its release spawn's marker
+                if (IsCopy(id) || IsExtra(id) || d.mapid != sc.map || std::hypot(d.posX - sc.x, d.posY - sc.y) > sc.radius)
+                    continue;   // a draft copy is shown through its release spawn's marker, a spawn's others through its own
                 entries.push_back(encodeMarker(MarkerOf(viewer, id, d)));
             }
             s.scanId = (s.scanId % 9999) + 1;
@@ -1366,6 +1540,13 @@ namespace Emberfall::Editor
                         if (Code c = checkNpcMove(r->second, p, a.level, l); c != Code::Ok)
                             return refuse(c);
                 }
+                else if (uint32 const n = CountOf(EffectiveId(mv->id)); dist2d(old, p) > 0.5f && n > 1)
+                {
+                    // a spawn of several moves with its others: each of them where it will stand
+                    std::string detail;
+                    if (Code c = CheckGroup(player, cs->zone, t.data->mapid, p, n, 1, mv->id, l, detail); c != Code::Ok)
+                        return refuse(c, detail);
+                }
                 else if (dist2d(old, p) > 0.5f)
                     if (Density d = CheckNeighbours(t.data->mapid, p, mv->id, l); d.code != Code::Ok)
                         return refuse(d.code);
@@ -1410,12 +1591,30 @@ namespace Emberfall::Editor
                     op.from["wander"] = Value::of(std::round(t.data->wander_distance * 10) / 10);
                     op.to["wander"] = Value::of(w);
                 }
-                else
+                else if (st->field == SetField::Respawn)
                 {
                     if (Code c = checkRespawn(st->value, named, a.level, l); c != Code::Ok)
                         return refuse(c);
                     op.from["respawn"] = Value::of(t.data->spawntimesecs);
                     op.to["respawn"] = Value::of(uint32(st->value));
+                }
+                else
+                {
+                    // how many creatures stand at the spawn (count, EfEditorLogic.h): each one keeps the density rules
+                    if (Code c = checkCount(st->value, named, a.level); c != Code::Ok)
+                        return refuse(c, fmt::format("count 1-{}", kMaxCount));
+                    if (t.data->movementType == WAYPOINT_MOTION_TYPE || t.data->poolId || t.data->spawnGroupId)
+                        return refuse(Code::ReadOnly, "a patrol or a pooled spawn has one creature");
+                    uint32 const now = CountOf(EffectiveId(st->id)), want = uint32(st->value);
+                    if (want > now)
+                    {
+                        std::string detail;
+                        Pos const centre{t.data->posX, t.data->posY, t.data->posZ, t.data->orientation};
+                        if (Code c = CheckGroup(player, cs->zone, t.data->mapid, centre, want, now, st->id, l, detail); c != Code::Ok)
+                            return refuse(c, detail);
+                    }
+                    op.from["count"] = Value::of(now);
+                    op.to["count"] = Value::of(want);
                 }
                 if (op.from == op.to)
                 {
@@ -1449,7 +1648,7 @@ namespace Emberfall::Editor
                 op.op = OpKind::Delete;
                 op.kind = Kind::Creature;
                 op.target = del->id;
-                op.from = StateOf(*t.data);
+                op.from = StateOf(EffectiveId(del->id), *t.data);
                 op.from["map"] = Value::of(t.data->mapid);
                 code = Commit(player, *cs, a.level, op, where, id);
             }
@@ -1585,7 +1784,7 @@ namespace Emberfall::Editor
                 else if (!d)
                     how = Replay::Conflict;
                 else
-                    how = replayState(op, StateOf(*d));
+                    how = replayState(op, StateOf(op.target, *d));
                 if (how == Replay::Apply && Apply(op))
                     ++applied;
                 else if (how == Replay::Conflict)
@@ -1813,6 +2012,8 @@ namespace Emberfall::Editor
                             r.adds.add(op.createdMs);
                         if (op.op == OpKind::Delete)
                             r.deletes.add(op.createdMs);
+                        if (op.op == OpKind::Set && op.to.count("count"))
+                            r.recordAdds(CountIn(op.to) - std::min(CountIn(op.to), CountIn(op.from)), op.createdMs);
                     }
             LOG_INFO("server.loading", ">> Emberfall.Editor: {} zone(s), {} editable spawn(s), {} set(s) replayed: {} op(s) applied, {} already in effect, {} conflict(s); {} object(s) of {} draft(s) in the editor phase",
                 s_zones.size(), s_spawns.size(), order.size(), applied, skipped, conflicts, drafted, drafts.size());
@@ -1841,7 +2042,7 @@ namespace Emberfall::Editor
     // whose editor is open; everyone else still sees it until the set is accepted (§19).
     static bool HideFromViewer(Creature const* creature, Player const* viewer)
     {
-        return !s_hidden.empty() && s_hidden.count(creature->GetSpawnId()) && Viewing(viewer);
+        return !s_hidden.empty() && s_hidden.count(baseOf(creature->GetSpawnId())) && Viewing(viewer);
     }
 
     void OnStartup()
@@ -1979,12 +2180,36 @@ namespace Emberfall::Editor
 
     // A draft copy, or a spawn a draft adds (§19): seen only in the editor phase, and it does nothing there: nobody
     // attacks it, it attacks nobody, it has no menu, no quest, no loot, no AI.
+    // The other creatures of a spawn of several (count) share the spawn's height (world.sql has nothing better: the
+    // compile has no ground for every zone); the first time a unit loads, it and its data go onto the ground of its own
+    // spot. On every realm, the editor on or not.
+    static void OntoGround(Creature* creature, uint32 id)
+    {
+        CreatureData* data = const_cast<CreatureData*>(sObjectMgr->GetCreatureData(id));
+        Map* map = creature->GetMap();
+        if (!data || !map || creature->IsFlying() || creature->CanFly())
+            return;
+        float const x = data->posX, y = data->posY, z = data->posZ;
+        float const g = map->GetHeight(creature->GetPhaseMask(), x, y, z + 3.0f, true, 10.0f);
+        if (!std::isfinite(g) || g <= INVALID_HEIGHT + 1.0f || std::fabs(g - z) < 0.05f || std::fabs(g - z) > 2 * kGroundTolerance)
+            return;
+        if (map->IsInWater(creature->GetPhaseMask(), x, y, g, creature->GetCollisionHeight()))
+            return;
+        data->posZ = g;
+        creature->SetHomePosition(x, y, g, data->orientation);
+        if (creature->IsAlive())
+            creature->Relocate(x, y, g, creature->GetOrientation());
+    }
+
     void OnCreatureAdd(Creature* creature)
     {
+        uint32 const id = creature->GetSpawnId();
+        if (IsExtra(id))
+            OntoGround(creature, id);
         if (!s_ready)
             return;
-        uint32 const id = creature->GetSpawnId();
-        if (!IsCopy(id) && !(IsTemp(id) && (creature->GetPhaseMask() & kDraftPhase)))
+        uint32 const base = baseOf(id);
+        if (!IsCopy(base) && !(IsTemp(base) && (creature->GetPhaseMask() & kDraftPhase)))
             return;
         creature->SetFaction(FACTION_FRIENDLY);
         creature->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE);

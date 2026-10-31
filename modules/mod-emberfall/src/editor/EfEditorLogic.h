@@ -20,14 +20,16 @@
 // fuzz). The transport is the talents' (EftProtocol.h): an addon whisper to oneself, `EFE\t<ver>;<seq>;<cmd>;...`.
 //
 //   C->S  HELLO;<data>  MODE;on|off  VIEW;on|off  SCAN;<map>;<x>;<y>;<radius>  OPEN;<cs>  NEW;<title>
-//         ADD;c;<entry>;<x>;<y>;<z>;<o>  MOVE;<k>;<id>;<x>;<y>;<z>;<o>  SET;c;<id>;wander|respawn;<value>
+//         ADD;c;<entry>;<x>;<y>;<z>;<o>  MOVE;<k>;<id>;<x>;<y>;<z>;<o>  SET;c;<id>;wander|respawn|count;<value>
 //         DEL;c;<id>  UNDO;<cs>  REDO;<cs>  SUBMIT;<cs>;<p>/<t>;<description>  WITHDRAW;<cs>
 //   S->C  ROLE;<level>;<zones>;<limits>  MARK;<scan>;<p>/<t>;<entry|...>  DELTA;<entry>  GONE;<k>;<id>
 //         CS;<id>;<state>;<ops>;<title>[;1]  OPS;<cs>;<p>/<t>;<op|...>  OK;<seq>;<id>  ERR;<seq>;<code>;<detail>
 //         (CS's sixth field 1: the editor's active set, e.g. one the realm opened by itself for a change without one)
 //
 // A marker entry: k,id,entry,x,y,z,o,wander,respawn,flags,lowguid (k: c creature spawn, n NPC; flags letters, below),
-// and for a spawn with a draft (flag g) four more fields, gx,gy,gz,go: where the original stands for everyone else.
+// and for a spawn with a draft (flag g) four more fields, gx,gy,gz,go: where the original stands for everyone else;
+// last, for a spawn of several creatures (count 2-8), `<count>[:<lowguid>...]`: the count and the other creatures'
+// living units (12 or 16 fields; a client from before the count drops only such markers).
 //
 // On the normal realm (world-editor.md §19): the role is the account's GM level for the realm (1 contributor, 2 and up
 // maintainer). A contributor's open sets are drafts in one shared phase (kDraftPhase) that only editors with the
@@ -203,7 +205,7 @@ namespace ef::editor
     struct Scan { uint32_t map = 0; float x = 0, y = 0, radius = 0; };
     struct Add { Kind kind = Kind::Creature; uint32_t entry = 0; Pos pos; };
     struct Move { Kind kind = Kind::Creature; uint32_t id = 0; Pos pos; };
-    enum class SetField : uint8_t { Wander, Respawn };
+    enum class SetField : uint8_t { Wander, Respawn, Count };
     struct Set { Kind kind = Kind::Creature; uint32_t id = 0; SetField field = SetField::Wander; float value = 0; };
     struct Del { Kind kind = Kind::Creature; uint32_t id = 0; };
 
@@ -256,6 +258,8 @@ namespace ef::editor
             field = SetField::Wander;
         else if (f[2] == "respawn")
             field = SetField::Respawn;
+        else if (f[2] == "count")
+            field = SetField::Count;
         else
             return std::nullopt;
         return Set{*kind, *id, field, *value};
@@ -411,6 +415,129 @@ namespace ef::editor
         return d;
     }
 
+    // ------------------------------------------------------------------------------------------ count
+    //
+    // A spawn of several creatures (`count: N` on its spawn row, 1-kMaxCount): the spawn itself and N-1 others on a
+    // ring of kCountRing yards round its point, each one a creature spawn of its own under a GUID derived from the
+    // spawn's (extraId), so neither the realm nor the release compile allocates anything and both make the same
+    // creatures (Emberfall tools/py/emberfall_content/sql/compile.py `count_slots` is the same arithmetic). They copy
+    // the spawn's entry, wander radius and respawn, follow it when it moves, and go with it.
+    //
+    // GUIDs: a content spawn (GUID 1-999,999) has its others at GUID + slot x 1,000,000 (1,000,001-7,999,999: ids.yaml
+    // `creature_guid_count`, world.sql's owned range); a spawn the realm made (a draft copy 8,000,001+, an add's
+    // temporary id 9,000,001+) at id + slot x 10,000,000 (18,000,001-79,999,999, never stored). No two spawns share one.
+    constexpr uint32_t kMaxCount = 8;                // [proposal] within the density rules: 12 hostile in 30 yd
+    constexpr float kCountRing = 4.0f;               // yards: two neighbours on the ring stand 3.47 yd apart (spacing 3)
+    constexpr uint32_t kContentGuidMax = 999999;
+    constexpr uint32_t kCountStepContent = 1000000, kCountStepRealm = 10000000;
+
+    // The GUID of a spawn's other creature `slot` (1 .. kMaxCount - 1); 0 for an id that has none.
+    inline uint32_t extraId(uint32_t id, uint32_t slot)
+    {
+        if (id == 0 || slot == 0 || slot >= kMaxCount)
+            return 0;
+        if (id <= kContentGuidMax)
+            return id + slot * kCountStepContent;
+        if (id >= kCopyIdBase && id <= kTempIdMax)
+            return id + slot * kCountStepRealm;
+        return 0;
+    }
+
+    struct ExtraOf
+    {
+        uint32_t base = 0, slot = 0;
+    };
+
+    // Which spawn an id is the other creature of, or nothing for a spawn of its own.
+    inline std::optional<ExtraOf> extraOf(uint32_t id)
+    {
+        if (id > kContentGuidMax && id < kCopyIdBase)
+        {
+            uint32_t const slot = id / kCountStepContent, base = id % kCountStepContent;
+            if (base != 0 && slot >= 1 && slot < kMaxCount)
+                return ExtraOf{base, slot};
+            return std::nullopt;
+        }
+        if (id > kTempIdMax)
+        {
+            uint32_t const slot = id / kCountStepRealm, base = id % kCountStepRealm;
+            if (base >= kCopyIdBase && base <= kTempIdMax && slot >= 1 && slot < kMaxCount)
+                return ExtraOf{base, slot};
+        }
+        return std::nullopt;
+    }
+
+    inline uint32_t baseOf(uint32_t id)
+    {
+        auto e = extraOf(id);
+        return e ? e->base : id;
+    }
+
+    // Where the other creature `slot` stands: on the ring round the spawn's point, the slots spread so any count is
+    // even round it and a growing count leaves the others where they stood. Z is the spawn's (the realm puts each on
+    // its ground when its unit loads); the facing is the spawn's turned by the golden angle per slot.
+    inline Pos slotPos(Pos const& at, uint32_t slot)
+    {
+        static constexpr uint8_t kOrder[kMaxCount - 1] = {0, 4, 2, 6, 1, 5, 3};
+        if (slot == 0 || slot >= kMaxCount)
+            return at;
+        double const a = kOrder[slot - 1] * (2.0 * 3.14159265358979323846 / 7.0);
+        return Pos{float(at.x + kCountRing * std::cos(a)), float(at.y + kCountRing * std::sin(a)), at.z,
+                   normaliseOrientation(float(at.o + slot * 2.399963))};
+    }
+
+    // Every creature of a spawn of `count`: the spawn's point first, then the slots.
+    inline std::vector<Pos> groupPositions(Pos const& at, uint32_t count)
+    {
+        std::vector<Pos> out{at};
+        for (uint32_t slot = 1; slot < std::min(count, kMaxCount); ++slot)
+            out.push_back(slotPos(at, slot));
+        return out;
+    }
+
+    inline Code checkCount(float count, bool named, Level level)
+    {
+        if (count != std::floor(count) || count < 1 || count > float(kMaxCount))
+            return Code::Value;
+        if (named && count > 1 && level != Level::Maintainer)
+            return Code::Named;
+        return Code::Ok;
+    }
+
+    // Step 10 for every creature of a spawn of several (`members`, groupPositions): each one by checkDensity, the
+    // others of the group counted as hostile neighbours. `member`: which one failed (0 the spawn itself).
+    struct GroupDensity
+    {
+        Density density;
+        uint32_t member = 0;
+    };
+
+    inline GroupDensity checkGroupDensity(std::vector<Pos> const& members, std::vector<Neighbour> const& near, Limits const& l)
+    {
+        GroupDensity out;
+        for (size_t i = 0; i < members.size(); ++i)
+        {
+            std::vector<Neighbour> list = near;
+            for (size_t j = 0; j < members.size(); ++j)
+                if (j != i)
+                {
+                    Neighbour n;
+                    n.pos = members[j];
+                    n.hostile = true;
+                    list.push_back(n);
+                }
+            Density const d = checkDensity(members[i], list, l);
+            out.density.questGiverNear = out.density.questGiverNear || d.questGiverNear;
+            if (d.code != Code::Ok)
+            {
+                out.density.code = d.code;
+                out.member = uint32_t(i);
+                return out;
+            }
+        }
+        return out;
+    }
+
     // ------------------------------------------------------------------------------------------ rate (step 11)
 
     // Counts in sliding windows; times in ms (the realm's wall clock for the day window, so a restart keeps it when
@@ -460,6 +587,13 @@ namespace ef::editor
             if (k == OpKind::Delete && deletes.full(now))
                 return false;
             return true;
+        }
+        // A count raised by `n` places n creatures: they count against the day's adds.
+        bool allowsAdds(uint32_t n, uint64_t now) { return n == 0 || adds.count(now) + n <= adds.limit(); }
+        void recordAdds(uint32_t n, uint64_t now)
+        {
+            for (uint32_t i = 0; i < n; ++i)
+                adds.add(now);
         }
         void record(OpKind k, uint64_t now)
         {
@@ -696,7 +830,13 @@ namespace ef::editor
         std::string flags;
         uint32_t lowguid = 0;
         std::optional<Pos> ghost;   // flag g: where the original stands
+        uint32_t count = 1;         // the spawn's creatures
+        std::vector<uint32_t> others; // the other creatures' living units (lowguids)
     };
+
+    // A marker stays well inside one DELTA (eft::kMaxBody with its head) and one MARK page: the others' lowguids that
+    // would not fit are left off (the count stays).
+    constexpr size_t kMaxMarker = 200;
 
     inline std::string encodeMarker(Marker const& m)
     {
@@ -705,13 +845,24 @@ namespace ef::editor
                fixed(m.wander, 1) + "," + std::to_string(m.respawn) + "," + m.flags + "," + std::to_string(m.lowguid);
         if (m.ghost)
             out += "," + fixed(m.ghost->x, 2) + "," + fixed(m.ghost->y, 2) + "," + fixed(m.ghost->z, 2) + "," + fixed(m.ghost->o, 3);
+        if (m.count > 1)
+        {
+            out += "," + std::to_string(std::min(m.count, kMaxCount));
+            for (size_t i = 0; i < m.others.size() && i + 1 < kMaxCount; ++i)
+            {
+                std::string const low = ":" + std::to_string(m.others[i]);
+                if (out.size() + low.size() > kMaxMarker)
+                    break;
+                out += low;
+            }
+        }
         return out;
     }
 
     inline std::optional<Marker> decodeMarker(std::string_view text)
     {
         auto v = eft::split(text, ',');
-        if (v.size() != 11 && v.size() != 15)
+        if (v.size() != 11 && v.size() != 12 && v.size() != 15 && v.size() != 16)
             return std::nullopt;
         Marker m;
         auto k = kindOf(v[0]);
@@ -721,12 +872,27 @@ namespace ef::editor
             return std::nullopt;
         m.kind = *k, m.id = *id, m.entry = *entry, m.pos = {*x, *y, *z, *o}, m.wander = *w, m.respawn = *respawn;
         m.flags = std::string(v[9]), m.lowguid = *low;
-        if (v.size() == 15)
+        if (v.size() >= 15)
         {
             auto gx = decimal(v[11], 20000), gy = decimal(v[12], 20000), gz = decimal(v[13], 5000), go = decimal(v[14], 100);
             if (!gx || !gy || !gz || !go)
                 return std::nullopt;
             m.ghost = Pos{*gx, *gy, *gz, *go};
+        }
+        if (v.size() == 12 || v.size() == 16)
+        {
+            auto c = eft::split(v.back(), ':');
+            auto n = eft::number(c[0], kMaxCount);
+            if (!n || *n < 2 || c.size() > kMaxCount)
+                return std::nullopt;
+            m.count = *n;
+            for (size_t i = 1; i < c.size(); ++i)
+            {
+                auto low = eft::number(c[i]);
+                if (!low)
+                    return std::nullopt;
+                m.others.push_back(*low);
+            }
         }
         return m;
     }
@@ -978,7 +1144,7 @@ namespace ef::editor
     {
         if (!posNear(a, b))
             return false;
-        for (char const* k : {"wander", "respawn", "entry"})
+        for (char const* k : {"wander", "respawn", "entry", "count"})
         {
             auto x = a.find(k), y = b.find(k);
             if ((x == a.end()) != (y == b.end()) || (x != a.end() && !(x->second == y->second)))
@@ -1003,6 +1169,7 @@ namespace ef::editor
                     {
                         d.present = true;
                         d.state = op.to;
+                        d.state.emplace("count", Value::of(1));   // an add places one; a count op may raise it
                     }
                     break;
                 case OpKind::Delete:
