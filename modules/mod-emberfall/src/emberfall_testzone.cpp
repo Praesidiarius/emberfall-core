@@ -277,8 +277,10 @@ namespace Emberfall::TestZone
         uint8 const maxLevel = uint8(std::clamp<uint32>(sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL), 1, 255));
         uint8 const level = uint8(std::clamp<uint32>(levelArg ? levelArg : zone->levelMin, 1, maxLevel));
 
-        // 1. the level
+        // 1. the level, and every weapon and defence skill at the level's maximum (as `.maxskill`; professions and
+        // riding untouched): a player arriving here would have trained them on the way
         SetLevel(player, level);
+        player->UpdateSkillsToMaxSkillsForLevel();
 
         // 2. the quests of the zones before it
         std::vector<ZoneRow> const before = Before(d.zones, player->getRace(), zone->key);

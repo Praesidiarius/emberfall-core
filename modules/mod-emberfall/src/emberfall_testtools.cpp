@@ -22,8 +22,9 @@
 //   .eftest                  the list
 //   .eftest level N          your level (1 .. MaxPlayerLevel), XP 0, full health and mana; the talent system gives the
 //                            level's points (its own level hook)
-//   .eftest zone Z [L]       you as a player arriving at zone Z (at level L): the level, the quests of the zones before
-//                            it done (its breadcrumbs in the log), pool gear, flight nodes, money, at its main hub
+//   .eftest zone Z [L]       you as a player arriving at zone Z (at level L): the level (weapon and defence skills
+//                            at its maximum, as .maxskill), the quests of the zones before it done (its breadcrumbs in
+//                            the log), pool gear, flight nodes, money, at its main hub
 //                            (src/emberfall_testzone.cpp); `.eftest zone list` (or no zone): the zones in route order
 //   .eftest foe [L] [N] [idle] [hpF]  N (1-5) training foes of level L (default: yours) in front of you; they
 //                            attack you (idle: they stand at your feet until engaged; hpF: health x F, e.g. hp1.6) and
