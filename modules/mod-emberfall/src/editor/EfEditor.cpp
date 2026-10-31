@@ -832,6 +832,9 @@ namespace Emberfall::Editor
         public:
             uint32 map = UINT32_MAX;
             bool viewer = false;
+            // the client said HELLO (every client does, ~2 s after entering the world): before it, whispers can come
+            // before the client takes them, and a stroke lost then would never come again
+            bool ready = false;
             std::map<std::pair<int32, int32>, uint64> tiles;   // tile -> newest serial sent
         };
 
@@ -975,6 +978,8 @@ namespace Emberfall::Editor
                 if (!p || !p->IsInWorld() || p->IsBeingTeleported())
                     continue;
                 GroundView& v = GroundViewOf(p);
+                if (!v.ready)
+                    continue;
                 bool const viewer = Viewing(p);
                 if (v.map != p->GetMapId())
                 {
@@ -2394,6 +2399,16 @@ namespace Emberfall::Editor
         uint32 const account = player->GetSession()->GetAccountId();
         Access const a = AccessOf(account);
         eft::ParseResult const parsed = eft::parse(body);
+        if (parsed.ok() && parsed.request.cmd == "HELLO")
+        {
+            // any client, editor or not: from now on it gets the ground strokes (§20), all of them again
+            GroundView& v = GroundViewOf(player);
+            v.ready = true;
+            v.map = UINT32_MAX;
+            v.tiles.clear();
+            if (s_ground.empty())
+                v.map = player->GetMapId();   // nothing to forget, nothing to send yet
+        }
         if (a.level == Level::None || a.frozen)
         {
             // HELLO from a player without the role: silence (the UI stays hidden), and not audited: on the normal realm
