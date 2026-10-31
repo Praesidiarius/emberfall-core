@@ -39,6 +39,7 @@
 
 #include "../talents/EftProtocol.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -801,6 +802,35 @@ namespace ef::editor
         }
         flush();
         return out;
+    }
+
+    // ROLE;<level>;<zones>;<limits>;<local|realm> - ONE message: the client reads one ROLE (a second one replaces it)
+    // and drops a body over kMaxBody unread, so the editor never appears. The limits shown are capped at
+    // kRoleLimitShown (a maintainer's are 100000x a contributor's: 24 bytes that pushed 12 zones over 251, alpha1
+    // 0.4.19); the server enforces the real ones. Zones that would still not fit are left off from the end
+    // (`dropped`; the caller logs it) - the client only uses them to pick the palette of its map.
+    constexpr uint32_t kRoleLimitShown = 9999;
+    inline std::string roleBody(uint32_t level, std::vector<Zone> const& zones, uint32_t opsLeft, uint32_t setsLeft,
+                                uint32_t opsPerSet, bool local, size_t* dropped = nullptr)
+    {
+        auto shown = [](uint32_t v) { return std::to_string(std::min(v, kRoleLimitShown)); };
+        std::string const limits = shown(opsLeft) + "," + shown(setsLeft) + "," + shown(opsPerSet);
+        std::vector<std::string> list;
+        for (Zone const& z : zones)
+            list.push_back(z.key + ":" + std::to_string(z.map) + ":" + std::to_string(z.area));
+        for (size_t n = list.size();; --n)
+        {
+            std::string joined;
+            for (size_t i = 0; i < n; ++i)
+                joined += (i ? "," : "") + list[i];
+            std::string body = eft::body(0, "ROLE", {std::to_string(level), joined, limits, local ? "local" : "realm"});
+            if (body.size() <= eft::kMaxBody || n == 0)
+            {
+                if (dropped)
+                    *dropped = list.size() - n;
+                return body;
+            }
+        }
     }
 
     // ------------------------------------------------------------------------------------------ ops

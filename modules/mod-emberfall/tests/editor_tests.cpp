@@ -324,6 +324,46 @@ static void fuzz()
     }
 }
 
+// ROLE fits one message (alpha1 0.4.19: a maintainer's 100000x limits pushed 12 zones to 256 bytes; the client dropped
+// it and the editor never appeared for a GM).
+static void role()
+{
+    std::vector<Zone> const alpha1 = parseZones(
+        "cinderpine:0:5170 elderwood:0:5001 frostcombe:0:5120 greyfell:0:5130 greymarch:0:5110 hollow-hills:0:5200 "
+        "kingsfall:0:5160 redmere:0:5230 stonereach:0:5150 sunken-terrace:0:5240 thornwold:0:5140 wester-reach:0:5210");
+    CHECK(alpha1.size() == 12);
+    for (Level level : {Level::Contributor, Level::Reviewer, Level::Maintainer})
+        for (bool local : {false, true})
+        {
+            Limits const l = Limits{}.scaled(level);
+            size_t dropped = 99;
+            std::string const body = roleBody(uint32_t(level), alpha1, l.opsPerDay, l.openSets, l.opsPerSet, local, &dropped);
+            CHECK(body.size() <= ef::eft::kMaxBody);
+            CHECK(dropped == 0);
+            auto const f = fields(body);
+            CHECK(f.size() == 4);
+            if (f.size() == 4)
+            {
+                CHECK(f[0] == std::to_string(uint32_t(level)));
+                CHECK(ef::eft::split(f[1], ',').size() == 12);
+                CHECK(f[3] == (local ? "local" : "realm"));
+            }
+        }
+    // contributors see their real limits; a maintainer's are capped for display
+    CHECK(fields(roleBody(1, alpha1, 600, 3, 150, false)).at(2) == "600,3,150");
+    CHECK(fields(roleBody(3, alpha1, 60000000, 300000, 15000000, false)).at(2) == "9999,9999,9999");
+    // more zones than one message holds: the ones at the end are left off, the rest still arrives
+    std::vector<Zone> many = alpha1;
+    for (int i = 0; i < 12; ++i)
+        many.push_back({"extra-zone-" + std::to_string(i), 1, uint32_t(6000 + i)});
+    size_t dropped = 0;
+    std::string const body = roleBody(3, many, 1, 1, 1, false, &dropped);
+    CHECK(body.size() <= ef::eft::kMaxBody);
+    CHECK(dropped > 0 && dropped < many.size());
+    auto const f = fields(body);
+    CHECK(f.size() == 4 && ef::eft::split(f[1], ',').size() == many.size() - dropped);
+}
+
 int main()
 {
     numbers();
@@ -335,6 +375,7 @@ int main()
     markers();
     ops();
     normalRealm();
+    role();
     fuzz();
     if (s_failed)
     {

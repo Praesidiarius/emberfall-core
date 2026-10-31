@@ -942,18 +942,22 @@ namespace Emberfall::Editor
 
         void SendRole(Player* player, Access const& a)
         {
-            std::string zones;
+            std::vector<Zone> zones;
             for (auto const& [key, z] : s_zones)
-                zones += (zones.empty() ? "" : ",") + key + ":" + std::to_string(z.map) + ":" + std::to_string(z.area);
+                zones.push_back({key, z.map, z.area});
             Limits const l = LimitsOf(a.level);
             Rate& r = RateOf(player->GetSession()->GetAccountId(), a.level);
             uint64 const now = NowMs();
             size_t open = 0;
             for (auto const& [id, cs] : s_sets)
                 open += cs.owner == player->GetSession()->GetAccountId() && state::open(cs.state);
-            std::string const limits = std::to_string(l.opsPerDay - std::min<uint32>(l.opsPerDay, uint32(r.day.count(now)))) + "," +
-                std::to_string(l.openSets > open ? l.openSets - open : 0) + "," + std::to_string(l.opsPerSet);
-            SendBody(player, eft::body(0, "ROLE", {std::to_string(uint32(a.level)), zones, limits, s_config.local ? "local" : "realm"}));
+            // one ROLE of at most eft::kMaxBody (roleBody): an oversized one is dropped by the client, the editor never shows
+            size_t dropped = 0;
+            SendBody(player, roleBody(uint32(a.level), zones, l.opsPerDay - std::min<uint32>(l.opsPerDay, uint32(r.day.count(now))),
+                                      uint32(l.openSets > open ? l.openSets - open : 0), l.opsPerSet, s_config.local, &dropped));
+            if (dropped)
+                LOG_ERROR("module", "Emberfall.Editor: ROLE for account {} leaves {} of {} zone(s) off to fit one message",
+                          player->GetSession()->GetAccountId(), dropped, zones.size());
             // PAL;<zone>;<p>/<t>;<entry:named|...>: the creatures the editor may place (the zone brief's)
             for (auto const& [key, entries] : s_entries)
             {
