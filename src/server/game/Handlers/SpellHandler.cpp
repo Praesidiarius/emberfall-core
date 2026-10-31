@@ -16,6 +16,7 @@
  */
 
 #include "DBCStores.h"
+#include "EmberfallExtraAction.h" // EMBERFALL: the extra action button (PATCHES.md #34)
 #include "GameObjectAI.h"
 #include "Log.h"
 #include "ObjectMgr.h"
@@ -472,6 +473,11 @@ void WorldSession::HandleCastSpellOpcode(WorldPacket& recvPacket)
                     allow = true;
                 }
             }
+
+            // EMBERFALL: the extra action button (PATCHES.md #34): a spell a marker aura grants the player for a while
+            // (mod-emberfall; with no check set, as upstream). Its own checks (range, target, cooldown) still apply.
+            if (!allow && !spellInfo->IsPassive() && Emberfall::ExtraAction::Granted(mover->ToPlayer(), spellId))
+                allow = true;
 
             /// @todo: Preparation for #23204
             // allow casting of spells triggered by clientside periodic trigger auras

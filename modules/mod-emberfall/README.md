@@ -498,3 +498,18 @@ the target with the spell itself (`SpellInfo::GetAuraRankForLevel` returns it fo
 | File | What |
 |---|---|
 | `src/emberfall_aura_scaling.cpp` | `emberfall_aura_scaling` (`OnScaleAuraUnitAdd`: the target scaled for an `ALLOW_LOW_LEVEL_BUFF` spell) |
+
+## Extra action button (Emberfall `docs/contributing/quests.md` "Moments: the extra action button")
+
+A quest moment (an escortee who sits down and wants a hand up) gives the players one spell for a while on the
+Emberfall client's extra action button. The protocol is an aura: a marker aura's dummy effect with the misc value
+`0x45464541` ("EFEA") carries the granted spell as its trigger spell; the content pipeline's SmartAI casts the marker on
+the players and removes it (`remove_aura`), and its duration ends it anyway. The player never learned the spell, so the
+core asks this module before it drops the cast (PATCHES.md #34): the cast goes through while the player carries a marker
+granting that spell, and then runs with its own checks. Nothing else: granting and taking are data. On with
+`Emberfall.OwnData = 1`.
+
+| File | What |
+|---|---|
+| `src/extraaction/EfExtraActionLogic.h` | pure: the marker number, which aura effect grants which spell (`tests/extraaction_tests.cpp`) |
+| `src/emberfall_extra_action.cpp` | sets the core's `Emberfall::ExtraAction` check (`EmberfallExtraAction.h`): the player's `SPELL_AURA_DUMMY` effects, a marker's trigger spell |
