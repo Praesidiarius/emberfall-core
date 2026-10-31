@@ -795,10 +795,38 @@ namespace Emberfall::ClassKit
         return take;
     }
 
+    // The charge aura of a spell with charges (spell_ef_kit_charges: a dummy whose trigger is a stacking aura whose effect 1
+    // misc names the spell), or 0.
+    uint32 ChargeAuraOf(uint32 spell)
+    {
+        SpellInfo const* info = spell ? sSpellMgr->GetSpellInfo(spell) : nullptr;
+        if (!info)
+            return 0;
+        for (SpellEffectInfo const& eff : info->Effects)
+        {
+            SpellInfo const* aura = eff.TriggerSpell ? sSpellMgr->GetSpellInfo(eff.TriggerSpell) : nullptr;
+            if (eff.Effect == SPELL_EFFECT_DUMMY && eff.MiscValue && aura && aura->StackAmount > 1
+                && uint32(aura->Effects[EFFECT_0].MiscValue) == spell)
+                return eff.TriggerSpell;
+        }
+        return 0;
+    }
+
     int32 ShortenCooldown(Unit* caster, uint32 spell, int32 cutMs)
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || !spell || !player->HasSpellCooldown(spell))
+        if (!player || !spell || cutMs <= 0)
+            return 0;
+        // a spell with charges (the Spirit Caller's v2.0: Spirit Swiftness on the Rabbit's charges): while one recharges the
+        // cut goes to it, and with none at hand the cooldown moves with it (ShortenCharge)
+        if (uint32 const charges = ChargeAuraOf(spell))
+            if (Aura const* recharging = player->GetAura(charges, player->GetGUID()))
+            {
+                int32 const take = std::min(cutMs, std::max(0, recharging->GetDuration()));
+                ShortenCharge(player, spell, charges, cutMs);
+                return take;
+            }
+        if (!player->HasSpellCooldown(spell))
             return 0;
         int32 const take = Logic::CooldownCut(cutMs, int32(player->GetSpellCooldownDelay(spell)));
         if (take > 0)

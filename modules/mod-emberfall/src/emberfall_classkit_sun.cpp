@@ -170,7 +170,14 @@ namespace Emberfall::ClassKit
             return 0;
         Aura* aura = player->GetAura(chargeAura, player->GetGUID());
         if (!aura)
-            return 0;   // every charge at hand: the restore is lost
+        {
+            // every charge at hand (the restore is lost), or the spell's charges not in force (one charge without its
+            // talent: the Spirit Caller's Bear Claw before Twin Spirits): its own cooldown ends (Relentless Bear)
+            if (!player->HasSpellCooldown(spell))
+                return 0;
+            player->RemoveSpellCooldown(spell, true);
+            return 1;
+        }
         uint32 const recharging = aura->GetStackAmount();
         uint32 const after = SL::RechargingAfterRestore(recharging, count);
         if (!after)

@@ -11,7 +11,8 @@
 # (tests/editor_tests.cpp: src/editor/EfEditorLogic.h, the EFE requests, the rules, rates, ops and a decode fuzz) and the
 # class kit tests (tests/classkit_tests.cpp: src/classkit/EfClassKitLogic.h, the self stacks' cap, gains and refunds) and
 # the Sunwarden's (tests/classkit_sun_tests.cpp: src/classkit/EfClassKitSunLogic.h) and the Barbarian's
-# (tests/classkit_lust_tests.cpp: src/classkit/EfLustLogic.h) and the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates)
+# (tests/classkit_lust_tests.cpp: src/classkit/EfLustLogic.h) and the Spirit Caller's v2.0
+# (tests/classkit_spirit_tests.cpp: src/classkit/EfSpiritLogic.h) and the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates)
 # and the quest loot tests (tests/questloot_tests.cpp: src/questloot/EfQuestLootLogic.h, personal quest objects' lockouts)
 # and the test zone tests (tests/testzone_tests.cpp: src/testzone/EfTestZoneLogic.h, `.eftest zone`'s route and plan)
 # and the meter tests (tests/meter_tests.cpp: src/meter/EfMeterLogic.h, the damage meter's fights, attribution, maths, EFM)
@@ -70,6 +71,7 @@ editor ../src/talents:../src/editor editor_tests.cpp
 classkit ../src/classkit classkit_tests.cpp
 classkitsun ../src/classkit classkit_sun_tests.cpp
 classkitlust ../src/classkit classkit_lust_tests.cpp
+classkitspirit ../src/classkit classkit_spirit_tests.cpp
 gmcommands ../src/gmcommands gmcommand_tests.cpp
 questloot ../src/questloot questloot_tests.cpp
 testzone ../src/testzone testzone_tests.cpp
