@@ -176,6 +176,9 @@ services:
       # an open-world creature's respawn times RATE / players in its zone when below 1, never under MINIMUM seconds.
       AC_RESPAWN_DYNAMIC_RATE_CREATURE: "${EF_RESPAWN_DYNAMIC_RATE:-1.5}"
       AC_RESPAWN_DYNAMIC_MINIMUM_CREATURE: "${EF_RESPAWN_DYNAMIC_MINIMUM:-45}"
+      # The etc mount keeps a worldserver.conf from before the upstream sync (DisconnectToleranceInterval 0); upstream
+      # now refuses under 20 with an ERROR line, so its default, 60, set here.
+      AC_DISCONNECT_TOLERANCE_INTERVAL: "60"
       # Level and category prefix on every console line ("ERROR [sql.sql] ..."), for Emberfall's
       # log check (emberfall_content.checks.server_log).
       AC_APPENDER_CONSOLE: "1,4,6"
