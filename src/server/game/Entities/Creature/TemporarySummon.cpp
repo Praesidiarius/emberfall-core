@@ -23,6 +23,7 @@
 #include "Pet.h"
 #include "Player.h"
 #include "ScriptMgr.h"
+#include "Vehicle.h"
 
 TempSummon::TempSummon(SummonPropertiesEntry const* properties, ObjectGuid owner) :
     Creature(), m_Properties(properties), m_type(TEMPSUMMON_MANUAL_DESPAWN),
@@ -256,6 +257,15 @@ void TempSummon::InitStats(uint32 duration)
 
 void TempSummon::InitSummon()
 {
+    // Emberfall (PATCHES.md #33): a summoned vehicle seats its accessories (vehicle_template_accessory) here, before
+    // its summoner's and its own summon hooks run. A spawned vehicle installs them on its first update
+    // (Creature::Update's TriggerJustRespawned), which skips temp summons, so a summoned one (a ride quest's cart,
+    // feedback #233) came without its driver and horse. First, so that a passenger seated by the hooks below (the
+    // summon's rider) is not set down by the first install's RemoveAllPassengers.
+    if (Vehicle* vehicle = GetVehicleKit())
+        if (IsAlive())
+            vehicle->Reset();
+
     WorldObject* owner = GetSummoner();
     if (owner)
     {
