@@ -318,7 +318,8 @@ static void fuzz()
         }
         auto f = fields(s);
         (void)parseAdd(f), (void)parseMove(f), (void)parseSet(f), (void)parseDel(f), (void)parseScan(f);
-        (void)fromJson(s), (void)decodeMarker(s), (void)decimal(s), (void)parseZones(s);
+        (void)fromJson(s), (void)decodeMarker(s), (void)decimal(s), (void)parseZones(s), (void)decodePath(s);
+        (void)parsePaint(f), (void)parseRoad(f), (void)parseSculpt(f);
         if (auto m = parseMove(f))
             CHECK(std::isfinite(m->pos.x) && std::isfinite(m->pos.o) && m->pos.o >= 0 && m->pos.o < 6.2832f);
     }
@@ -364,8 +365,123 @@ static void role()
     CHECK(f.size() == 4 && ef::eft::split(f[1], ',').size() == many.size() - dropped);
 }
 
+// Step 3 (world-editor.md §20): ground strokes, roads and height stamps.
+static Op groundOp(uint32_t seq, Kind kind, uint32_t group, bool undone = false)
+{
+    Op op;
+    op.seq = seq, op.op = OpKind::Add, op.kind = kind, op.target = seq, op.undone = undone;
+    op.to["g"] = Value::of(group);
+    return op;
+}
+
+static void ground()
+{
+    // paths: the first point absolute (one decimal), then decimetres
+    auto p = decodePath("-283.4,101.9|12,-5|0,30");
+    CHECK(p && p->size() == 3);
+    if (p && p->size() == 3)
+    {
+        CHECK(std::fabs((*p)[1].x + 282.2f) < 1e-3f && std::fabs((*p)[1].y - 101.4f) < 1e-3f);
+        CHECK(std::fabs((*p)[2].y - 104.4f) < 1e-3f);
+        CHECK(encodePath(*p) == "-283.4,101.9|12,-5|0,30");
+    }
+    CHECK(encodePath({{-0.04f, 3.06f}, {1.0f, 3.0f}}) == "0.0,3.1|10,-1");
+    CHECK(!decodePath(""));
+    CHECK(!decodePath("1,2|601,0"));        // a step over 60 yd
+    CHECK(!decodePath("1,2|1.5,0"));        // deltas are whole decimetres
+    CHECK(!decodePath("1,2|a,0"));
+    CHECK(!decodePath("1;2"));
+    std::string many = "0,0";
+    for (int i = 1; i < 40; ++i)
+        many += "|1,1";
+    CHECK(decodePath(many) && !decodePath(many + "|1,1"));
+
+    auto paint = parsePaint(fields("1;9;PAINT;dirt;4.0;0.60;0.50;12;-283.4,101.9|12,-5"));
+    CHECK(paint && paint->kind == Kind::Ground && paint->layer == "dirt" && paint->group == 12 && paint->pts.size() == 2);
+    CHECK(paint && checkStroke(*paint, GroundLimits{}) == Code::Ok);
+    CHECK(!parsePaint(fields("1;9;PAINT;Dirt;4.0;0.60;0.50;12;-283.4,101.9")));       // layer names are lower case
+    CHECK(!parsePaint(fields("1;9;PAINT;dirt;4.0;0.60;0.50;12")));
+    auto tooBig = parsePaint(fields("1;9;PAINT;dirt;40.0;0.60;0.50;0;0,0"));
+    CHECK(tooBig && checkStroke(*tooBig, GroundLimits{}) == Code::Value);
+    auto weak = parsePaint(fields("1;9;PAINT;dirt;4;0.01;0.5;0;0,0"));
+    CHECK(weak && checkStroke(*weak, GroundLimits{}) == Code::Value);
+    auto longLine = parsePaint(fields("1;9;PAINT;dirt;4;0.5;0.5;0;0,0|600,0|600,0|600,0|600,0|600,0"));
+    CHECK(longLine && checkStroke(*longLine, GroundLimits{}) == Code::Distance);   // 300 yd > 250
+
+    auto road = parseRoad(fields("1;9;ROAD;cobble;track;3;10,10|100,0"));
+    CHECK(road && road->kind == Kind::Road && road->cls == "track" && std::fabs(road->radius - 2.5f) < 1e-6f);
+    CHECK(!parseRoad(fields("1;9;ROAD;cobble;lane;3;10,10|100,0")));
+    auto onePoint = parseRoad(fields("1;9;ROAD;cobble;path;3;10,10"));
+    CHECK(onePoint && checkStroke(*onePoint, GroundLimits{}) == Code::Value);
+
+    auto raise = parseSculpt(fields("1;9;SCULPT;raise;8.0;0.50;-;0;-290.1,96.0"));
+    CHECK(raise && raise->kind == Kind::Height && raise->mode == Sculpt::Raise && !raise->height);
+    auto flat = parseSculpt(fields("1;9;SCULPT;flatten;8.0;0.50;41.2;0;-290.1,96.0"));
+    CHECK(flat && flat->height && std::fabs(*flat->height - 41.2f) < 1e-4f);
+    CHECK(!parseSculpt(fields("1;9;SCULPT;flatten;8.0;0.50;-;0;-290.1,96.0")));     // flatten needs its height
+    CHECK(!parseSculpt(fields("1;9;SCULPT;dig;8.0;0.50;-;0;-290.1,96.0")));
+    auto tiny = parseSculpt(fields("1;9;SCULPT;lower;1.0;0.50;-;0;0,0"));
+    CHECK(tiny && checkStroke(*tiny, GroundLimits{}) == Code::Value);
+
+    // stored and read back (ef_op.to_json), and the GND message every client gets
+    for (auto const& s : {*paint, *road, *flat})
+    {
+        Fields const to = strokeFields(s, 0);
+        auto back = fromJson(toJson(to));
+        CHECK(back.has_value());
+        auto again = back ? strokeOf(s.kind, *back) : std::nullopt;
+        CHECK(again && again->pts.size() == s.pts.size() && again->layer == s.layer && again->cls == s.cls);
+        if (again)
+            CHECK(encodePath(again->pts) == encodePath(s.pts) && std::fabs(again->radius - s.radius) < 1e-4f);
+        std::string const body = groundBody(42, 17, "dm", 0, s, "Elderwood/" + s.layer);
+        CHECK(!body.empty() && body.size() <= ef::eft::kMaxBody);
+        auto f = ef::eft::split(body, ';');
+        CHECK(f.size() > 7 && f[2] == "GND" && f[3] == "42" && f[4] == "17" && f[5] == "dm" && f[6] == "0");
+    }
+    CHECK(!strokeOf(Kind::Creature, strokeFields(*paint, 0)));
+    // the client fills a request up to kMaxGroundRequest bytes (net/EfEditorSync): its GND still fits one message,
+    // with the longest layer and tileset names, the biggest set and seq numbers
+    std::string line = "-12345.6,-1234.5", req;
+    for (int i = 1;; ++i)
+    {
+        std::string const next = line + "|-123,-45";
+        if (ef::eft::body(9999, "PAINT", {"forest_floor_with_moss_x", "16.0", "1.00", "0.50", "9999", next}).size() > kMaxGroundRequest ||
+            i >= int(kMaxGroundPoints))
+            break;
+        line = next;
+    }
+    auto full = parsePaint(fields(ef::eft::body(9999, "PAINT", {"forest_floor_with_moss_x", "16.0", "1.00", "0.50", "9999", line})));
+    CHECK(full && full->pts.size() > 12);
+    if (full)
+        CHECK(!groundBody(9999, 9999, "dm", 1, *full, "Elderwood/forest_floor_with_moss_x").empty());
+
+    // tiles as the client's data::tileAt: x north, y west
+    CHECK(tileOf(0.0f, 0.0f) == std::make_pair(32, 32));
+    CHECK(tileOf(-283.4f, 101.9f) == std::make_pair(31, 32));
+    CHECK(tileOf(1e9f, -1e9f) == std::make_pair(63, 0));
+
+    // undo and redo take a line's whole group; strokes are not objects (no lock, not in netObjects)
+    std::vector<Op> ops{groundOp(1, Kind::Ground, 5), groundOp(2, Kind::Ground, 7), groundOp(3, Kind::Ground, 7),
+                        groundOp(4, Kind::Ground, 7)};
+    auto u = undoRange(ops);
+    CHECK(u && u->first == 1 && u->second == 3);
+    for (size_t i = 1; i <= 3; ++i)
+        ops[i].undone = true;
+    CHECK(groundCount(ops) == 1);
+    auto r = redoRange(ops);
+    CHECK(r && r->first == 1 && r->second == 3);
+    std::vector<Op> loose{groundOp(1, Kind::Ground, 0), groundOp(2, Kind::Ground, 0)};
+    auto u2 = undoRange(loose);
+    CHECK(u2 && u2->first == 1 && u2->second == 1);   // group 0: one stroke at a time
+    std::vector<Op> mixed{groundOp(1, Kind::Ground, 3), groundOp(2, Kind::Height, 3)};
+    auto u3 = undoRange(mixed);
+    CHECK(u3 && u3->first == 1);                       // another kind ends the group
+    CHECK(netObjects(ops) == 0);
+}
+
 int main()
 {
+    ground();
     numbers();
     requests();
     rules();

@@ -53,6 +53,7 @@
 #include "SharedDefines.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include "WorldSessionMgr.h"
 
 #include <chrono>
 #include <ctime>
@@ -546,7 +547,8 @@ namespace Emberfall::Editor
         {
             std::set<std::pair<char, uint32>> targets;
             for (Op const& op : cs.ops)
-                targets.insert({char(op.kind), op.target});
+                if (!isGround(op.kind))
+                    targets.insert({char(op.kind), op.target});
             for (auto const& [k, id] : targets)
                 RebuildTarget(k, id);
         }
@@ -674,6 +676,16 @@ namespace Emberfall::Editor
             {
                 Op const& op = cs.ops[i];
                 std::string detail;
+                if (isGround(op.kind))
+                {
+                    // a stroke: <layer|mode>:<radius|class>:<length yd>
+                    if (auto st = strokeOf(op.kind, op.to))
+                        detail = (op.kind == Kind::Height ? std::string(sculptName(st->mode)) : st->layer) + ":" +
+                                 (op.kind == Kind::Road ? st->cls : fixed(st->radius, 1)) + ":" + fixed(pathLength(st->pts), 0);
+                    entries.push_back(std::to_string(op.seq) + ",add," + std::string(1, char(op.kind)) + "," +
+                                      std::to_string(op.target) + ",0," + detail + "," + (op.undone ? "1" : "0"));
+                    continue;
+                }
                 if (op.op == OpKind::Move)
                 {
                     auto a = posOf(op.from), b = posOf(op.to);
@@ -738,7 +750,7 @@ namespace Emberfall::Editor
             std::set<std::pair<char, uint32>> done;
             for (Op const& op : cs.ops)
             {
-                if (!done.insert({char(op.kind), op.target}).second)
+                if (isGround(op.kind) || !done.insert({char(op.kind), op.target}).second)
                     continue;
                 Pos at = posOf(op.to).value_or(posOf(op.from).value_or(Pos{}));
                 uint32 mapId = 0;
@@ -768,8 +780,8 @@ namespace Emberfall::Editor
             for (size_t i = cs.ops.size(); i-- > 0;)
             {
                 Op const& op = cs.ops[i];
-                if (op.undone)
-                    continue;
+                if (op.undone || isGround(op.kind))
+                    continue;   // a stroke never changed the server's world (GroundSyncSet takes it off the clients)
                 Op const inv = inverse(op);
                 CreatureData const* d = sObjectMgr->GetCreatureData(op.target);
                 uint32 const mapId = d ? d->mapid : 0;
@@ -786,6 +798,244 @@ namespace Emberfall::Editor
                 " VALUES ({}, {}, '{}', '{}', {}, {}, '{}', '{}', NOW(), 0)",
                 cs.id, op.seq, opName(op.op), std::string(1, char(op.kind)), op.target,
                 op.tempId ? std::to_string(op.tempId) : std::string("NULL"), Escaped(toJson(op.from)), Escaped(toJson(op.to)));
+        }
+
+        // --------------------------------------------------------------------------------------- ground (step 3, §20)
+
+        // Ground strokes (kinds l, r, h) change nothing on the server: they are kept by tile and streamed to every
+        // player's client (GND), which paints them over its own ground (a ghost for heights) until a release bakes them.
+        // A maintainer's (live) and an accepted set's strokes go to everyone; a contributor's draft only to the editors
+        // with the editor open. Every player keeps, per tile, the newest stroke it has been sent (a serial), so a player
+        // walking into a tile gets what it lacks, a few dozen messages a second at most.
+        std::map<std::string, std::map<std::string, std::string>> s_layers;   // zone -> paintable layer -> tileset
+        struct GroundRec
+        {
+            uint32 cs = 0, seq = 0, owner = 0, map = 0;
+            std::pair<int32, int32> tile;
+            uint64 serial = 0;
+            bool draft = false;
+            Stroke stroke;
+            std::string token;      // <tileset>/<layer> (l, r)
+        };
+        using GroundKey = std::pair<uint32, uint32>;                        // (cs, seq)
+        using TileKey = std::tuple<uint32, int32, int32>;                    // (map, tile x, tile y)
+        std::map<GroundKey, GroundRec> s_ground;
+        std::map<TileKey, std::map<uint64, GroundKey>> s_groundTiles;
+        uint64 s_groundSerial = 0;
+        uint32 s_nextGround = 1;
+        std::map<uint32, std::pair<Window, Window>> s_groundRates;           // account -> (minute, day)
+        constexpr uint32 kGroundBudget = 60;                                 // GND messages per player and second
+        constexpr char const* kGroundKey = "emberfall_editor_ground";
+
+        class GroundView : public DataMap::Base
+        {
+        public:
+            uint32 map = UINT32_MAX;
+            bool viewer = false;
+            std::map<std::pair<int32, int32>, uint64> tiles;   // tile -> newest serial sent
+        };
+
+        GroundView& GroundViewOf(Player* p) { return *p->CustomData.GetDefault<GroundView>(kGroundKey); }
+
+        bool Frozen(uint32 account)
+        {
+            auto acc = s_access.find(account);
+            return !s_config.local && acc != s_access.end() && acc->second.frozen;
+        }
+
+        // Whether a set's strokes are shown at all: accepted (not yet released) or open, and its owner not frozen.
+        bool GroundShown(ChangeSet const& cs) { return state::replayed(cs.state) && !Frozen(cs.owner); }
+
+        std::string GroundToken(std::string const& zone, Stroke const& s)
+        {
+            if (s.kind == Kind::Height)
+                return {};
+            auto z = s_layers.find(zone);
+            std::string tileset = "Accord";
+            if (z != s_layers.end())
+                if (auto l = z->second.find(s.layer); l != z->second.end() && !l->second.empty())
+                    tileset = l->second;
+            return tileset + "/" + s.layer;
+        }
+
+        std::string GroundFlags(GroundRec const& r, uint32 viewer)
+        {
+            std::string f;
+            if (r.draft)
+                f += 'd';
+            if (r.owner == viewer)
+                f += 'm';
+            return f.empty() ? std::string("-") : f;
+        }
+
+        void SendGround(Player* p, GroundRec const& r)
+        {
+            std::string const body = groundBody(r.cs, r.seq, GroundFlags(r, p->GetSession()->GetAccountId()), r.map, r.stroke, r.token);
+            if (!body.empty())
+                SendBody(p, body);
+        }
+
+        // Players on `map` whose client has this tile (it was sent to them).
+        template <class F> void ForTileTrackers(uint32 map, std::pair<int32, int32> tile, F&& f)
+        {
+            for (auto const& [account, session] : sWorldSessionMgr->GetAllSessions())
+            {
+                Player* p = session ? session->GetPlayer() : nullptr;
+                if (!p || !p->IsInWorld() || p->GetMapId() != map)
+                    continue;
+                GroundView& v = GroundViewOf(p);
+                if (v.map != map)
+                    continue;
+                if (auto it = v.tiles.find(tile); it != v.tiles.end())
+                    f(p, v, it->second);
+            }
+        }
+
+        void GroundErase(GroundKey key)
+        {
+            auto it = s_ground.find(key);
+            if (it == s_ground.end())
+                return;
+            GroundRec const r = it->second;
+            s_groundTiles[{r.map, r.tile.first, r.tile.second}].erase(r.serial);
+            s_ground.erase(it);
+            std::string const body = eft::body(0, "GNDX", {std::to_string(key.first), std::to_string(key.second)});
+            ForTileTrackers(r.map, r.tile, [&](Player* p, GroundView&, uint64&) { SendBody(p, body); });
+        }
+
+        // A stroke into the index with a new serial; the players up to date in its tile get it at once (the painter
+        // among them), the others with the next tick.
+        void GroundInsert(GroundRec r)
+        {
+            TileKey const tk{r.map, r.tile.first, r.tile.second};
+            auto& tile = s_groundTiles[tk];
+            uint64 const prev = tile.empty() ? 0 : tile.rbegin()->first;
+            r.serial = ++s_groundSerial;
+            tile[r.serial] = {r.cs, r.seq};
+            GroundRec const& stored = s_ground[{r.cs, r.seq}] = r;
+            ForTileTrackers(r.map, r.tile, [&](Player* p, GroundView& v, uint64& last) {
+                if (last < prev)
+                    return;   // behind in this tile: the tick sends everything in order
+                if (!stored.draft || v.viewer)
+                    SendGround(p, stored);
+                last = stored.serial;
+            });
+        }
+
+        // The index made to match a set (after any change: a stroke, undo, redo, withdraw, a review state, a freeze):
+        // strokes gone are erased (GNDX to the clients that had them), new ones or ones whose draft state changed
+        // (accepted: now everyone's) go in with a new serial (at start nobody tracks a tile yet).
+        void GroundSyncSet(ChangeSet const& cs)
+        {
+            bool const shown = GroundShown(cs), draft = !Live(cs);
+            std::set<uint32> want;
+            for (Op const& op : cs.ops)
+            {
+                if (!isGround(op.kind) || op.undone || !shown)
+                    continue;
+                want.insert(op.seq);
+                auto it = s_ground.find({cs.id, op.seq});
+                if (it != s_ground.end() && it->second.draft == draft)
+                    continue;
+                auto stroke = strokeOf(op.kind, op.to);
+                if (!stroke)
+                {
+                    LOG_ERROR("module", "Emberfall.Editor: {} op {} is no stroke; skipped", CsName(cs.id), op.seq);
+                    continue;
+                }
+                if (it != s_ground.end())
+                {
+                    // accepted (or back to a draft): silently out of the index, then in with a new serial
+                    s_groundTiles[{it->second.map, it->second.tile.first, it->second.tile.second}].erase(it->second.serial);
+                    s_ground.erase(it);
+                }
+                GroundRec r;
+                r.cs = cs.id, r.seq = op.seq, r.owner = cs.owner, r.draft = draft, r.stroke = *stroke;
+                auto m = op.to.find("map");
+                r.map = m != op.to.end() ? uint32(m->second.number) : 0;
+                r.tile = tileOf(stroke->pts.front().x, stroke->pts.front().y);
+                r.token = GroundToken(cs.zone, *stroke);
+                GroundInsert(std::move(r));
+            }
+            std::vector<GroundKey> gone;
+            for (auto it = s_ground.lower_bound({cs.id, 0}); it != s_ground.end() && it->first.first == cs.id; ++it)
+                if (!want.count(it->first.second))
+                    gone.push_back(it->first);
+            for (GroundKey const& k : gone)
+                GroundErase(k);
+        }
+
+        // Every second, for every player in the world: a new map forgets every stroke (GNDX;*;*), an editor opening the
+        // editor gets its tiles again with the drafts; then the strokes of the 3x3 tiles around it it lacks.
+        void GroundTick()
+        {
+            for (auto const& [account, session] : sWorldSessionMgr->GetAllSessions())
+            {
+                Player* p = session ? session->GetPlayer() : nullptr;
+                if (!p || !p->IsInWorld() || p->IsBeingTeleported())
+                    continue;
+                GroundView& v = GroundViewOf(p);
+                bool const viewer = Viewing(p);
+                if (v.map != p->GetMapId())
+                {
+                    if (v.map != UINT32_MAX || !s_ground.empty())
+                        SendBody(p, eft::body(0, "GNDX", {"*", "*"}));
+                    v.map = p->GetMapId();
+                    v.tiles.clear();
+                }
+                if (viewer != v.viewer)
+                {
+                    v.viewer = viewer;
+                    if (viewer)
+                        v.tiles.clear();   // send again, with the drafts this time (the client keeps a stroke once)
+                }
+                auto const [tx, ty] = tileOf(p->GetPositionX(), p->GetPositionY());
+                uint32 budget = kGroundBudget;
+                for (int32 dy = -1; dy <= 1 && budget; ++dy)
+                    for (int32 dx = -1; dx <= 1 && budget; ++dx)
+                    {
+                        std::pair<int32, int32> const tile{tx + dx, ty + dy};
+                        uint64& last = v.tiles[tile];
+                        auto t = s_groundTiles.find({v.map, tile.first, tile.second});
+                        if (t == s_groundTiles.end())
+                            continue;
+                        for (auto it = t->second.upper_bound(last); it != t->second.end() && budget; ++it)
+                        {
+                            last = it->first;
+                            auto r = s_ground.find(it->second);
+                            if (r == s_ground.end() || (r->second.draft && !viewer))
+                                continue;
+                            SendGround(p, r->second);
+                            --budget;
+                        }
+                    }
+            }
+        }
+
+        // The layers each zone may paint (GLAY), for an editor.
+        void SendLayers(Player* player)
+        {
+            for (auto const& [zone, layers] : s_layers)
+            {
+                std::vector<std::string> list;
+                for (auto const& [name, tileset] : layers)
+                    list.push_back(name);
+                for (std::string const& body : pages("GLAY", {zone}, list, 8))
+                    SendBody(player, body);
+            }
+        }
+
+        bool GroundRateAllows(uint32 account, Level level, uint64 now, bool record)
+        {
+            GroundLimits const gl;
+            uint32 const k = s_config.local || level == Level::Maintainer ? 100000 : level == Level::Reviewer ? 10 : 1;
+            auto it = s_groundRates.try_emplace(account, Window{gl.perMinute, 60000}, Window{gl.perDay, 86400000}).first;
+            it->second.first.setLimit(gl.perMinute * k), it->second.second.setLimit(gl.perDay * k);
+            if (it->second.first.full(now) || it->second.second.full(now))
+                return false;
+            if (record)
+                it->second.first.add(now), it->second.second.add(now);
+            return true;
         }
 
         // --------------------------------------------------------------------------------------- validation (§6.3)
@@ -1154,6 +1404,78 @@ namespace Emberfall::Editor
             }
         }
 
+        // PAINT, ROAD, SCULPT (§20): a stroke of the zone's ground, validated (zone, layer, presence, ranges, the line's
+        // shape, the set's and the realm's caps, the rate) and stored; the server's ground stays the release's.
+        template <class Refuse>
+        void HandleGround(Player* player, Session& s, Access const& a, eft::Request const& rq, Refuse const& refuse)
+        {
+            uint32 const seq = rq.seq;
+            std::optional<Stroke> stroke = rq.cmd == "PAINT" ? parsePaint(rq.fields) : rq.cmd == "ROAD" ? parseRoad(rq.fields) : parseSculpt(rq.fields);
+            if (!stroke)
+                return refuse(Code::Decode, "");
+            GroundLimits const gl;
+            if (Code c = checkStroke(*stroke, gl); c != Code::Ok)
+                return refuse(c, "");
+            Code code = Code::Ok;
+            ChangeSet* cs = ActiveSet(player, s, code);
+            if (!cs && code == Code::Set)
+                cs = AutoSet(player, s, a, code);
+            if (!cs)
+                return refuse(code, "");
+            ZoneInfo const& zone = s_zones[cs->zone];
+            if (player->GetMapId() != zone.map)
+                return refuse(Code::Presence, "");
+            if (stroke->kind != Kind::Height)
+            {
+                auto layers = s_layers.find(cs->zone);
+                if (layers == s_layers.end() || !layers->second.count(stroke->layer))
+                    return refuse(Code::Whitelist, "layer");
+            }
+            for (Point const& p : stroke->pts)
+            {
+                if (player->GetExactDist2d(p.x, p.y) > kPresence)
+                    return refuse(Code::Presence, "");
+                ZoneInfo const* at = ZoneAt(zone.map, {p.x, p.y, player->GetPositionZ(), 0});
+                if (!at || at->key != cs->zone)
+                    return refuse(Code::Zone, "");
+            }
+            if (stroke->kind == Kind::Height && stroke->height)
+            {
+                Point const& p0 = stroke->pts.front();
+                float const ground = player->GetMap()->GetHeight(player->GetPhaseMask(), p0.x, p0.y, player->GetPositionZ() + 50.0f, true, 200.0f);
+                if (!std::isfinite(ground) || ground < -4000.0f || std::fabs(*stroke->height - ground) > gl.flattenReach)
+                    return refuse(Code::Ground, "");
+            }
+            if (groundCount(cs->ops) + 1 > gl.perSet)
+                return refuse(Code::Limit, "strokes per set");
+            if (s_ground.size() >= gl.realmCap)
+                return refuse(Code::Limit, "strokes on the realm");
+            uint32 const account = player->GetSession()->GetAccountId();
+            uint64 const now = NowMs();
+            if (!GroundRateAllows(account, a.level, now, false))
+                return refuse(Code::Rate, "");
+            if (groundBody(cs->id, 9999, "dm", zone.map, *stroke, GroundToken(cs->zone, *stroke)).empty())
+                return refuse(Code::Decode, "too long");
+            GroundRateAllows(account, a.level, now, true);
+            Op op;
+            op.op = OpKind::Add;
+            op.kind = stroke->kind;
+            op.target = s_nextGround++;
+            op.to = strokeFields(*stroke, zone.map);
+            op.seq = cs->ops.empty() ? 1 : cs->ops.back().seq + 1;
+            op.createdMs = now;
+            if (cs->firstOpMs == 0)
+                cs->firstOpMs = now;
+            cs->ops.push_back(op);
+            StoreOp(*cs, op);
+            GroundSyncSet(*cs);
+            SendSet(player, *cs);
+            SendOps(player, *cs);
+            SendOk(player, seq, std::to_string(op.seq));
+            Audit(player, rq.cmd, Code::Ok, {{"cs", Value::of(cs->id)}, {"seq", Value::of(op.seq)},
+                {"points", Value::of(double(stroke->pts.size()))}});
+        }
+
         void Handle(Player* player, Session& s, Access const& a, eft::Request const& rq)
         {
             uint32 const seq = rq.seq;
@@ -1225,6 +1547,7 @@ namespace Emberfall::Editor
                     cs.state = std::string(state::Withdrawn);
                     StoreState(cs);
                     Unlock(cs.id);
+                    GroundSyncSet(cs);
                     if (s.active == cs.id)
                         s.active = 0;
                     SendSet(player, cs);
@@ -1270,6 +1593,26 @@ namespace Emberfall::Editor
                 auto index = undo ? undoIndex(cs.ops) : redoIndex(cs.ops);
                 if (!index)
                     return refuse(Code::Unknown, undo ? "nothing to undo" : "nothing to redo");
+                if (isGround(cs.ops[*index].kind))
+                {
+                    // a stroke, with the rest of its line (group): nothing on the server, the clients drop or get it
+                    auto range = undo ? undoRange(cs.ops) : redoRange(cs.ops);
+                    if (!undo && GroundLimits{}.perSet < groundCount(cs.ops) + (range->second - range->first + 1))
+                        return refuse(Code::Limit, "strokes per set");
+                    for (size_t i = range->first; i <= range->second; ++i)
+                    {
+                        cs.ops[i].undone = undo;
+                        CharacterDatabase.DirectExecute("UPDATE " + Table("ef_op") + " SET `undone` = {} WHERE `changeset_id` = {} AND `seq` = {}",
+                            undo ? 1 : 0, cs.id, cs.ops[i].seq);
+                    }
+                    GroundSyncSet(cs);
+                    SendSet(player, cs);
+                    SendOps(player, cs);
+                    SendOk(player, seq, std::to_string(cs.ops[range->second].target));
+                    Audit(player, rq.cmd, Code::Ok, {{"cs", Value::of(cs.id)}, {"seq", Value::of(cs.ops[range->first].seq)},
+                        {"strokes", Value::of(double(range->second - range->first + 1))}});
+                    return;
+                }
                 Op& op = cs.ops[*index];
                 CreatureData const* d = EffectiveData(op.target);
                 Pos at = d ? Pos{d->posX, d->posY, d->posZ, 0} : posOf(op.from).value_or(posOf(op.to).value_or(Pos{}));
@@ -1288,6 +1631,10 @@ namespace Emberfall::Editor
                 Audit(player, rq.cmd, Code::Ok, {{"cs", Value::of(cs.id)}, {"seq", Value::of(op.seq)}});
                 return;
             }
+
+            // ---- the ground (step 3, §20): PAINT, ROAD, SCULPT
+            if (rq.cmd == "PAINT" || rq.cmd == "ROAD" || rq.cmd == "SCULPT")
+                return HandleGround(player, s, a, rq, refuse);
 
             // ---- the ops: ADD, MOVE, SET, DEL
             if (rq.cmd != "ADD" && rq.cmd != "MOVE" && rq.cmd != "SET" && rq.cmd != "DEL")
@@ -1538,6 +1885,8 @@ namespace Emberfall::Editor
             {
                 auto acc = s_access.find(cs.owner);
                 bool const frozen = !s_config.local && acc != s_access.end() && acc->second.frozen;
+                if (state::open(cs.state))
+                    GroundSyncSet(cs);   // a frozen owner's strokes go off the clients (and come back when thawed)
                 if (frozen && state::open(cs.state))
                 {
                     bool anyLock = false;
@@ -1560,8 +1909,8 @@ namespace Emberfall::Editor
             bool conflict = false;
             for (Op op : cs.ops)
             {
-                if (op.undone)
-                    continue;
+                if (op.undone || isGround(op.kind))
+                    continue;   // strokes: GroundSyncSet (nothing on the server)
                 if (auto fin = finals.find(op.target); fin != finals.end())
                 {
                     if (op.op == OpKind::Add)
@@ -1644,6 +1993,7 @@ namespace Emberfall::Editor
                 }
                 if (st == state::Accepted || st == state::Released)
                     Unlock(cs.id);
+                GroundSyncSet(cs);   // rejected, withdrawn, released: off the clients; accepted: everyone's now
                 if (Player* p = OnlineOwner(cs))
                     SendSet(p, cs);
                 LOG_INFO("module", "Emberfall.Editor: {} is {} (site)", CsName(cs.id), st);
@@ -1676,6 +2026,21 @@ namespace Emberfall::Editor
             for (auto const& [key, info] : s_spawns)
                 if (CreatureData const* d = sObjectMgr->GetCreatureData(key.second))
                     s_release[key.second] = {d->posX, d->posY, d->posZ, d->orientation};
+            // the paintable ground layers (§20; editor_world.sql from 2026-10-31 on): without the table nobody paints
+            s_layers.clear();
+            if (TableExists("ef_editor_layer", true))
+            {
+                if (QueryResult r = WorldDatabase.Query("SELECT `zone`, `layer`, `tileset` FROM `ef_editor_layer`"))
+                    do
+                    {
+                        Field* f = r->Fetch();
+                        std::string const layer = f[1].Get<std::string>();
+                        if (layerName(layer))
+                            s_layers[f[0].Get<std::string>()][layer] = f[2].Get<std::string>();
+                    } while (r->NextRow());
+            }
+            else
+                LOG_WARN("module", "Emberfall.Editor: world table ef_editor_layer is missing (dist/server/editor_world.sql): no ground painting");
         }
 
         // §7.1 and §7.3: every accepted set not yet released (by id), then every open set of an account that is not
@@ -1763,7 +2128,7 @@ namespace Emberfall::Editor
                 else
                 {
                     for (Op const& op : cs->ops)
-                        if (!op.undone)
+                        if (!op.undone && !isGround(op.kind))
                             s_locks[{char(op.kind), op.target}] = cs->id;
                     drafts.push_back(cs);
                 }
@@ -1777,7 +2142,7 @@ namespace Emberfall::Editor
             {
                 std::set<std::pair<char, uint32>> targets;
                 for (Op const& op : cs->ops)
-                    if (!op.undone)
+                    if (!op.undone && !isGround(op.kind))
                         targets.insert({char(op.kind), op.target});
                 bool ok = true;
                 for (auto const& [k, id] : targets)
@@ -1802,10 +2167,17 @@ namespace Emberfall::Editor
 
             // the day's rate windows survive a restart (ops' server timestamps)
             s_rates.clear();
+            s_groundRates.clear();
             uint64 const now = NowMs();
             for (auto const& [id, cs] : s_sets)
                 for (Op const& op : cs.ops)
-                    if (op.createdMs + 86400000 > now)
+                    if (op.createdMs + 86400000 > now && isGround(op.kind))
+                    {
+                        GroundLimits const gl;
+                        auto it = s_groundRates.try_emplace(cs.owner, Window{gl.perMinute, 60000}, Window{gl.perDay, 86400000}).first;
+                        it->second.second.add(op.createdMs);
+                    }
+                    else if (op.createdMs + 86400000 > now)
                     {
                         Rate& r = s_rates[cs.owner];
                         r.day.add(op.createdMs);
@@ -1814,8 +2186,19 @@ namespace Emberfall::Editor
                         if (op.op == OpKind::Delete)
                             r.deletes.add(op.createdMs);
                     }
-            LOG_INFO("server.loading", ">> Emberfall.Editor: {} zone(s), {} editable spawn(s), {} set(s) replayed: {} op(s) applied, {} already in effect, {} conflict(s); {} object(s) of {} draft(s) in the editor phase",
-                s_zones.size(), s_spawns.size(), order.size(), applied, skipped, conflicts, drafted, drafts.size());
+            // the ground strokes (§20): into the index, streamed to the players as they come near
+            s_ground.clear(), s_groundTiles.clear();
+            uint32 maxGround = 0;
+            for (auto const& [id, cs] : s_sets)
+            {
+                for (Op const& op : cs.ops)
+                    if (isGround(op.kind))
+                        maxGround = std::max(maxGround, op.target);
+                GroundSyncSet(cs);
+            }
+            s_nextGround = maxGround + 1;
+            LOG_INFO("server.loading", ">> Emberfall.Editor: {} zone(s), {} editable spawn(s), {} set(s) replayed: {} op(s) applied, {} already in effect, {} conflict(s); {} object(s) of {} draft(s) in the editor phase; {} ground stroke(s) shown",
+                s_zones.size(), s_spawns.size(), order.size(), applied, skipped, conflicts, drafted, drafts.size(), s_ground.size());
         }
     }
 
@@ -1910,6 +2293,7 @@ namespace Emberfall::Editor
                     p->TeleportTo(s.returnMap, s.returnPos.x, s.returnPos.y, s.returnPos.z, s.returnPos.o);
                 }
             }
+            GroundTick();
         }
         s_refreshTimer += diff;
         if (s_refreshTimer < s_config.refreshMs)
@@ -2044,6 +2428,7 @@ namespace Emberfall::Editor
             s.role = true;
             s_editors.insert(player->GetGUID());
             SendRole(player, a);
+            SendLayers(player);
             for (auto const& [id, cs] : s_sets)
                 if (cs.owner == account && (state::open(cs.state) || cs.state == state::Accepted))
                     SendSet(player, cs, id == s.active);
@@ -2073,6 +2458,13 @@ namespace Emberfall::Editor
         lines.push_back(fmt::format("zones {}, editable spawns {}, accounts with access {}, sets live {} ({} open, {} drafts), locks {}, editors online {} ({} with the editor open)",
             s_zones.size(), s_spawns.size(), s_access.size(), s_sets.size(), open, drafts, s_locks.size(), s_editors.size(), s_viewers.size()));
         lines.push_back(fmt::format("editor phase: {} draft copies, {} spawns hidden from viewers", s_copies.size(), s_hidden.size()));
+        size_t draftStrokes = 0, layers = 0;
+        for (auto const& [key, r] : s_ground)
+            draftStrokes += r.draft;
+        for (auto const& [zone, l] : s_layers)
+            layers += l.size();
+        lines.push_back(fmt::format("ground: {} stroke(s) shown ({} drafts) in {} tile(s); {} paintable layer(s) in {} zone(s)",
+            s_ground.size(), draftStrokes, s_groundTiles.size(), layers, s_layers.size()));
         for (auto const& [id, cs] : s_sets)
             lines.push_back(fmt::format("  {} {}{} by {} ({}): {} op(s), {}", CsName(cs.id), cs.state, Live(cs) ? "" : " (draft)", cs.ownerName, cs.owner,
                 cs.ops.size(), cs.title));
