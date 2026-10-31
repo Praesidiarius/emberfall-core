@@ -439,6 +439,8 @@ namespace
             me->SetReactState(REACT_PASSIVE);
             me->SetControlled(true, UNIT_STATE_ROOT);
             Companions::SetKillPriority(me, true);
+            // Its laments are kicked like a boss's casts (the companions keep their kicks for a boss's while one fights).
+            Companions::SetBossMark(me);
             me->SetInCombatWithZone();
             _next = Timers::kLament.first;
         }
