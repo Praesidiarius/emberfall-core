@@ -15,7 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// EMBERFALL: (PATCHES.md #36, Emberfall feedback #251) the quest log of 50 slots. 3.3.5a keeps the quest log in the
+// EMBERFALL: (PATCHES.md #37, Emberfall feedback #251) the quest log of 50 slots. 3.3.5a keeps the quest log in the
 // player's update fields, PLAYER_QUEST_LOG_1_1 .. 25_5 (five words a slot: quest, state, two words of four 16-bit
 // counters, timer), and every later player field follows them, so the protocol has room for 25. Slots 0-24 stay
 // there; slots 25-49 are words of the player's own (Player::m_emberfallQuestLogExt) behind the same accessors

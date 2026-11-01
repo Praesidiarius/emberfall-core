@@ -25,7 +25,7 @@
 #include "CinematicMgr.h"
 #include "DBCStores.h"
 #include "DatabaseEnvFwd.h"
-#include "EmberfallQuestLog.h" // EMBERFALL: (PATCHES.md #36)
+#include "EmberfallQuestLog.h" // EMBERFALL: (PATCHES.md #37)
 #include "EnumFlag.h"
 #include "GroupReference.h"
 #include "InstanceSaveMgr.h"
@@ -620,7 +620,7 @@ enum QuestSlotOffsets
 };
 
 #define MAX_QUEST_OFFSET 5
-// EMBERFALL: (PATCHES.md #36) the quest log's layout: EmberfallQuestLog.h
+// EMBERFALL: (PATCHES.md #37) the quest log's layout: EmberfallQuestLog.h
 static_assert(Emberfall::QuestLog::kSlots == MAX_QUEST_LOG_SIZE && Emberfall::QuestLog::kSlotWords == MAX_QUEST_OFFSET);
 
 enum QuestSlotStateMask
@@ -1516,7 +1516,7 @@ public:
     void ResetSeasonalQuestStatus(uint16 event_id);
 
     [[nodiscard]] uint16 FindQuestSlot(uint32 quest_id) const;
-    // EMBERFALL: (PATCHES.md #36, feedback #251) a quest log of MAX_QUEST_LOG_SIZE (50) slots. Slots 0-24 stay in the
+    // EMBERFALL: (PATCHES.md #37, feedback #251) a quest log of MAX_QUEST_LOG_SIZE (50) slots. Slots 0-24 stay in the
     // update fields PLAYER_QUEST_LOG_1_1 .. 25_5 (the 3.3.5a protocol); slots 25-49 live in m_emberfallQuestLogExt
     // behind the same accessors (mod-emberfall's EFQL channel tells the Emberfall client about them). Every caller goes
     // through these accessors, never the field indexes.
@@ -2890,7 +2890,7 @@ protected:
     uint32 m_ExtraFlags;
 
     QuestStatusMap m_QuestStatus;
-    // EMBERFALL: (PATCHES.md #36) quest log slots 25-49, MAX_QUEST_OFFSET words each as in the update fields
+    // EMBERFALL: (PATCHES.md #37) quest log slots 25-49, MAX_QUEST_OFFSET words each as in the update fields
     std::array<uint32, Emberfall::QuestLog::kExtWords> m_emberfallQuestLogExt{};
     QuestStatusSaveMap m_QuestStatusSave;
 
