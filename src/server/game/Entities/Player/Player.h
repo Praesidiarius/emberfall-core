@@ -25,6 +25,7 @@
 #include "CinematicMgr.h"
 #include "DBCStores.h"
 #include "DatabaseEnvFwd.h"
+#include "EmberfallQuestLog.h" // EMBERFALL: (PATCHES.md #36)
 #include "EnumFlag.h"
 #include "GroupReference.h"
 #include "InstanceSaveMgr.h"
@@ -41,6 +42,7 @@
 #include "TradeData.h"
 #include "Unit.h"
 #include "WorldSession.h"
+#include <array>
 #include <set>
 #include <string>
 #include <vector>
@@ -618,6 +620,8 @@ enum QuestSlotOffsets
 };
 
 #define MAX_QUEST_OFFSET 5
+// EMBERFALL: (PATCHES.md #36) the quest log's layout: EmberfallQuestLog.h
+static_assert(Emberfall::QuestLog::kSlots == MAX_QUEST_LOG_SIZE && Emberfall::QuestLog::kSlotWords == MAX_QUEST_OFFSET);
 
 enum QuestSlotStateMask
 {
@@ -1512,37 +1516,59 @@ public:
     void ResetSeasonalQuestStatus(uint16 event_id);
 
     [[nodiscard]] uint16 FindQuestSlot(uint32 quest_id) const;
-    [[nodiscard]] uint32 GetQuestSlotQuestId(uint16 slot) const { return GetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_ID_OFFSET); }
-    [[nodiscard]] uint32 GetQuestSlotState(uint16 slot)   const { return GetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_STATE_OFFSET); }
-    [[nodiscard]] uint16 GetQuestSlotCounter(uint16 slot, uint8 counter) const { return (uint16)(GetUInt64Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_COUNTS_OFFSET) >> (counter * 16)); }
-    [[nodiscard]] uint32 GetQuestSlotTime(uint16 slot)    const { return GetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_TIME_OFFSET); }
+    // EMBERFALL: (PATCHES.md #36, feedback #251) a quest log of MAX_QUEST_LOG_SIZE (50) slots. Slots 0-24 stay in the
+    // update fields PLAYER_QUEST_LOG_1_1 .. 25_5 (the 3.3.5a protocol); slots 25-49 live in m_emberfallQuestLogExt
+    // behind the same accessors (mod-emberfall's EFQL channel tells the Emberfall client about them). Every caller goes
+    // through these accessors, never the field indexes.
+    [[nodiscard]] uint32 GetQuestSlotField(uint16 slot, uint8 offset) const
+    {
+        Emberfall::QuestLog::Where const where = Emberfall::QuestLog::Locate(slot, offset);
+        if (where.store == Emberfall::QuestLog::Store::Field)
+            return GetUInt32Value(PLAYER_QUEST_LOG_1_1 + where.index);
+        return where.store == Emberfall::QuestLog::Store::Ext ? m_emberfallQuestLogExt[where.index] : 0;
+    }
+    void SetQuestSlotField(uint16 slot, uint8 offset, uint32 value)
+    {
+        Emberfall::QuestLog::Where const where = Emberfall::QuestLog::Locate(slot, offset);
+        if (where.store == Emberfall::QuestLog::Store::Field)
+            SetUInt32Value(PLAYER_QUEST_LOG_1_1 + where.index, value);
+        else if (where.store == Emberfall::QuestLog::Store::Ext)
+            m_emberfallQuestLogExt[where.index] = value;
+    }
+    [[nodiscard]] uint64 GetQuestSlotCounters(uint16 slot) const
+    {
+        return Emberfall::QuestLog::Counters(GetQuestSlotField(slot, QUEST_COUNTS_OFFSET), GetQuestSlotField(slot, QUEST_COUNTS_OFFSET + 1));
+    }
+    [[nodiscard]] uint32 GetQuestSlotQuestId(uint16 slot) const { return GetQuestSlotField(slot, QUEST_ID_OFFSET); }
+    [[nodiscard]] uint32 GetQuestSlotState(uint16 slot)   const { return GetQuestSlotField(slot, QUEST_STATE_OFFSET); }
+    [[nodiscard]] uint16 GetQuestSlotCounter(uint16 slot, uint8 counter) const { return Emberfall::QuestLog::Counter(GetQuestSlotCounters(slot), counter); }
+    [[nodiscard]] uint32 GetQuestSlotTime(uint16 slot)    const { return GetQuestSlotField(slot, QUEST_TIME_OFFSET); }
     void SetQuestSlot(uint16 slot, uint32 quest_id, uint32 timer = 0)
     {
-        SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_ID_OFFSET, quest_id);
-        SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_STATE_OFFSET, 0);
-        SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_COUNTS_OFFSET, 0);
-        SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_COUNTS_OFFSET + 1, 0);
-        SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_TIME_OFFSET, timer);
+        SetQuestSlotField(slot, QUEST_ID_OFFSET, quest_id);
+        SetQuestSlotField(slot, QUEST_STATE_OFFSET, 0);
+        SetQuestSlotField(slot, QUEST_COUNTS_OFFSET, 0);
+        SetQuestSlotField(slot, QUEST_COUNTS_OFFSET + 1, 0);
+        SetQuestSlotField(slot, QUEST_TIME_OFFSET, timer);
     }
     void SetQuestSlotCounter(uint16 slot, uint8 counter, uint16 count)
     {
-        uint64 val = GetUInt64Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_COUNTS_OFFSET);
-        val &= ~((uint64)0xFFFF << (counter * 16));
-        val |= ((uint64)count << (counter * 16));
-        SetUInt64Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_COUNTS_OFFSET, val);
+        uint64 const val = Emberfall::QuestLog::WithCounter(GetQuestSlotCounters(slot), counter, count);
+        SetQuestSlotField(slot, QUEST_COUNTS_OFFSET, uint32(val));
+        SetQuestSlotField(slot, QUEST_COUNTS_OFFSET + 1, uint32(val >> 32));
     }
-    void SetQuestSlotState(uint16 slot, uint32 state) { SetFlag(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_STATE_OFFSET, state); }
-    void RemoveQuestSlotState(uint16 slot, uint32 state) { RemoveFlag(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_STATE_OFFSET, state); }
-    void SetQuestSlotTimer(uint16 slot, uint32 timer) { SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_TIME_OFFSET, timer); }
+    void SetQuestSlotState(uint16 slot, uint32 state) { SetQuestSlotField(slot, QUEST_STATE_OFFSET, GetQuestSlotState(slot) | state); }
+    void RemoveQuestSlotState(uint16 slot, uint32 state) { SetQuestSlotField(slot, QUEST_STATE_OFFSET, GetQuestSlotState(slot) & ~state); }
+    void SetQuestSlotTimer(uint16 slot, uint32 timer) { SetQuestSlotField(slot, QUEST_TIME_OFFSET, timer); }
     void SwapQuestSlot(uint16 slot1, uint16 slot2)
     {
-        for (int i = 0; i < MAX_QUEST_OFFSET; ++i)
+        for (uint8 i = 0; i < MAX_QUEST_OFFSET; ++i)
         {
-            uint32 temp1 = GetUInt32Value(PLAYER_QUEST_LOG_1_1 + MAX_QUEST_OFFSET * slot1 + i);
-            uint32 temp2 = GetUInt32Value(PLAYER_QUEST_LOG_1_1 + MAX_QUEST_OFFSET * slot2 + i);
+            uint32 temp1 = GetQuestSlotField(slot1, i);
+            uint32 temp2 = GetQuestSlotField(slot2, i);
 
-            SetUInt32Value(PLAYER_QUEST_LOG_1_1 + MAX_QUEST_OFFSET * slot1 + i, temp2);
-            SetUInt32Value(PLAYER_QUEST_LOG_1_1 + MAX_QUEST_OFFSET * slot2 + i, temp1);
+            SetQuestSlotField(slot1, i, temp2);
+            SetQuestSlotField(slot2, i, temp1);
         }
     }
     uint16 GetReqKillOrCastCurrentCount(uint32 quest_id, int32 entry);
@@ -2864,6 +2890,8 @@ protected:
     uint32 m_ExtraFlags;
 
     QuestStatusMap m_QuestStatus;
+    // EMBERFALL: (PATCHES.md #36) quest log slots 25-49, MAX_QUEST_OFFSET words each as in the update fields
+    std::array<uint32, Emberfall::QuestLog::kExtWords> m_emberfallQuestLogExt{};
     QuestStatusSaveMap m_QuestStatusSave;
 
     RewardedQuestSet m_RewardedQuests;

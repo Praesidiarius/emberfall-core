@@ -30,7 +30,7 @@ class Player;
 
 class ObjectMgr;
 
-#define MAX_QUEST_LOG_SIZE 25
+#define MAX_QUEST_LOG_SIZE 50 // EMBERFALL: (PATCHES.md #36, feedback #251) was 25; slots 25-49 are not update fields (Player.h)
 
 #define QUEST_OBJECTIVES_COUNT 4
 #define QUEST_ITEM_OBJECTIVES_COUNT 6
