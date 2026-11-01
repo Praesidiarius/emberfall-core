@@ -469,6 +469,24 @@ namespace Emberfall::ClassKit::Logic
         return lastMs == 0 || gapMs <= 0 || nowMs >= lastMs + uint64_t(gapMs);
     }
 
+    // Solenne's Mercy (spell_ef_kit_max_mana_cost, ankarna's Oathkeeper update of 2026-11-01): the mana a cast takes,
+    // `pct` % of the caster's maximum mana (50; Efficient Mercy 40), or `favorPct` % (20) with a charge of Solenne's
+    // Favor when that is less; rounded down, never below 0.
+    constexpr int32_t MaxManaCost(int32_t maxMana, int32_t pct, bool favor, int32_t favorPct)
+    {
+        int32_t p = std::max<int32_t>(0, pct);
+        if (favor)
+            p = std::min<int32_t>(p, std::max<int32_t>(0, favorPct));
+        return int32_t(int64_t(std::max<int32_t>(0, maxMana)) * p / 100);
+    }
+
+    // Divine Intervention (spell_ef_kit_low_health_proc): a blow taken leaves its owner alive at or below `pct` % of the
+    // maximum health (20).
+    constexpr bool LowHealthDue(uint32_t health, uint32_t maxHealth, int32_t pct)
+    {
+        return health > 0 && maxHealth > 0 && pct > 0 && uint64_t(health) * 100 <= uint64_t(maxHealth) * uint64_t(pct);
+    }
+
     // ---- the Warrior's Executioner v2.0 (Emberfall docs/design/classes/warrior-executioner.md: personal Openings) ----
 
     // Openings are the Executioner's spec power (0-5, stored x 10 in the runic power slot): a gain never takes them above

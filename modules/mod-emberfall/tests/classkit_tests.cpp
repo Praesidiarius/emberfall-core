@@ -297,6 +297,17 @@ int main()
     check(BurstDue(5000, 0, 1000), "the first blow bursts");
     check(!BurstDue(5500, 5000, 1000), "half a second later: not");
     check(BurstDue(6000, 5000, 1000), "a second later: again");
+    // Solenne's Mercy: a share of the maximum mana; Solenne's Favor's 20 % when lower (Oathkeeper update 2026-11-01)
+    check(MaxManaCost(1305, 50, false, 20) == 652, "Mercy: 50 % of 1305, rounded down");
+    check(MaxManaCost(1305, 40, false, 20) == 522, "Efficient Mercy: 40 %");
+    check(MaxManaCost(1305, 40, true, 20) == 261, "a Favor charge: 20 %");
+    check(MaxManaCost(1305, 10, true, 20) == 130, "a Favor charge never makes it dearer");
+    check(MaxManaCost(0, 50, false, 20) == 0 && MaxManaCost(1000, -5, false, 20) == 0, "nothing below 0");
+    // Divine Intervention: alive at or below 20 % after the blow
+    check(LowHealthDue(200, 1000, 20) && LowHealthDue(1, 1000, 20), "at 20 % and below: due");
+    check(!LowHealthDue(201, 1000, 20), "above 20 %: not");
+    check(!LowHealthDue(0, 1000, 20), "dead: not (no saving from a killing blow)");
+    check(!LowHealthDue(100, 0, 20) && !LowHealthDue(100, 1000, 0), "no health or no threshold: never");
 
     // counted points (the Executioner's Openings): gains capped, finishers spend their cost (none with Perfect Execution)
     check(OpeningsAfterGain(0, 1, 5) == 1, "Sundering Blow: +1");
