@@ -537,6 +537,21 @@ namespace Emberfall::ClassKit::Logic
         return atOrBelowPct > 0 && healthPct <= float(atOrBelowPct);
     }
 
+    // A directional dash (Verdant Dash, feedback #307): the angle off the caster's facing from the movement keys held,
+    // counter-clockwise in radians (the engine's orientation): ahead or standing 0, back pi, left pi/2, right -pi/2,
+    // diagonals between; keys that cancel (forward and back, left and right) count as neither.
+    inline float DashAngle(bool forward, bool backward, bool left, bool right)
+    {
+        int const ahead = (forward ? 1 : 0) - (backward ? 1 : 0);
+        int const side = (left ? 1 : 0) - (right ? 1 : 0);
+        if (!side)
+            return ahead < 0 ? 3.14159265f : 0.0f;
+        float const quarter = 1.57079633f;
+        if (!ahead)
+            return side * quarter;
+        return side * (ahead > 0 ? quarter / 2.0f : quarter * 1.5f);
+    }
+
     // What a builder builds with its rules (spell_ef_kit_build_power): `gain` its own (0: it struck nobody, then nothing),
     // plus `bonus` (Executioner's Opportunity +1 at 30 %, Sweeping Opportunity +1 at 3 enemies), and at least `floor`
     // (Murderous Instinct: Deathblow 3 while Killing Instinct holds; not on top of its own 1 or Deadly Opportunity's 2).
