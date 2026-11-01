@@ -71,7 +71,11 @@
 //                                    the enemy effects struck nobody: a miss, dodge or parry strikes nobody, the miss rules
 //                                    of alpha1 feedback #146), up to the aura's cap (EfClassKit.h AddSelfStacks)
 //   spell_ef_kit_cast_stacks         the same, but the stacks (value, misc B unused) come when the cast is done, hit or
-//                                    miss, before a missile lands (the Marksman's Beads, Emberfall feedback #172)
+//                                    miss, before a missile lands (the Marksman's Beads, Emberfall feedback #172); a buff
+//                                    of the caster's (no passive) with a dummy naming the spell and a trigger is used up
+//                                    by the cast: misc B more stacks of the spell's own, and the trigger cast at the
+//                                    first enemy struck with value % of the damage dealt there (Arrowfall's Hard Draw,
+//                                    feedback #309: full_draw_cleave round the target)
 //   spell_ef_kit_delayed_strike      effect 1 (dummy at an enemy): value ms later the trigger is cast where the enemy stands
 //                                    then, or on its last spot if it is gone (Heavenfall, Heaven's Answer)
 //   spell_ef_kit_not_bosses          never on bosses: the cast at one is refused, bosses leave the area (Kneel, Noonday)
@@ -108,8 +112,10 @@
 #include "SpellScriptLoader.h"
 #include "WorldScript.h"
 
+#include <algorithm>
 #include <cmath>
 #include <map>
+#include <vector>
 
 using namespace Acore::ChatCommands;
 
@@ -689,6 +695,11 @@ private:
     bool _first = true;
     bool _cast = false;                                 // AfterCast ran: a later hit is a missile's
     int32 _granted[MAX_SPELL_EFFECTS] = {};             // the stacks given so far, per effect
+    // cast_stacks: the buffs this cast used up (#309): their triggers and percents, cast at the first enemy struck
+    std::vector<std::pair<uint32, int32>> _buffBonuses;
+    bool _buffBonusesDone = false;
+    ObjectGuid _firstTarget;
+    int32 _firstDamage = 0;
 
     bool NeedsHit() { return Emberfall::ClassKit::StrikesOthers(GetSpellInfo()); }
 
@@ -700,6 +711,11 @@ private:
         if (!caster || !target || target == caster || !Emberfall::ClassKit::StruckUnit(GetSpell(), target))
             return;
         ++_hits;
+        if (_firstTarget.IsEmpty())
+        {
+            _firstTarget = target->GetGUID();
+            _firstDamage = GetHitDamage();
+        }
     }
 
     void AfterHitTarget()
@@ -713,6 +729,54 @@ private:
         _first = false;
         if (_cast && !_onCast)
             Grant(GetCaster());
+        if (_cast && _onCast)
+            CastBuffBonuses(GetCaster());
+    }
+
+    // cast_stacks: the caster's buffs naming this spell (a dummy with a trigger on an aura that is no passive), used up
+    // by the cast: misc B more stacks of the spell's own stack aura, the trigger remembered for the first enemy struck
+    void UseBuffs(Unit* caster)
+    {
+        uint32 const id = GetSpellInfo()->Id;
+        int32 extra = 0;
+        std::vector<uint32> used;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+        {
+            SpellEffectInfo const& info = eff->GetSpellInfo()->Effects[eff->GetEffIndex()];
+            if (uint32(eff->GetMiscValue()) != id || eff->GetBase()->IsPassive() || !info.TriggerSpell)
+                continue;
+            _buffBonuses.emplace_back(info.TriggerSpell, eff->GetAmount());
+            extra += std::max<int32>(0, info.MiscValueB);
+            if (std::find(used.begin(), used.end(), eff->GetId()) == used.end())
+                used.push_back(eff->GetId());
+        }
+        for (uint32 buff : used)
+            Emberfall::ClassKit::ConsumeOne(caster, buff);
+        if (extra <= 0)
+            return;
+        for (SpellEffectInfo const& eff : GetSpellInfo()->Effects)
+            if (eff.Effect == SPELL_EFFECT_DUMMY && eff.TriggerSpell && eff.TargetA.GetTarget() == TARGET_UNIT_CASTER)
+            {
+                Emberfall::ClassKit::AddSelfStacks(caster, eff.TriggerSpell, extra);
+                break;
+            }
+    }
+
+    // the used buffs' triggers at the first enemy struck, with their percent of the damage dealt there: after the cast
+    // for an instant hit, as the arrow strikes for a missile
+    void CastBuffBonuses(Unit* caster)
+    {
+        if (!caster || _buffBonusesDone || _buffBonuses.empty() || _firstTarget.IsEmpty())
+            return;
+        _buffBonusesDone = true;
+        Unit* target = ObjectAccessor::GetUnit(*caster, _firstTarget);
+        for (auto const& [trigger, pct] : _buffBonuses)
+        {
+            int32 amount = Emberfall::ClassKit::Logic::PctOf(_firstDamage, pct);
+            if (amount <= 0 || !target || !target->IsAlive())
+                continue;
+            caster->CastCustomSpell(target, trigger, &amount, nullptr, nullptr, true);
+        }
     }
 
     // the stacks earned by the hits so far, less those already given
@@ -738,6 +802,11 @@ private:
     {
         _cast = true;
         Grant(GetCaster());
+        if (_onCast && GetCaster())
+        {
+            UseBuffs(GetCaster());
+            CastBuffBonuses(GetCaster());
+        }
     }
 
     void Register() override
