@@ -51,7 +51,10 @@
 // goober update closes it and keeps it, consumable 0) and locks each credited player out of the spawn (UseLocks: while
 // their quest is incomplete and their count still covers this credit). A locked player is refused and, once the open
 // animation has played, does not see the spawn any more (CanBeSeen); it comes back when the lock ends (turned in,
-// abandoned). Everyone else keeps seeing and using it.
+// abandoned). Everyone else keeps seeing and using it. The `_stays` script (gameobjects.yaml `personal: stays`) keeps the
+// spawn in sight for the credited player too (refused, not hidden: Thornwold's rushlight posts), and a goober whose
+// template names a linked object (goober.linkedTrapId) stands it on the spawn for kLinkedSeconds once a use credits
+// someone (the rushlight's flame, feedback #268).
 
 #include "GameObject.h"
 #include "GameObjectAI.h"
@@ -155,7 +158,7 @@ namespace
     class PersonalQuestGooberAI : public GameObjectAI
     {
     public:
-        explicit PersonalQuestGooberAI(GameObject* go) : GameObjectAI(go)
+        PersonalQuestGooberAI(GameObject* go, Mode mode) : GameObjectAI(go), m_mode(mode)
         {
             m_quest = go->GetGOInfo()->goober.questId;
             if (Quest const* quest = sObjectMgr->GetQuestTemplate(m_quest))
@@ -166,6 +169,8 @@ namespace
 
         bool CanBeSeen(Player const* seer) override
         {
+            if (m_mode == Mode::Stay)
+                return true;
             bool incomplete = false;
             uint32 count = 0;
             Progress(seer, incomplete, count);
@@ -208,6 +213,7 @@ namespace
             m_timer = 0;
             if (me->getLootState() == GO_READY)
                 me->UseDoorOrButton(openMs, false, player);
+            LightLinked();
             return true;
         }
 
@@ -265,6 +271,22 @@ namespace
                     player->UpdateVisibilityOf(me);
         }
 
+        // The template's linked object (goober.linkedTrapId: a rushlight's flame) stood on this one for kLinkedSeconds,
+        // unless the last one still stands (the stock goober's linked trap never fires: GossipHello took the use over).
+        void LightLinked()
+        {
+            uint32 const linked = me->GetGOInfo()->goober.linkedTrapId;
+            if (!linked)
+                return;
+            if (!m_linked.IsEmpty() && me->GetMap()->GetGameObject(m_linked))
+                return;
+            if (GameObject* go = me->SummonGameObject(linked, me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                                                      me->GetOrientation(), 0.0f, 0.0f, 0.0f, 0.0f, kLinkedSeconds))
+                m_linked = go->GetGUID();
+        }
+
+        Mode m_mode;
+        ObjectGuid m_linked;
         uint32 m_quest = 0;
         uint8 m_objective = QUEST_OBJECTIVES_COUNT;
         UseLocks m_uses;
@@ -301,7 +323,14 @@ namespace
     {
     public:
         emberfall_personal_quest_goober() : GameObjectScript(kScriptGoober.data()) { }
-        GameObjectAI* GetAI(GameObject* go) const override { return new PersonalQuestGooberAI(go); }
+        GameObjectAI* GetAI(GameObject* go) const override { return new PersonalQuestGooberAI(go, Mode::Hide); }
+    };
+
+    class emberfall_personal_quest_goober_stays : public GameObjectScript
+    {
+    public:
+        emberfall_personal_quest_goober_stays() : GameObjectScript(kScriptGooberStay.data()) { }
+        GameObjectAI* GetAI(GameObject* go) const override { return new PersonalQuestGooberAI(go, Mode::Stay); }
     };
 
     class emberfall_questloot_player : public PlayerScript
@@ -332,5 +361,6 @@ void AddEmberfallQuestLootScripts()
     new emberfall_personal_quest_object();
     new emberfall_personal_quest_object_stays();
     new emberfall_personal_quest_goober();
+    new emberfall_personal_quest_goober_stays();
     new emberfall_questloot_player();
 }

@@ -49,6 +49,12 @@ namespace Emberfall::QuestLoot
     // deserters' cook-fires): each player is credited once per spawn, so three gates take three gates. Emberfall's
     // compiler names this script on such goobers (gameobjects.yaml `type: goober` with `data.quest`).
     constexpr std::string_view kScriptGoober = "emberfall_personal_quest_goober";
+    // The same goober that stays in sight for the player it credited (gameobjects.yaml `personal: stays`: Thornwold's
+    // rushlight posts, which burn once lit; feedback #268) instead of hiding once its open animation has played.
+    constexpr std::string_view kScriptGooberStay = "emberfall_personal_quest_goober_stays";
+    // How long (s) a personal goober's linked object (its template's goober.linkedTrapId: the rushlight's flame) stays
+    // once a use credited someone; another use while it stands keeps the one there.
+    constexpr uint32_t kLinkedSeconds = 120;
 
     // The stock chest despawns when its loot is empty at a release (WorldSession::DoLootRelease: GO_JUST_DEACTIVATED,
     // then GameObject::Update deletes it until its respawn). A personal object keeps standing: it goes back to GO_READY
