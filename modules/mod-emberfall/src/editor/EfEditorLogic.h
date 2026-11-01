@@ -181,7 +181,9 @@ namespace ef::editor
 
     // ------------------------------------------------------------------------------------------ requests
 
-    enum class Kind : char { Creature = 'c', Npc = 'n' };
+    // c creature spawn, n NPC; step 3 (world-editor.md §20): l a ground layer stroke, r a road, h a height stamp (the
+    // ground kinds are no objects: no lock, no marker, nothing the server applies; ground below).
+    enum class Kind : char { Creature = 'c', Npc = 'n', Ground = 'l', Road = 'r', Height = 'h' };
 
     inline std::optional<Kind> kindOf(std::string_view text)
     {
@@ -1078,7 +1080,7 @@ namespace ef::editor
     {
         std::map<std::pair<char, uint32_t>, int> touched;
         for (Op const& op : ops)
-            if (!op.undone)
+            if (!op.undone && op.kind != Kind::Ground && op.kind != Kind::Road && op.kind != Kind::Height)  // strokes: groundCount
                 touched[{static_cast<char>(op.kind), op.target}] = 1;
         return touched.size();
     }
@@ -1214,5 +1216,396 @@ namespace ef::editor
     inline std::string autoTitle(std::string_view zoneName, std::string_view date)
     {
         return std::string(zoneName.substr(0, kMaxTitle - 18)) + " edits " + std::string(date.substr(0, 10));
+    }
+
+    // ------------------------------------------------------------------------------------------ ground (step 3, §20)
+
+    // Ground layer strokes (texture), roads and height stamps: ops of kind l, r, h with op `add`, each the record of one
+    // stroke (a click, or a line of up to kMaxGroundPoints points). Nothing on the server changes: the realm validates,
+    // stores and forwards them (GND), the client paints them over its own copy of the ground (a ghost for heights), and
+    // the release bakes them (Emberfall tools/py emberfall_content/editor/ground.py). Collision, paths and line of sight
+    // stay the release's. The rules are written down in docs/design/world-editor.md §20.
+    //
+    //   C->S  PAINT;<layer>;<radius>;<strength>;<hardness>;<group>;<path>
+    //         ROAD;<layer>;<class>;<group>;<path>
+    //         SCULPT;raise|lower|smooth|flatten;<radius>;<strength>;<height|->;<group>;<path>
+    //   S->C  GND;<cs>;<seq>;<flags>;<map>;l;<tileset/layer>;<radius>;<strength>;<hardness>;<path>
+    //         GND;<cs>;<seq>;<flags>;<map>;r;<tileset/layer>;<class>;<path>
+    //         GND;<cs>;<seq>;<flags>;<map>;h;<mode>;<radius>;<strength>;<height|->;<path>
+    //         GNDX;<cs>;<seq|*>   (GNDX;*;* first at login: forget every stroke)   GLAY;<zone>;<p>/<t>;<layer|...>
+    // `path`: `x0,y0|dx,dy|...`, x0 and y0 world yards with one decimal, each further point in whole decimetres from the
+    // one before. `group`: the client's number for one line split over several ops (UNDO and REDO take the whole group;
+    // 0: none). GND flags: d a contributor's draft (only editors with the editor open get those), m the viewer's own.
+
+    constexpr float kTileYards = 1600.0f / 3.0f;
+    constexpr size_t kMaxGroundPoints = 40;
+    constexpr size_t kMaxLayerName = 24;
+    // The client keeps a PAINT, ROAD or SCULPT body at most this long, so its GND (a longer head, `<tileset>/` before
+    // the layer, at most 10 letters of tileset) fits one message; it splits a longer line into several ops of a group.
+    constexpr size_t kMaxGroundRequest = 214;
+
+    inline bool isGround(Kind k) { return k == Kind::Ground || k == Kind::Road || k == Kind::Height; }
+    inline bool isGround(char k) { return k == 'l' || k == 'r' || k == 'h'; }
+
+    struct GroundLimits
+    {
+        float paintRadiusMin = 0.5f, paintRadiusMax = 16.0f;
+        float sculptRadiusMin = 2.0f, sculptRadiusMax = 40.0f;
+        float strengthMin = 0.05f;
+        float flattenReach = 40.0f;      // a flatten height within this of the ground at the stroke's first point
+        float maxSegment = 60.0f, maxLength = 250.0f;
+        uint32_t perSet = 400;           // strokes per set, for everyone (every client paints them all: performance)
+        uint32_t perMinute = 90, perDay = 1500;   // per account (contributors; reviewers x10, maintainers no limit)
+        uint32_t realmCap = 6000;        // strokes waiting for a release on the realm (every set)
+    };
+
+    // roads.py CLASSES: the half width of each road class (painted full to hw - 0.5, nothing past hw + 2).
+    inline std::optional<float> roadHalfWidth(std::string_view cls)
+    {
+        if (cls == "path") return 1.75f;
+        if (cls == "track") return 2.5f;
+        if (cls == "road") return 3.5f;
+        if (cls == "main") return 4.5f;
+        return std::nullopt;
+    }
+
+    enum class Sculpt : uint8_t { Raise, Lower, Smooth, Flatten };
+
+    inline char const* sculptName(Sculpt m)
+    {
+        switch (m)
+        {
+            case Sculpt::Raise: return "raise";
+            case Sculpt::Lower: return "lower";
+            case Sculpt::Smooth: return "smooth";
+            case Sculpt::Flatten: return "flatten";
+        }
+        return "raise";
+    }
+
+    inline std::optional<Sculpt> sculptOf(std::string_view s)
+    {
+        if (s == "raise") return Sculpt::Raise;
+        if (s == "lower") return Sculpt::Lower;
+        if (s == "smooth") return Sculpt::Smooth;
+        if (s == "flatten") return Sculpt::Flatten;
+        return std::nullopt;
+    }
+
+    struct Point { float x = 0, y = 0; };
+
+    // A signed whole number of at most 6 characters.
+    inline std::optional<int32_t> integer(std::string_view text)
+    {
+        bool const negative = !text.empty() && text[0] == '-';
+        if (text.size() > 6)
+            return std::nullopt;
+        auto n = eft::number(negative ? text.substr(1) : text, 99999);
+        if (!n)
+            return std::nullopt;
+        return negative ? -int32_t(*n) : int32_t(*n);
+    }
+
+    inline std::optional<std::vector<Point>> decodePath(std::string_view text, size_t maxPoints = kMaxGroundPoints)
+    {
+        auto parts = eft::split(text, '|');
+        if (text.empty() || parts.size() > maxPoints)
+            return std::nullopt;
+        std::vector<Point> out;
+        int64_t x = 0, y = 0;   // decimetres
+        for (size_t i = 0; i < parts.size(); ++i)
+        {
+            auto xy = eft::split(parts[i], ',');
+            if (xy.size() != 2)
+                return std::nullopt;
+            if (i == 0)
+            {
+                auto fx = decimal(xy[0], 20000), fy = decimal(xy[1], 20000);
+                if (!fx || !fy)
+                    return std::nullopt;
+                x = std::llround(double(*fx) * 10), y = std::llround(double(*fy) * 10);
+            }
+            else
+            {
+                auto dx = integer(xy[0]), dy = integer(xy[1]);
+                if (!dx || !dy || std::abs(*dx) > 600 || std::abs(*dy) > 600)
+                    return std::nullopt;
+                x += *dx, y += *dy;
+                if (std::llabs(x) > 200000 || std::llabs(y) > 200000)
+                    return std::nullopt;
+            }
+            out.push_back({float(double(x) / 10), float(double(y) / 10)});
+        }
+        return out;
+    }
+
+    // The wire form of a path (positions on the decimetre grid; decodePath gives exactly those back).
+    inline std::string encodePath(std::vector<Point> const& pts)
+    {
+        std::string out;
+        int64_t px = 0, py = 0;
+        for (size_t i = 0; i < pts.size(); ++i)
+        {
+            int64_t const x = std::llround(double(pts[i].x) * 10), y = std::llround(double(pts[i].y) * 10);
+            if (i == 0)
+                out = fixed(double(x) / 10, 1) + "," + fixed(double(y) / 10, 1);
+            else
+                out += "|" + std::to_string(x - px) + "," + std::to_string(y - py);
+            px = x, py = y;
+        }
+        return out;
+    }
+
+    struct Stroke
+    {
+        Kind kind = Kind::Ground;
+        std::string layer;      // the zone's layer name (l, r)
+        std::string cls;        // a road's class (r)
+        Sculpt mode = Sculpt::Raise;
+        float radius = 0, strength = 1, hardness = 0.5f;
+        std::optional<float> height;   // flatten's target (h)
+        uint32_t group = 0;
+        std::vector<Point> pts;
+    };
+
+    inline bool layerName(std::string_view s)
+    {
+        if (s.empty() || s.size() > kMaxLayerName)
+            return false;
+        for (char c : s)
+            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'))
+                return false;
+        return true;
+    }
+
+    inline std::optional<Stroke> parsePaint(std::vector<std::string> const& f)
+    {
+        if (f.size() != 6 || !layerName(f[0]))
+            return std::nullopt;
+        auto r = decimal(f[1], 1000), s = decimal(f[2], 10), h = decimal(f[3], 10);
+        auto g = eft::number(f[4], 9999);
+        auto pts = decodePath(f[5]);
+        if (!r || !s || !h || !g || !pts)
+            return std::nullopt;
+        Stroke st;
+        st.kind = Kind::Ground, st.layer = f[0], st.radius = *r, st.strength = *s, st.hardness = *h, st.group = *g, st.pts = *pts;
+        return st;
+    }
+
+    inline std::optional<Stroke> parseRoad(std::vector<std::string> const& f)
+    {
+        if (f.size() != 4 || !layerName(f[0]) || !roadHalfWidth(f[1]))
+            return std::nullopt;
+        auto g = eft::number(f[2], 9999);
+        auto pts = decodePath(f[3]);
+        if (!g || !pts)
+            return std::nullopt;
+        Stroke st;
+        st.kind = Kind::Road, st.layer = f[0], st.cls = f[1], st.group = *g, st.pts = *pts;
+        st.radius = *roadHalfWidth(f[1]), st.strength = 1, st.hardness = 1;
+        return st;
+    }
+
+    inline std::optional<Stroke> parseSculpt(std::vector<std::string> const& f)
+    {
+        if (f.size() != 6)
+            return std::nullopt;
+        auto mode = sculptOf(f[0]);
+        auto r = decimal(f[1], 1000), s = decimal(f[2], 10);
+        auto g = eft::number(f[4], 9999);
+        auto pts = decodePath(f[5]);
+        if (!mode || !r || !s || !g || !pts)
+            return std::nullopt;
+        Stroke st;
+        st.kind = Kind::Height, st.mode = *mode, st.radius = *r, st.strength = *s, st.group = *g, st.pts = *pts;
+        if (f[3] != "-")
+        {
+            auto z = decimal(f[3], 5000);
+            if (!z)
+                return std::nullopt;
+            st.height = *z;
+        }
+        if (*mode == Sculpt::Flatten && !st.height)
+            return std::nullopt;
+        if (*mode != Sculpt::Flatten)
+            st.height.reset();
+        return st;
+    }
+
+    inline float pathLength(std::vector<Point> const& pts, float* longest = nullptr)
+    {
+        float total = 0, most = 0;
+        for (size_t i = 1; i < pts.size(); ++i)
+        {
+            float const d = std::hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+            total += d, most = std::max(most, d);
+        }
+        if (longest)
+            *longest = most;
+        return total;
+    }
+
+    // Step 9 for a stroke (the zone, the layer, presence and rate are the caller's): ranges, the line's shape.
+    inline Code checkStroke(Stroke const& s, GroundLimits const& l)
+    {
+        if (s.pts.empty() || (s.kind == Kind::Road && s.pts.size() < 2))
+            return Code::Value;
+        float longest = 0;
+        if (pathLength(s.pts, &longest) > l.maxLength || longest > l.maxSegment)
+            return Code::Distance;
+        if (s.kind == Kind::Ground)
+        {
+            if (s.radius < l.paintRadiusMin || s.radius > l.paintRadiusMax || s.strength < l.strengthMin || s.strength > 1 ||
+                s.hardness < 0 || s.hardness > 1)
+                return Code::Value;
+        }
+        else if (s.kind == Kind::Height)
+        {
+            if (s.radius < l.sculptRadiusMin || s.radius > l.sculptRadiusMax || s.strength < l.strengthMin || s.strength > 1)
+                return Code::Value;
+        }
+        return Code::Ok;
+    }
+
+    // The op's to_json (flat): the stroke as ef_op stores it and the bake reads it.
+    inline Fields strokeFields(Stroke const& s, uint32_t map)
+    {
+        auto r = [](float v, double k) { return std::round(double(v) * k) / k; };
+        Fields o;
+        o["map"] = Value::of(map);
+        o["g"] = Value::of(s.group);
+        o["pts"] = Value::str(encodePath(s.pts));
+        if (s.kind == Kind::Ground || s.kind == Kind::Road)
+            o["layer"] = Value::str(s.layer);
+        if (s.kind == Kind::Road)
+            o["class"] = Value::str(s.cls);
+        if (s.kind == Kind::Ground || s.kind == Kind::Height)
+            o["r"] = Value::of(r(s.radius, 10)), o["s"] = Value::of(r(s.strength, 100));
+        if (s.kind == Kind::Ground)
+            o["h"] = Value::of(r(s.hardness, 100));
+        if (s.kind == Kind::Height)
+        {
+            o["mode"] = Value::str(sculptName(s.mode));
+            if (s.height)
+                o["z"] = Value::of(r(*s.height, 10));
+        }
+        return o;
+    }
+
+    inline std::optional<Stroke> strokeOf(Kind kind, Fields const& to)
+    {
+        if (!isGround(kind))
+            return std::nullopt;
+        auto num = [&](char const* k) -> std::optional<double> {
+            auto it = to.find(k);
+            return it != to.end() && it->second.type == Value::Type::Number ? std::optional<double>(it->second.number) : std::nullopt;
+        };
+        auto str = [&](char const* k) -> std::string {
+            auto it = to.find(k);
+            return it != to.end() && it->second.type == Value::Type::String ? it->second.text : std::string();
+        };
+        Stroke s;
+        s.kind = kind;
+        auto pts = decodePath(str("pts"));
+        if (!pts)
+            return std::nullopt;
+        s.pts = *pts;
+        s.group = uint32_t(num("g").value_or(0));
+        s.layer = str("layer"), s.cls = str("class");
+        s.radius = float(num("r").value_or(0)), s.strength = float(num("s").value_or(1)), s.hardness = float(num("h").value_or(0.5));
+        if (kind == Kind::Road)
+        {
+            auto hw = roadHalfWidth(s.cls);
+            if (!hw)
+                return std::nullopt;
+            s.radius = *hw, s.strength = 1, s.hardness = 1;
+        }
+        if (kind == Kind::Height)
+        {
+            auto m = sculptOf(str("mode"));
+            if (!m)
+                return std::nullopt;
+            s.mode = *m;
+            if (auto z = num("z"))
+                s.height = float(*z);
+        }
+        else if (!layerName(s.layer))
+            return std::nullopt;
+        return s;
+    }
+
+    // The fields of GND after <map>: the kind and the stroke. `layerToken` is `<tileset>/<layer>` (the client's texture
+    // is Tileset\<tileset>\<layer>.blp).
+    inline std::vector<std::string> groundFields(Stroke const& s, std::string const& layerToken)
+    {
+        std::vector<std::string> f{std::string(1, static_cast<char>(s.kind))};
+        if (s.kind == Kind::Ground)
+            f.insert(f.end(), {layerToken, fixed(s.radius, 1), fixed(s.strength, 2), fixed(s.hardness, 2)});
+        else if (s.kind == Kind::Road)
+            f.insert(f.end(), {layerToken, s.cls});
+        else
+            f.insert(f.end(), {sculptName(s.mode), fixed(s.radius, 1), fixed(s.strength, 2), s.height ? fixed(*s.height, 1) : std::string("-")});
+        f.push_back(encodePath(s.pts));
+        return f;
+    }
+
+    // GND: one message per stroke; empty when it would not fit one (the request is refused then).
+    inline std::string groundBody(uint32_t cs, uint32_t seq, std::string_view flags, uint32_t map, Stroke const& s,
+                                  std::string const& layerToken)
+    {
+        std::vector<std::string> f{std::to_string(cs), std::to_string(seq), std::string(flags), std::to_string(map)};
+        for (std::string& x : groundFields(s, layerToken))
+            f.push_back(std::move(x));
+        std::string body = eft::body(0, "GND", f);
+        return body.size() <= eft::kMaxBody ? body : std::string();
+    }
+
+    // The ADT tile of a world position (x north, y west): (east index, south index), as the client's data::tileAt.
+    inline std::pair<int32_t, int32_t> tileOf(float x, float y)
+    {
+        auto clampTile = [](double v) { return int32_t(std::clamp(std::floor(v), 0.0, 63.0)); };
+        return {clampTile(32.0 - double(y) / kTileYards), clampTile(32.0 - double(x) / kTileYards)};
+    }
+
+    inline uint32_t groupOf(Op const& op)
+    {
+        auto it = op.to.find("g");
+        return isGround(op.kind) && it != op.to.end() && it->second.type == Value::Type::Number ? uint32_t(it->second.number) : 0;
+    }
+
+    // UNDO and REDO of a ground line take its whole group: [first, last] of the ops to undo (the newest active op and
+    // the active ops of its group directly before it) or to redo (the oldest undone op after the last active one and
+    // the undone ops of its group directly after it).
+    inline std::optional<std::pair<size_t, size_t>> undoRange(std::vector<Op> const& ops)
+    {
+        auto last = undoIndex(ops);
+        if (!last)
+            return std::nullopt;
+        size_t first = *last;
+        uint32_t const g = groupOf(ops[*last]);
+        while (g && first > 0 && !ops[first - 1].undone && ops[first - 1].kind == ops[*last].kind && groupOf(ops[first - 1]) == g)
+            --first;
+        return std::make_pair(first, *last);
+    }
+
+    inline std::optional<std::pair<size_t, size_t>> redoRange(std::vector<Op> const& ops)
+    {
+        auto first = redoIndex(ops);
+        if (!first)
+            return std::nullopt;
+        size_t last = *first;
+        uint32_t const g = groupOf(ops[*first]);
+        while (g && last + 1 < ops.size() && ops[last + 1].undone && ops[last + 1].kind == ops[*first].kind && groupOf(ops[last + 1]) == g)
+            ++last;
+        return std::make_pair(*first, last);
+    }
+
+    // The ground strokes a set holds (its active ops of kinds l, r, h).
+    inline size_t groundCount(std::vector<Op> const& ops)
+    {
+        size_t n = 0;
+        for (Op const& op : ops)
+            n += !op.undone && isGround(op.kind);
+        return n;
     }
 }
