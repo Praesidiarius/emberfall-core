@@ -673,7 +673,7 @@ namespace Emberfall::Editor
         {
             std::set<std::pair<char, uint32>> targets;
             for (Op const& op : cs.ops)
-                if (!isGround(op.kind))
+                if (!isOverlay(op.kind))
                     targets.insert({char(op.kind), op.target});
             for (auto const& [k, id] : targets)
                 RebuildTarget(k, id);
@@ -812,6 +812,17 @@ namespace Emberfall::Editor
             {
                 Op const& op = cs.ops[i];
                 std::string detail;
+                if (isPlace(op.kind))
+                {
+                    // a prop or a building (§22): <model>[:<yards moved>:<yaw>]
+                    auto f = placeStateOf(op.from), t = placeStateOf(op.to);
+                    detail = t ? t->model : f ? f->model : std::string();
+                    if (op.op == OpKind::Move && f && t)
+                        detail += ":" + fixed(std::hypot(t->u - f->u, t->v - f->v), 1) + ":" + fixed(t->yaw, 0);
+                    entries.push_back(std::to_string(op.seq) + "," + opName(op.op) + "," + std::string(1, char(op.kind)) + "," +
+                                      std::to_string(op.target) + ",0," + detail + "," + (op.undone ? "1" : "0"));
+                    continue;
+                }
                 if (isGround(op.kind))
                 {
                     // a stroke: <layer|mode>:<radius|class>:<length yd>
@@ -886,7 +897,7 @@ namespace Emberfall::Editor
             std::set<std::pair<char, uint32>> done;
             for (Op const& op : cs.ops)
             {
-                if (isGround(op.kind) || !done.insert({char(op.kind), op.target}).second)
+                if (isOverlay(op.kind) || !done.insert({char(op.kind), op.target}).second)
                     continue;
                 Pos at = posOf(op.to).value_or(posOf(op.from).value_or(Pos{}));
                 uint32 mapId = 0;
@@ -916,7 +927,7 @@ namespace Emberfall::Editor
             for (size_t i = cs.ops.size(); i-- > 0;)
             {
                 Op const& op = cs.ops[i];
-                if (op.undone || isGround(op.kind))
+                if (op.undone || isOverlay(op.kind))
                     continue;   // a stroke never changed the server's world (GroundSyncSet takes it off the clients)
                 Op const inv = inverse(op);
                 CreatureData const* d = sObjectMgr->GetCreatureData(op.target);
@@ -972,6 +983,7 @@ namespace Emberfall::Editor
             // before the client takes them, and a stroke lost then would never come again
             bool ready = false;
             std::map<std::pair<int32, int32>, uint64> tiles;   // tile -> newest serial sent
+            std::map<std::pair<int32, int32>, uint64> placeTiles;   // the same for the props and buildings (step 2, §22)
         };
 
         GroundView& GroundViewOf(Player* p) { return *p->CustomData.GetDefault<GroundView>(kGroundKey); }
@@ -1104,8 +1116,378 @@ namespace Emberfall::Editor
                 GroundErase(k);
         }
 
-        // Every second, for every player in the world: a new map forgets every stroke (GNDX;*;*), an editor opening the
-        // editor gets its tiles again with the drafts; then the strokes of the 3x3 tiles around it it lacks.
+        // --------------------------------------------------------------------------------------- places (step 2, §22)
+
+        // Props and kit buildings change nothing on the server either: the ops are kept, and what each shown set makes of
+        // each object it touches (a PLACE record: the model where it stands now, and the release instance the clients
+        // hide) is streamed by tile like the strokes, drafts only to the editors with the editor open. The release's
+        // objects (dist/server/editor_world.sql `ef_editor_prop`, the editable zones' placements.yaml rows) are known by
+        // their row's content, which the ops' `from` records: a new release finds them again by it (§7.3's rules).
+        struct ModelInfo
+        {
+            char kind = 'p';
+            std::string path;                 // game path with '/', no extension (a prop's variants add -v<k>)
+            uint32 variants = 0, built = 0;   // a prop's variants and which of them the clients' data has (bit k)
+            bool placeable = false;           // on the whitelist (editor.yaml `models`): an editor may place it
+        };
+        std::map<std::string, ModelInfo> s_models;
+        std::map<std::string, Frame> s_frames;        // zone -> its design frame
+
+        struct RelObj
+        {
+            char kind = 'p';
+            uint8 zone = 0;
+            uint16 model = 0;
+            uint32 map = 0;
+            float u = 0, v = 0, yaw = 0, size = 1;
+            float x = 0, y = 0;
+        };
+        std::vector<RelObj> s_rel;                                         // release id = index + 1
+        std::vector<std::string> s_relModels, s_relZones;
+        std::map<uint32, std::string> s_relNames;                          // a building's name
+        std::map<std::pair<std::string, std::string>, uint32> s_relByName;  // (zone, building name) -> id
+        constexpr float kRelCell = 16.0f;
+        std::map<std::tuple<uint32, int32, int32>, std::vector<uint32>> s_relCells;
+
+        struct PlaceRec
+        {
+            uint32 owner = 0;
+            bool draft = false;
+            PlaceShow show;
+            std::pair<int32, int32> tile;
+            uint64 serial = 0;
+        };
+        using PlaceKey = std::tuple<uint32, char, uint32>;                  // (cs, kind, id)
+        std::map<PlaceKey, PlaceRec> s_place;
+        std::map<TileKey, std::map<uint64, PlaceKey>> s_placeTiles;
+        uint64 s_placeSerial = 0;
+        std::map<uint32, std::pair<Window, Window>> s_placeRates;           // account -> (minute, day)
+
+        bool IsRel(char kind, uint32 id) { return id >= 1 && id <= s_rel.size() && s_rel[id - 1].kind == kind; }
+
+        std::tuple<uint32, int32, int32> RelCell(uint32 map, float x, float y)
+        {
+            return {map, int32(std::floor(x / kRelCell)), int32(std::floor(y / kRelCell))};
+        }
+
+        PlaceState RelState(uint32 id)
+        {
+            RelObj const& r = s_rel[id - 1];
+            PlaceState s;
+            s.present = true;
+            s.model = s_relModels[r.model];
+            s.u = round2(r.u), s.v = round2(r.v), s.yaw = std::round(double(r.yaw) * 10) / 10, s.size = round2(r.size);
+            s.map = r.map;
+            if (auto n = s_relNames.find(id); n != s_relNames.end())
+                s.name = n->second;
+            return s;
+        }
+
+        // The release object of `kind` nearest (x, y) within `reach`; with `want`, only one whose row has that content.
+        uint32 FindRel(uint32 map, char kind, float x, float y, float reach, PlaceState const* want = nullptr)
+        {
+            uint32 best = 0;
+            float bestD = reach;
+            auto [m, cx, cy] = RelCell(map, x, y);
+            for (int32 dy = -1; dy <= 1; ++dy)
+                for (int32 dx = -1; dx <= 1; ++dx)
+                {
+                    auto it = s_relCells.find({m, cx + dx, cy + dy});
+                    if (it == s_relCells.end())
+                        continue;
+                    for (uint32 id : it->second)
+                    {
+                        RelObj const& r = s_rel[id - 1];
+                        float const d = std::hypot(r.x - x, r.y - y);
+                        if (r.kind != kind || d > bestD)
+                            continue;
+                        if (want)
+                        {
+                            PlaceState const s = RelState(id);
+                            if (s.model != want->model || std::fabs(s.u - want->u) > 0.006 || std::fabs(s.v - want->v) > 0.006)
+                                continue;
+                        }
+                        best = id, bestD = d;
+                    }
+                }
+            return best;
+        }
+
+        // The release row with this content in the zone (a prop by model, u and v; a building by its name).
+        uint32 FindRelByContent(std::string const& zone, char kind, PlaceState const& s)
+        {
+            if (kind == 'b')
+            {
+                auto it = s_relByName.find({zone, s.name});
+                return it != s_relByName.end() && s_relModels[s_rel[it->second - 1].model] == s.model ? it->second : 0;
+            }
+            auto f = s_frames.find(zone);
+            if (f == s_frames.end())
+                return 0;
+            auto [x, y] = worldOf(f->second, s.u, s.v, Kind::Prop);
+            return FindRel(s.map, kind, float(x), float(y), 0.1f, &s);
+        }
+
+        // Where a model's state stands: its game path (a prop's variant by its u, v; empty: not drawable here).
+        std::string PlacePath(char kind, PlaceState const& s)
+        {
+            auto m = s_models.find(s.model);
+            if (m == s_models.end() || m->second.kind != kind || m->second.path.empty())
+                return {};
+            if (kind == 'b')
+                return m->second.path;
+            return variantPath(m->second.path, shownVariant(s.u, s.v, m->second.variants, m->second.built));
+        }
+
+        std::vector<Op> PlaceOpsOn(ChangeSet const& cs, char kind, uint32 id)
+        {
+            std::vector<Op> out;
+            for (Op const& op : cs.ops)
+                if (char(op.kind) == kind && op.target == id)
+                    out.push_back(op);
+            return out;
+        }
+
+        // What a set makes of one object for the clients (nothing: it does not touch it, or leaves it as the release has it).
+        std::optional<PlaceShow> ShowOf(ChangeSet const& cs, char kind, uint32 id)
+        {
+            PlaceFold const f = foldPlace(PlaceOpsOn(cs, kind, id));
+            if (!f.touched)
+                return std::nullopt;
+            bool const rel = IsRel(kind, id);
+            if (rel && f.after.present && samePlace(f.after, RelState(id)))
+                return std::nullopt;
+            if (!rel && !f.after.present)
+                return std::nullopt;   // an add removed again
+            auto frame = s_frames.find(cs.zone);
+            if (frame == s_frames.end())
+                return std::nullopt;
+            PlaceShow s;
+            s.cs = cs.id, s.id = id, s.kind = Kind(kind);
+            s.map = f.after.present ? f.after.map : (rel ? s_rel[id - 1].map : 0);
+            if (f.after.present)
+            {
+                auto [x, y] = worldOf(frame->second, f.after.u, f.after.v, Kind(kind));
+                s.path = PlacePath(kind, f.after);
+                s.x = float(x), s.y = float(y), s.z = float(f.after.z);
+                s.o = float(orientationOf(Kind(kind), f.after.yaw));
+                s.size = kind == 'b' ? 1.0f : float(f.after.size);
+            }
+            if (rel)
+                s.hide = std::make_pair(s_rel[id - 1].x, s_rel[id - 1].y);
+            if (rel && !f.after.present)
+                s.map = s_rel[id - 1].map;
+            return s;
+        }
+
+        void SendPlace(Player* p, PlaceRec const& r)
+        {
+            PlaceShow s = r.show;
+            s.flags.clear();
+            if (r.draft)
+                s.flags += 'd';
+            if (r.owner == p->GetSession()->GetAccountId())
+                s.flags += 'm';
+            std::string const body = placeBody(s);
+            if (!body.empty())
+                SendBody(p, body);
+        }
+
+        template <class F> void ForPlaceTrackers(uint32 map, std::pair<int32, int32> tile, F&& f)
+        {
+            for (auto const& [account, session] : sWorldSessionMgr->GetAllSessions())
+            {
+                Player* p = session ? session->GetPlayer() : nullptr;
+                if (!p || !p->IsInWorld() || p->GetMapId() != map)
+                    continue;
+                GroundView& v = GroundViewOf(p);
+                if (v.map != map)
+                    continue;
+                if (auto it = v.placeTiles.find(tile); it != v.placeTiles.end())
+                    f(p, v, it->second);
+            }
+        }
+
+        void PlaceErase(PlaceKey const& key, bool tell = true)
+        {
+            auto it = s_place.find(key);
+            if (it == s_place.end())
+                return;
+            PlaceRec const r = it->second;
+            s_placeTiles[{r.show.map, r.tile.first, r.tile.second}].erase(r.serial);
+            s_place.erase(it);
+            if (!tell)
+                return;
+            std::string const body = eft::body(0, "PLACEX", {std::to_string(std::get<0>(key)), std::string(1, std::get<1>(key)),
+                std::to_string(std::get<2>(key))});
+            ForPlaceTrackers(r.show.map, r.tile, [&](Player* p, GroundView&, uint64&) { SendBody(p, body); });
+        }
+
+        // A record into the index with a new serial; the players up to date in its tile get it at once.
+        void PlaceInsert(PlaceKey const& key, PlaceRec r)
+        {
+            r.tile = placeTile(r.show);
+            TileKey const tk{r.show.map, r.tile.first, r.tile.second};
+            auto& tile = s_placeTiles[tk];
+            uint64 const prev = tile.empty() ? 0 : tile.rbegin()->first;
+            r.serial = ++s_placeSerial;
+            tile[r.serial] = key;
+            PlaceRec const& stored = s_place[key] = r;
+            ForPlaceTrackers(r.show.map, r.tile, [&](Player* p, GroundView& v, uint64& last) {
+                if (last < prev)
+                    return;   // behind in this tile: the tick sends everything in order
+                if (!stored.draft || v.viewer)
+                    SendPlace(p, stored);
+                last = stored.serial;
+            });
+        }
+
+        // The records made to match a set (after any change: an op, undo, redo, withdraw, a review state, a freeze).
+        void PlaceSyncSet(ChangeSet const& cs)
+        {
+            bool const shown = GroundShown(cs), draft = !Live(cs);
+            std::set<std::pair<char, uint32>> want;
+            if (shown)
+                for (Op const& op : cs.ops)
+                    if (isPlace(op.kind) && op.target && !op.undone)
+                        want.insert({char(op.kind), op.target});
+            std::set<std::pair<char, uint32>> keep;
+            for (auto const& [kind, id] : want)
+            {
+                PlaceKey const key{cs.id, kind, id};
+                std::optional<PlaceShow> const s = ShowOf(cs, kind, id);
+                if (!s)
+                    continue;
+                keep.insert({kind, id});
+                auto it = s_place.find(key);
+                if (it != s_place.end() && it->second.draft == draft && placeBody(it->second.show) == placeBody(*s))
+                    continue;
+                // a new state: the old record goes silently (the client replaces a record by its key)
+                if (it != s_place.end())
+                    PlaceErase(key, false);
+                PlaceRec r;
+                r.owner = cs.owner, r.draft = draft, r.show = *s;
+                PlaceInsert(key, std::move(r));
+            }
+            std::vector<PlaceKey> gone;
+            for (auto it = s_place.lower_bound({cs.id, '\0', 0}); it != s_place.end() && std::get<0>(it->first) == cs.id; ++it)
+                if (!keep.count({std::get<1>(it->first), std::get<2>(it->first)}))
+                    gone.push_back(it->first);
+            for (PlaceKey const& k : gone)
+                PlaceErase(k);
+        }
+
+        // An object as an op on it in `cs` starts from: the set's own state of it, else the newest live set's that
+        // shows it (an accepted or a maintainer's set, not yet released), else the release's. Nothing: no such object,
+        // or it is gone.
+        std::optional<PlaceState> CurrentPlace(char kind, uint32 id, ChangeSet const& cs)
+        {
+            PlaceFold const own = foldPlace(PlaceOpsOn(cs, kind, id));
+            if (own.touched)
+                return own.after.present ? std::optional<PlaceState>(own.after) : std::nullopt;
+            for (auto it = s_sets.rbegin(); it != s_sets.rend(); ++it)
+            {
+                if (it->first == cs.id || !GroundShown(it->second) || !Live(it->second))
+                    continue;
+                PlaceFold const f = foldPlace(PlaceOpsOn(it->second, kind, id));
+                if (f.touched)
+                    return f.after.present ? std::optional<PlaceState>(f.after) : std::nullopt;
+            }
+            if (IsRel(kind, id))
+                return RelState(id);
+            return std::nullopt;
+        }
+
+        // The zone of an object: a release object's own, an added one's set's.
+        std::string PlaceZone(char kind, uint32 id)
+        {
+            if (IsRel(kind, id))
+                return s_relZones[s_rel[id - 1].zone];
+            for (auto const& [sid, cs] : s_sets)
+                for (Op const& op : cs.ops)
+                    if (char(op.kind) == kind && op.target == id && op.op == OpKind::Add)
+                        return cs.zone;
+            return {};
+        }
+
+        bool PlaceRateAllows(uint32 account, Level level, uint64 now, bool record)
+        {
+            PlaceLimits const pl;
+            uint32 const k = s_config.local || level == Level::Maintainer ? 100000 : level == Level::Reviewer ? 10 : 1;
+            auto it = s_placeRates.try_emplace(account, Window{pl.perMinute, 60000}, Window{pl.perDay, 86400000}).first;
+            it->second.first.setLimit(pl.perMinute * k), it->second.second.setLimit(pl.perDay * k);
+            if (it->second.first.full(now) || it->second.second.full(now))
+                return false;
+            if (record)
+                it->second.first.add(now), it->second.second.add(now);
+            return true;
+        }
+
+        // At start (ReplayAll), before the locks are taken: the ops on release objects find their rows again by the
+        // content their first op's `from` records (a release since may have renumbered them). An add the release has
+        // shipped, and an object the release has neither as it was nor as the set leaves it, are skipped (target 0); a
+        // move that meets neither is a conflict (false: the set is marked).
+        bool ResolvePlaces(ChangeSet& cs)
+        {
+            bool ok = true;
+            std::map<std::pair<char, uint32>, std::vector<size_t>> by;
+            for (size_t i = 0; i < cs.ops.size(); ++i)
+                if (isPlace(cs.ops[i].kind))
+                    by[{char(cs.ops[i].kind), cs.ops[i].target}].push_back(i);
+            for (auto const& [key, idx] : by)
+            {
+                auto const [kind, stored] = key;
+                std::vector<Op> ops;
+                for (size_t i : idx)
+                    ops.push_back(cs.ops[i]);
+                PlaceFold const f = foldPlace(ops);
+                uint32 target = stored;
+                if (ops.front().op == OpKind::Add)
+                {
+                    // an add the release has (baked): skipped
+                    if (f.after.present && FindRelByContent(cs.zone, kind, f.after))
+                        target = 0;
+                }
+                else
+                {
+                    // a release object: by its row's content (a turn or a new size keeps model, u and v: the release's own
+                    // row then compares equal once it is baked, and nothing is shown)
+                    auto first = placeStateOf(ops.front().from);
+                    target = first ? FindRelByContent(cs.zone, kind, *first) : 0;
+                    if (!target && f.touched && f.after.present && !FindRelByContent(cs.zone, kind, f.after))
+                    {
+                        ok = false;   // neither its from nor its to: a newer state on main
+                        LOG_WARN("module", "Emberfall.Editor: {} {} {}: the release has neither its from nor its to; skipped",
+                            CsName(cs.id), kind, stored);
+                    }
+                    // not found otherwise: moved and baked, or removed (baked or on main): nothing to show
+                }
+                for (size_t i : idx)
+                    cs.ops[i].target = target;
+            }
+            return ok;
+        }
+
+        // The models an editor may place (PMOD), after ROLE.
+        void SendModels(Player* player)
+        {
+            std::vector<std::string> list;
+            for (auto const& [key, m] : s_models)
+            {
+                if (!m.placeable)
+                    continue;
+                std::string const def = "World/Doodads/" + key;
+                uint32 const preview = m.kind == 'p' ? shownVariant(0, 0, m.variants, m.built) : 0;
+                list.push_back(std::string(1, m.kind) + "," + key + "," + (m.kind == 'p' && m.path == def ? std::string("-") : m.path) +
+                               "," + std::to_string(preview));
+            }
+            for (std::string const& body : pages("PMOD", {}, list, 200))
+                SendBody(player, body);
+        }
+
+        // Every second, for every player in the world: a new map forgets every stroke (GNDX;*;*) and place
+        // (PLACEX;*;*;*), an editor opening the editor gets its tiles again with the drafts; then the strokes and the
+        // places of the 3x3 tiles around it it lacks.
         void GroundTick()
         {
             for (auto const& [account, session] : sWorldSessionMgr->GetAllSessions())
@@ -1121,14 +1503,17 @@ namespace Emberfall::Editor
                 {
                     if (v.map != UINT32_MAX || !s_ground.empty())
                         SendBody(p, eft::body(0, "GNDX", {"*", "*"}));
+                    if (v.map != UINT32_MAX || !s_place.empty())
+                        SendBody(p, eft::body(0, "PLACEX", {"*", "*", "*"}));
                     v.map = p->GetMapId();
                     v.tiles.clear();
+                    v.placeTiles.clear();
                 }
                 if (viewer != v.viewer)
                 {
                     v.viewer = viewer;
                     if (viewer)
-                        v.tiles.clear();   // send again, with the drafts this time (the client keeps a stroke once)
+                        v.tiles.clear(), v.placeTiles.clear();   // send again, with the drafts this time
                 }
                 auto const [tx, ty] = tileOf(p->GetPositionX(), p->GetPositionY());
                 uint32 budget = kGroundBudget;
@@ -1147,6 +1532,24 @@ namespace Emberfall::Editor
                             if (r == s_ground.end() || (r->second.draft && !viewer))
                                 continue;
                             SendGround(p, r->second);
+                            --budget;
+                        }
+                    }
+                for (int32 dy = -1; dy <= 1 && budget; ++dy)
+                    for (int32 dx = -1; dx <= 1 && budget; ++dx)
+                    {
+                        std::pair<int32, int32> const tile{tx + dx, ty + dy};
+                        uint64& last = v.placeTiles[tile];
+                        auto t = s_placeTiles.find({v.map, tile.first, tile.second});
+                        if (t == s_placeTiles.end())
+                            continue;
+                        for (auto it = t->second.upper_bound(last); it != t->second.end() && budget; ++it)
+                        {
+                            last = it->first;
+                            auto r = s_place.find(it->second);
+                            if (r == s_place.end() || (r->second.draft && !viewer))
+                                continue;
+                            SendPlace(p, r->second);
                             --budget;
                         }
                     }
@@ -1655,6 +2058,119 @@ namespace Emberfall::Editor
                 {"points", Value::of(double(stroke->pts.size()))}});
         }
 
+        // PADD, PMOVE, PDEL (§22): a prop or a kit building placed, moved, turned, scaled or removed, validated (the set's
+        // zone, presence, the ground, the whitelist, the size, the lock, the set's and the realm's caps, the rate),
+        // stored and streamed (PLACE); the server's world stays the release's.
+        template <class Refuse>
+        void HandlePlace(Player* player, Session& s, Access const& a, eft::Request const& rq, Refuse const& refuse)
+        {
+            uint32 const seq = rq.seq;
+            bool const add = rq.cmd == "PADD", del = rq.cmd == "PDEL";
+            std::optional<PlaceRequest> const req = add ? parsePlaceAdd(rq.fields) : del ? parsePlaceDel(rq.fields) : parsePlaceMove(rq.fields);
+            if (!req)
+                return refuse(Code::Decode, "");
+            if (s_models.empty() || s_frames.empty())
+                return refuse(Code::Whitelist, "no place data on the realm (editor_world.sql)");
+            Code code = Code::Ok;
+            ChangeSet* cs = ActiveSet(player, s, code);
+            if (!cs && code == Code::Set)
+                cs = AutoSet(player, s, a, code);
+            if (!cs)
+                return refuse(code, "");
+            ZoneInfo const& zone = s_zones[cs->zone];
+            auto frame = s_frames.find(cs->zone);
+            if (frame == s_frames.end())
+                return refuse(Code::Zone, "no frame");
+            char const kind = char(req->kind);
+            PlaceLimits const pl;
+            uint32 const account = player->GetSession()->GetAccountId();
+            uint64 const now = NowMs();
+            // the object (PMOVE, PDEL): one PLACE named, or the release's at the point the client draws it
+            uint32 id = 0;
+            std::optional<PlaceState> cur;
+            if (!add)
+            {
+                if (req->ref.at)
+                    id = player->GetMapId() == zone.map ? FindRel(zone.map, kind, req->ref.x, req->ref.y, kMatchReach) : 0;
+                else if (IsRel(kind, req->ref.id) || !PlaceZone(kind, req->ref.id).empty())
+                    id = req->ref.id;
+                if (!id)
+                    return refuse(Code::Unknown, "");
+                if (PlaceZone(kind, id) != cs->zone)
+                    return refuse(Code::Zone, "another zone's set");
+                auto lock = s_locks.find({kind, id});
+                if (lock != s_locks.end() && lock->second != cs->id)
+                    return refuse(Code::Lock, "");
+                cur = CurrentPlace(kind, id, *cs);
+                if (!cur)
+                    return refuse(Code::Unknown, "removed");
+                auto [ox, oy] = worldOf(frame->second, cur->u, cur->v, req->kind);
+                if (player->GetMapId() != zone.map || player->GetExactDist2d(float(ox), float(oy)) > kPresence)
+                    return refuse(Code::Presence, "the object");
+            }
+            PlaceState next;
+            if (!del)
+            {
+                Pos p = req->pos;
+                ZoneInfo const* at = ZoneAt(player->GetMapId(), p);
+                if (!at || at->key != cs->zone)
+                    return refuse(Code::Zone, "");
+                if (Code c = CheckPlace(player, zone.map, p, false); c != Code::Ok)
+                    return refuse(c, "");
+                if (Code c = checkPlaceSize(req->kind, req->size, s_config.local ? Level::Maintainer : a.level, pl); c != Code::Ok)
+                    return refuse(c, "size");
+                std::string const model = add ? req->model : cur->model;
+                auto m = s_models.find(model);
+                if (m == s_models.end() || m->second.kind != kind || (add && !m->second.placeable) || m->second.path.empty())
+                    return refuse(Code::Whitelist, "");
+                auto const [u, v] = designOf(frame->second, p.x, p.y, req->kind);
+                next.present = true, next.model = model, next.u = u, next.v = v, next.yaw = req->yaw;
+                next.size = kind == 'b' ? 1.0 : double(req->size), next.z = p.z, next.map = zone.map;
+                if (cur)
+                    next.name = cur->name;
+                else if (kind == 'b')
+                    next.name = fmt::format("{} ({} #{})", model, CsName(cs->id), placeCount(cs->ops, Kind::Building) + 1);
+            }
+            if (cur && next.present && samePlace(*cur, next))
+            {
+                SendOk(player, seq, std::to_string(id));
+                return;
+            }
+            // the caps: objects a set touches (§9.1; reviewers x10, maintainers none), objects the realm shows
+            bool const newObject = add || foldPlace(PlaceOpsOn(*cs, kind, id)).touched == false;
+            uint32 const scale = s_config.local || a.level == Level::Maintainer ? 100000 : a.level == Level::Reviewer ? 10 : 1;
+            if (newObject && placeCount(cs->ops, req->kind) + 1 > (kind == 'b' ? pl.buildingsPerSet : pl.propsPerSet) * scale)
+                return refuse(Code::Limit, kind == 'b' ? "buildings per set" : "props per set");
+            if (newObject && s_place.size() >= pl.realmCap)
+                return refuse(Code::Limit, "objects on the realm");
+            if (!PlaceRateAllows(account, a.level, now, false))
+                return refuse(Code::Rate, "");
+            if (add && s_nextTemp > kTempIdMax)
+                return refuse(Code::Internal, "temporary ids exhausted");
+            PlaceRateAllows(account, a.level, now, true);
+            Op op;
+            op.op = add ? OpKind::Add : del ? OpKind::Delete : OpKind::Move;
+            op.kind = req->kind;
+            op.target = add ? s_nextTemp++ : id;
+            op.tempId = add ? op.target : 0;
+            if (cur)
+                op.from = placeFields(req->kind, *cur);
+            if (next.present)
+                op.to = placeFields(req->kind, next);
+            op.seq = cs->ops.empty() ? 1 : cs->ops.back().seq + 1;
+            op.createdMs = now;
+            if (cs->firstOpMs == 0)
+                cs->firstOpMs = now;
+            cs->ops.push_back(op);
+            StoreOp(*cs, op);
+            Lock(kind, op.target, cs->id);
+            PlaceSyncSet(*cs);
+            SendSet(player, *cs);
+            SendOps(player, *cs);
+            SendOk(player, seq, std::to_string(op.target));
+            Audit(player, rq.cmd, Code::Ok, {{"cs", Value::of(cs->id)}, {"seq", Value::of(op.seq)}, {"kind", Value::str(std::string(1, kind))},
+                {"id", Value::of(op.target)}, {"model", Value::str((next.present ? next.model : cur->model).substr(0, 48))}});
+        }
         void Handle(Player* player, Session& s, Access const& a, eft::Request const& rq)
         {
             uint32 const seq = rq.seq;
@@ -1727,6 +2243,7 @@ namespace Emberfall::Editor
                     StoreState(cs);
                     Unlock(cs.id);
                     GroundSyncSet(cs);
+                    PlaceSyncSet(cs);
                     if (s.active == cs.id)
                         s.active = 0;
                     SendSet(player, cs);
@@ -1792,6 +2309,20 @@ namespace Emberfall::Editor
                         {"strokes", Value::of(double(range->second - range->first + 1))}});
                     return;
                 }
+                if (isPlace(cs.ops[*index].kind))
+                {
+                    // a prop or a building (§22): nothing on the server, the clients get the object's record anew
+                    Op& op = cs.ops[*index];
+                    op.undone = undo;
+                    CharacterDatabase.DirectExecute("UPDATE " + Table("ef_op") + " SET `undone` = {} WHERE `changeset_id` = {} AND `seq` = {}",
+                        undo ? 1 : 0, cs.id, op.seq);
+                    PlaceSyncSet(cs);
+                    SendSet(player, cs);
+                    SendOps(player, cs);
+                    SendOk(player, seq, std::to_string(op.target));
+                    Audit(player, rq.cmd, Code::Ok, {{"cs", Value::of(cs.id)}, {"seq", Value::of(op.seq)}});
+                    return;
+                }
                 Op& op = cs.ops[*index];
                 CreatureData const* d = EffectiveData(op.target);
                 Pos at = d ? Pos{d->posX, d->posY, d->posZ, 0} : posOf(op.from).value_or(posOf(op.to).value_or(Pos{}));
@@ -1814,6 +2345,9 @@ namespace Emberfall::Editor
             // ---- the ground (step 3, §20): PAINT, ROAD, SCULPT
             if (rq.cmd == "PAINT" || rq.cmd == "ROAD" || rq.cmd == "SCULPT")
                 return HandleGround(player, s, a, rq, refuse);
+            // ---- props and kit buildings (step 2, §22): PADD, PMOVE, PDEL
+            if (rq.cmd == "PADD" || rq.cmd == "PMOVE" || rq.cmd == "PDEL")
+                return HandlePlace(player, s, a, rq, refuse);
 
             // ---- the ops: ADD, MOVE, SET, DEL
             if (rq.cmd != "ADD" && rq.cmd != "MOVE" && rq.cmd != "SET" && rq.cmd != "DEL")
@@ -2090,7 +2624,10 @@ namespace Emberfall::Editor
                 auto acc = s_access.find(cs.owner);
                 bool const frozen = !s_config.local && acc != s_access.end() && acc->second.frozen;
                 if (state::open(cs.state))
+                {
                     GroundSyncSet(cs);   // a frozen owner's strokes go off the clients (and come back when thawed)
+                    PlaceSyncSet(cs);    // and the props and buildings
+                }
                 if (frozen && state::open(cs.state))
                 {
                     bool anyLock = false;
@@ -2113,7 +2650,7 @@ namespace Emberfall::Editor
             bool conflict = false;
             for (Op op : cs.ops)
             {
-                if (op.undone || isGround(op.kind))
+                if (op.undone || isOverlay(op.kind))
                     continue;   // strokes: GroundSyncSet (nothing on the server)
                 if (auto fin = finals.find(op.target); fin != finals.end())
                 {
@@ -2198,12 +2735,86 @@ namespace Emberfall::Editor
                 if (st == state::Accepted || st == state::Released)
                     Unlock(cs.id);
                 GroundSyncSet(cs);   // rejected, withdrawn, released: off the clients; accepted: everyone's now
+                PlaceSyncSet(cs);
                 if (Player* p = OnlineOwner(cs))
                     SendSet(p, cs);
                 LOG_INFO("module", "Emberfall.Editor: {} is {} (site)", CsName(cs.id), st);
             } while (r->NextRow());
         }
 
+        // The props and buildings (§22; editor_world.sql from step 2 on): the models (the whitelist and every model the
+        // editable zones stand), the zones' frames and the release's objects. Without the tables nobody places anything.
+        void LoadPlaces()
+        {
+            s_models.clear(), s_frames.clear(), s_rel.clear(), s_relModels.clear(), s_relZones.clear(), s_relNames.clear();
+            s_relByName.clear(), s_relCells.clear();
+            if (!TableExists("ef_editor_model", true) || !TableExists("ef_editor_frame", true) || !TableExists("ef_editor_prop", true))
+            {
+                LOG_WARN("module", "Emberfall.Editor: world tables ef_editor_model/frame/prop are missing (dist/server/editor_world.sql): "
+                    "no props or buildings");
+                return;
+            }
+            if (QueryResult r = WorldDatabase.Query("SELECT `model`, `kind`, `path`, `variants`, `built`, `placeable` FROM `ef_editor_model`"))
+                do
+                {
+                    Field* f = r->Fetch();
+                    std::string const key = f[0].Get<std::string>(), kind = f[1].Get<std::string>(), path = f[2].Get<std::string>();
+                    if (!modelKey(key) || kind.size() != 1 || !isPlace(kind[0]) || path.size() > 96)
+                        continue;
+                    ModelInfo m;
+                    m.kind = kind[0], m.path = path, m.variants = f[3].Get<uint32>(), m.built = f[4].Get<uint32>();
+                    m.placeable = f[5].Get<uint8>() != 0;
+                    s_models[key] = m;
+                } while (r->NextRow());
+            if (QueryResult r = WorldDatabase.Query("SELECT `zone`, `origin_u`, `origin_v`, `tile` FROM `ef_editor_frame`"))
+                do
+                {
+                    Field* f = r->Fetch();
+                    s_frames[f[0].Get<std::string>()] = Frame{f[1].Get<double>(), f[2].Get<double>(), f[3].Get<double>()};
+                } while (r->NextRow());
+            std::map<std::string, uint16> models;
+            std::map<std::string, uint8> zones;
+            if (QueryResult r = WorldDatabase.Query("SELECT `id`, `zone`, `kind`, `model`, `u`, `v`, `yaw`, `size`, `name` FROM `ef_editor_prop` ORDER BY `id`"))
+                do
+                {
+                    Field* f = r->Fetch();
+                    uint32 const id = f[0].Get<uint32>();
+                    std::string const zone = f[1].Get<std::string>(), kind = f[2].Get<std::string>(), model = f[3].Get<std::string>();
+                    auto frame = s_frames.find(zone);
+                    auto zi = s_zones.find(zone);
+                    if (id != s_rel.size() + 1 || kind.size() != 1 || !isPlace(kind[0]) || frame == s_frames.end() || zi == s_zones.end())
+                    {
+                        LOG_ERROR("module", "Emberfall.Editor: ef_editor_prop row {} is out of order or names no zone: the props stop there", id);
+                        break;
+                    }
+                    if (models.size() >= 65535 || zones.size() >= 255)
+                        break;
+                    auto [mi, newModel] = models.try_emplace(model, uint16(s_relModels.size()));
+                    if (newModel)
+                        s_relModels.push_back(model);
+                    auto [zix, newZone] = zones.try_emplace(zone, uint8(s_relZones.size()));
+                    if (newZone)
+                        s_relZones.push_back(zone);
+                    RelObj o;
+                    o.kind = kind[0], o.zone = zix->second, o.model = mi->second, o.map = zi->second.map;
+                    o.u = f[4].Get<float>(), o.v = f[5].Get<float>(), o.yaw = f[6].Get<float>(), o.size = f[7].Get<float>();
+                    auto [x, y] = worldOf(frame->second, o.u, o.v, Kind(o.kind));
+                    o.x = float(x), o.y = float(y);
+                    s_rel.push_back(o);
+                    s_relCells[RelCell(o.map, o.x, o.y)].push_back(id);
+                    if (o.kind == 'b')
+                    {
+                        std::string const name = f[8].Get<std::string>();
+                        s_relNames[id] = name;
+                        s_relByName[{zone, name}] = id;
+                    }
+                } while (r->NextRow());
+            size_t placeable = 0;
+            for (auto const& [k, m] : s_models)
+                placeable += m.placeable;
+            LOG_INFO("server.loading", ">> Emberfall.Editor: {} release prop(s) and building(s) in {} zone(s), {} model(s) ({} placeable)",
+                s_rel.size(), s_frames.size(), s_models.size(), placeable);
+        }
         void LoadRelease()
         {
             s_zones.clear(), s_spawns.clear(), s_entries.clear(), s_release.clear();
@@ -2245,6 +2856,7 @@ namespace Emberfall::Editor
             }
             else
                 LOG_WARN("module", "Emberfall.Editor: world table ef_editor_layer is missing (dist/server/editor_world.sql): no ground painting");
+            LoadPlaces();
         }
 
         // §7.1 and §7.3: every accepted set not yet released (by id), then every open set of an account that is not
@@ -2324,15 +2936,24 @@ namespace Emberfall::Editor
             // their locks and their drafts go into the editor phase (§19), the same in-effect rules for both.
             uint32 applied = 0, skipped = 0, conflicts = 0, drafted = 0;
             std::vector<ChangeSet*> drafts;
+            // the props and buildings (§22) find their release rows again (and take their locks: ResolvePlaces)
+            std::set<uint32> placeConflicts;
+            for (auto& [id, cs] : s_sets)
+                if (!ResolvePlaces(cs))
+                    placeConflicts.insert(id);
+            for (ChangeSet* cs : order)
+                for (Op const& op : cs->ops)
+                    if (state::open(cs->state) && isPlace(op.kind) && op.target && !op.undone)
+                        s_locks[{char(op.kind), op.target}] = cs->id;
             for (ChangeSet* cs : order)
             {
-                bool ok = true;
+                bool ok = !placeConflicts.count(cs->id);
                 if (Live(*cs))
                     ok = ReplayLiveSet(*cs, finals, applied, skipped, conflicts);
                 else
                 {
                     for (Op const& op : cs->ops)
-                        if (!op.undone && !isGround(op.kind))
+                        if (!op.undone && !isOverlay(op.kind))
                             s_locks[{char(op.kind), op.target}] = cs->id;
                     drafts.push_back(cs);
                 }
@@ -2346,7 +2967,7 @@ namespace Emberfall::Editor
             {
                 std::set<std::pair<char, uint32>> targets;
                 for (Op const& op : cs->ops)
-                    if (!op.undone && !isGround(op.kind))
+                    if (!op.undone && !isOverlay(op.kind))
                         targets.insert({char(op.kind), op.target});
                 bool ok = true;
                 for (auto const& [k, id] : targets)
@@ -2372,6 +2993,7 @@ namespace Emberfall::Editor
             // the day's rate windows survive a restart (ops' server timestamps)
             s_rates.clear();
             s_groundRates.clear();
+            s_placeRates.clear();
             uint64 const now = NowMs();
             for (auto const& [id, cs] : s_sets)
                 for (Op const& op : cs.ops)
@@ -2379,6 +3001,12 @@ namespace Emberfall::Editor
                     {
                         GroundLimits const gl;
                         auto it = s_groundRates.try_emplace(cs.owner, Window{gl.perMinute, 60000}, Window{gl.perDay, 86400000}).first;
+                        it->second.second.add(op.createdMs);
+                    }
+                    else if (op.createdMs + 86400000 > now && isPlace(op.kind))
+                    {
+                        PlaceLimits const pl;
+                        auto it = s_placeRates.try_emplace(cs.owner, Window{pl.perMinute, 60000}, Window{pl.perDay, 86400000}).first;
                         it->second.second.add(op.createdMs);
                     }
                     else if (op.createdMs + 86400000 > now)
@@ -2403,8 +3031,12 @@ namespace Emberfall::Editor
                 GroundSyncSet(cs);
             }
             s_nextGround = maxGround + 1;
-            LOG_INFO("server.loading", ">> Emberfall.Editor: {} zone(s), {} editable spawn(s), {} set(s) replayed: {} op(s) applied, {} already in effect, {} conflict(s); {} object(s) of {} draft(s) in the editor phase; {} ground stroke(s) shown",
-                s_zones.size(), s_spawns.size(), order.size(), applied, skipped, conflicts, drafted, drafts.size(), s_ground.size());
+            // the props and buildings (§22): their records into the index, streamed like the strokes
+            s_place.clear(), s_placeTiles.clear();
+            for (auto const& [id, cs] : s_sets)
+                PlaceSyncSet(cs);
+            LOG_INFO("server.loading", ">> Emberfall.Editor: {} zone(s), {} editable spawn(s), {} set(s) replayed: {} op(s) applied, {} already in effect, {} conflict(s); {} object(s) of {} draft(s) in the editor phase; {} ground stroke(s) shown; {} prop(s) and building(s) shown",
+                s_zones.size(), s_spawns.size(), order.size(), applied, skipped, conflicts, drafted, drafts.size(), s_ground.size(), s_place.size());
         }
     }
 
@@ -2631,7 +3263,8 @@ namespace Emberfall::Editor
             v.ready = true;
             v.map = UINT32_MAX;
             v.tiles.clear();
-            if (s_ground.empty())
+            v.placeTiles.clear();
+            if (s_ground.empty() && s_place.empty())
                 v.map = player->GetMapId();   // nothing to forget, nothing to send yet
         }
         if (a.level == Level::None || a.frozen)
@@ -2669,6 +3302,7 @@ namespace Emberfall::Editor
             s_editors.insert(player->GetGUID());
             SendRole(player, a);
             SendLayers(player);
+            SendModels(player);
             for (auto const& [id, cs] : s_sets)
                 if (cs.owner == account && (state::open(cs.state) || cs.state == state::Accepted))
                     SendSet(player, cs, id == s.active);
@@ -2705,6 +3339,13 @@ namespace Emberfall::Editor
             layers += l.size();
         lines.push_back(fmt::format("ground: {} stroke(s) shown ({} drafts) in {} tile(s); {} paintable layer(s) in {} zone(s)",
             s_ground.size(), draftStrokes, s_groundTiles.size(), layers, s_layers.size()));
+        size_t draftPlaces = 0, placeable = 0;
+        for (auto const& [key, r] : s_place)
+            draftPlaces += r.draft;
+        for (auto const& [key, m] : s_models)
+            placeable += m.placeable;
+        lines.push_back(fmt::format("places: {} prop(s) and building(s) shown ({} drafts); {} release object(s), {} model(s), {} placeable",
+            s_place.size(), draftPlaces, s_rel.size(), s_models.size(), placeable));
         for (auto const& [id, cs] : s_sets)
             lines.push_back(fmt::format("  {} {}{} by {} ({}): {} op(s), {}", CsName(cs.id), cs.state, Live(cs) ? "" : " (draft)", cs.ownerName, cs.owner,
                 cs.ops.size(), cs.title));

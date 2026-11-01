@@ -26,6 +26,10 @@
 // the editor phase, seen only by editors with the editor open; a maintainer's apply for everyone at once and go to
 // review by themselves. Editor mode (flight, speed, safety) is an explicit toggle, off by default.
 //
+// Step 3 (§21) and step 2 (§22): ground strokes, props and kit buildings change nothing on the server; the realm
+// validates and stores their ops and streams them by map tile (GND, PLACE) to the clients, which draw them over the
+// release until a release bakes them.
+//
 // Config (worldserver.conf or AC_EMBERFALL_EDITOR_* environment):
 //   Emberfall.Editor.Enable     0/1
 //   Emberfall.Editor.Database   the editor database's name (<realm>_editor); the realm's MySQL user owns it

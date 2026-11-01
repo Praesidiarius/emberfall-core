@@ -33,8 +33,9 @@
 //
 // On the normal realm (world-editor.md §19): the role is the account's GM level for the realm (1 contributor, 2 and up
 // maintainer). A contributor's open sets are drafts in one shared phase (kDraftPhase) that only editors with the
-// editor open see (VIEW on); a maintainer's ops apply for everyone at once. Kinds and ops stay open for the later steps
-// (props, buildings and ground layers as client overlays, §9): a new kind or field extends the marker and the op rows.
+// editor open see (VIEW on); a maintainer's ops apply for everyone at once. The later steps are client overlays with
+// kinds of their own: ground strokes l, r, h (step 3, §21: PAINT, ROAD, SCULPT, GND) and props p and kit buildings b
+// (step 2, §22: PADD, PMOVE, PDEL, PLACE, PMOD), each section below.
 // Everything here is bounds-checked and never throws: malformed input gives std::nullopt / an error value.
 
 #pragma once
@@ -47,6 +48,7 @@
 #include <cstdio>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -182,8 +184,9 @@ namespace ef::editor
     // ------------------------------------------------------------------------------------------ requests
 
     // c creature spawn, n NPC; step 3 (world-editor.md §21): l a ground layer stroke, r a road, h a height stamp (the
-    // ground kinds are no objects: no lock, no marker, nothing the server applies; ground below).
-    enum class Kind : char { Creature = 'c', Npc = 'n', Ground = 'l', Road = 'r', Height = 'h' };
+    // ground kinds are no objects: no lock, no marker, nothing the server applies; ground below); step 2 (§22): p a prop,
+    // b a kit building (objects with a lock, drawn by the clients only: places below).
+    enum class Kind : char { Creature = 'c', Npc = 'n', Ground = 'l', Road = 'r', Height = 'h', Prop = 'p', Building = 'b' };
 
     inline std::optional<Kind> kindOf(std::string_view text)
     {
@@ -1080,7 +1083,8 @@ namespace ef::editor
     {
         std::map<std::pair<char, uint32_t>, int> touched;
         for (Op const& op : ops)
-            if (!op.undone && op.kind != Kind::Ground && op.kind != Kind::Road && op.kind != Kind::Height)  // strokes: groundCount
+            if (!op.undone && op.kind != Kind::Ground && op.kind != Kind::Road && op.kind != Kind::Height &&
+                op.kind != Kind::Prop && op.kind != Kind::Building)  // strokes: groundCount; props, buildings: placeCount
                 touched[{static_cast<char>(op.kind), op.target}] = 1;
         return touched.size();
     }
@@ -1607,5 +1611,419 @@ namespace ef::editor
         for (Op const& op : ops)
             n += !op.undone && isGround(op.kind);
         return n;
+    }
+
+    // ------------------------------------------------------------------------------------------ places (step 2, §22)
+
+    // Props (p: the trees, rocks and clutter of a zone's placements.yaml `trees` and `clutter`) and kit buildings (b: its
+    // `buildings`, kit models at scale 1): placed, moved, turned, scaled (props only) and removed. Like the ground,
+    // nothing on the server changes: the realm validates and stores the ops, streams what each set makes of each object
+    // (PLACE) by tile, and the clients draw it over the release (a prop as an M2, a building as a WMO, the release's own
+    // instance hidden by its position) until a release bakes it into placements.yaml (Emberfall tools/py
+    // emberfall_content/editor/placements.py). The server's collision, paths and line of sight stay the release's. The
+    // rules are written down in docs/design/world-editor.md §22.
+    //
+    //   C->S  PADD;<k>;<model>;<x>;<y>;<z>;<yaw>;<size>   PMOVE;<k>;<ref>;<x>;<y>;<z>;<yaw>;<size>   PDEL;<k>;<ref>
+    //   S->C  PLACE;<cs>;<k>;<id>;<flags>;<map>;<path|->;<x>;<y>;<z>;<o>;<size>;<hx|->;<hy|->
+    //         PLACEX;<cs>;<k>;<id>   (PLACEX;*;*;* first at login and on a new map: forget every place)
+    //         PMOD;<p>/<t>;<k>,<model>,<path|->,<variant>|...   (the models an editor may place, after ROLE)
+    // `model`: a whitelist key (doodads.yaml's `<category>/<name>` for a prop, the kit model for a building). `ref`: the
+    // object, `<id>` as PLACE names it (an object a set added, or a release object a set changed), or `@<x>,<y>`: the
+    // release object the client draws there (its MDDF/MODF position; the realm takes the row within kMatchReach). `yaw`
+    // in degrees as placements.yaml has it (a prop's: its glTF +Z from south towards east; a building's: its door
+    // clockwise from north); `size` a prop's scale (a building's is 1). PLACE's `path`: the model's game path with '/'
+    // and no extension (.m2 for p, .wmo for b; `-`: nothing shown, a set removes the object), x, y, z and `o`
+    // (efterrain's orientation, degrees counter-clockwise from north) where it stands, hx and hy the release instance the
+    // clients hide (`-`: none, a new object). Flags: d a contributor's draft (only editors with the editor open get
+    // those), m the viewer's own. A client shows, of the records of one object (k, id), the one of the highest set.
+    // PMOD's `path` is `-` for a prop at World/Doodads/<model>; `variant` the one to preview (0: the model has none).
+
+    constexpr size_t kMaxModelKey = 48;
+    constexpr float kMatchReach = 0.6f;
+
+    inline bool isPlace(Kind k) { return k == Kind::Prop || k == Kind::Building; }
+    inline bool isPlace(char k) { return k == 'p' || k == 'b'; }
+    // The kinds the server's world never holds (ground strokes, props, buildings): nothing applied, no marker, no copy.
+    inline bool isOverlay(Kind k) { return isGround(k) || isPlace(k); }
+
+    inline std::optional<Kind> placeKindOf(std::string_view s)
+    {
+        if (s == "p")
+            return Kind::Prop;
+        if (s == "b")
+            return Kind::Building;
+        return std::nullopt;
+    }
+
+    // A whitelist key: lower-case letters, digits, '-' and '_', at most one '/' between two names.
+    inline bool modelKey(std::string_view s)
+    {
+        if (s.empty() || s.size() > kMaxModelKey || s.front() == '/' || s.back() == '/')
+            return false;
+        size_t slashes = 0;
+        for (char c : s)
+        {
+            if (c == '/')
+                ++slashes;
+            else if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'))
+                return false;
+        }
+        return slashes <= 1;
+    }
+
+    struct PlaceRef
+    {
+        uint32_t id = 0;          // an object PLACE named
+        bool at = false;          // or the release object at (x, y)
+        float x = 0, y = 0;
+    };
+
+    inline std::optional<PlaceRef> parseRef(std::string_view s)
+    {
+        PlaceRef r;
+        if (!s.empty() && s[0] == '@')
+        {
+            auto xy = eft::split(s.substr(1), ',');
+            if (xy.size() != 2)
+                return std::nullopt;
+            auto x = decimal(xy[0], 20000), y = decimal(xy[1], 20000);
+            if (!x || !y)
+                return std::nullopt;
+            r.at = true, r.x = *x, r.y = *y;
+            return r;
+        }
+        auto id = eft::number(s, kTempIdMax);
+        if (!id || *id == 0)
+            return std::nullopt;
+        r.id = *id;
+        return r;
+    }
+
+    struct PlaceRequest
+    {
+        Kind kind = Kind::Prop;
+        std::string model;        // PADD
+        PlaceRef ref;             // PMOVE, PDEL
+        Pos pos;                  // x, y, z (o unused)
+        float yaw = 0, size = 1;
+    };
+
+    // Degrees in [0, 360) to one decimal (placements.yaml's precision).
+    inline float normaliseYaw(float yaw)
+    {
+        double y = std::fmod(double(yaw), 360.0);
+        if (y < 0)
+            y += 360.0;
+        y = std::round(y * 10.0) / 10.0;
+        return y >= 360.0 ? 0.0f : float(y);
+    }
+
+    // x, y, z, yaw, size at f[at .. at + 4]
+    inline bool placeWhere(std::vector<std::string> const& f, size_t at, PlaceRequest& r)
+    {
+        auto x = decimal(f[at], 20000), y = decimal(f[at + 1], 20000), z = decimal(f[at + 2], 5000);
+        auto yaw = decimal(f[at + 3], 100000), size = decimal(f[at + 4], 10);
+        if (!x || !y || !z || !yaw || !size || *size <= 0)
+            return false;
+        r.pos = Pos{*x, *y, *z, 0};
+        r.yaw = normaliseYaw(*yaw);
+        r.size = std::round(*size * 100.0f) / 100.0f;
+        return r.size > 0;
+    }
+
+    inline std::optional<PlaceRequest> parsePlaceAdd(std::vector<std::string> const& f)
+    {
+        if (f.size() != 7)
+            return std::nullopt;
+        auto k = placeKindOf(f[0]);
+        if (!k || !modelKey(f[1]))
+            return std::nullopt;
+        PlaceRequest r;
+        r.kind = *k, r.model = f[1];
+        if (!placeWhere(f, 2, r))
+            return std::nullopt;
+        return r;
+    }
+
+    inline std::optional<PlaceRequest> parsePlaceMove(std::vector<std::string> const& f)
+    {
+        if (f.size() != 7)
+            return std::nullopt;
+        auto k = placeKindOf(f[0]);
+        auto ref = parseRef(f[1]);
+        if (!k || !ref)
+            return std::nullopt;
+        PlaceRequest r;
+        r.kind = *k, r.ref = *ref;
+        if (!placeWhere(f, 2, r))
+            return std::nullopt;
+        return r;
+    }
+
+    inline std::optional<PlaceRequest> parsePlaceDel(std::vector<std::string> const& f)
+    {
+        if (f.size() != 2)
+            return std::nullopt;
+        auto k = placeKindOf(f[0]);
+        auto ref = parseRef(f[1]);
+        if (!k || !ref)
+            return std::nullopt;
+        PlaceRequest r;
+        r.kind = *k, r.ref = *ref;
+        return r;
+    }
+
+    struct PlaceLimits
+    {
+        uint32_t propsPerSet = 300, buildingsPerSet = 3;   // objects a set touches (§9.1)
+        float sizeMin = 0.5f, sizeMax = 2.0f;              // a contributor's prop scale; a maintainer's below
+        float sizeMinMaintainer = 0.1f, sizeMaxMaintainer = 5.0f;
+        uint32_t perMinute = 60, perDay = 1000;            // per account (reviewers x10, maintainers none)
+        uint32_t realmCap = 20000;                         // objects the realm shows waiting for a release, every set
+    };
+
+    // A prop's scale within its range; a kit building stands at scale 1 only.
+    inline Code checkPlaceSize(Kind k, float size, Level level, PlaceLimits const& l)
+    {
+        if (!std::isfinite(size))
+            return Code::Value;
+        if (k == Kind::Building)
+            return std::fabs(size - 1.0f) < 0.001f ? Code::Ok : Code::Value;
+        bool const m = level == Level::Maintainer;
+        return size >= (m ? l.sizeMinMaintainer : l.sizeMin) - 1e-4f && size <= (m ? l.sizeMaxMaintainer : l.sizeMax) + 1e-4f
+                   ? Code::Ok : Code::Value;
+    }
+
+    // A zone's design frame (zone.yaml `frame.origin`, `adt_size`): design (u east, v south, yards) <-> world (x north,
+    // y west) as doodads.py design_to_world. A prop stands at its tile's centre (u + 0.5, v + 0.5); a building's u, v is
+    // its footprint's centre.
+    struct Frame
+    {
+        double ou = 0, ov = 0, tile = 1600.0 / 3.0;
+    };
+
+    inline double round2(double v) { return std::round(v * 100.0) / 100.0; }
+
+    inline std::pair<double, double> worldOf(Frame const& f, double u, double v, Kind k)
+    {
+        double const c = k == Kind::Prop ? 0.5 : 0.0;
+        return {f.tile - (v + c + f.ov), f.tile - (u + c + f.ou)};
+    }
+
+    inline std::pair<double, double> designOf(Frame const& f, double x, double y, Kind k)
+    {
+        double const c = k == Kind::Prop ? 0.5 : 0.0;
+        return {round2(f.tile - y - f.ou - c), round2(f.tile - x - f.ov - c)};
+    }
+
+    // efterrain's orientation (degrees counter-clockwise from north) of a placements.yaml yaw: a prop's is yaw + 180
+    // (doodads.py prop_orientation), a building's -yaw (wmo/__main__.py).
+    inline double orientationOf(Kind k, double yaw)
+    {
+        double o = std::fmod(k == Kind::Prop ? yaw + 180.0 : -yaw, 360.0);
+        if (o < 0)
+            o += 360.0;
+        return o;
+    }
+
+    // zlib's CRC-32 (doodads.py variant_of hashes the position with it).
+    inline uint32_t crc32(std::string_view s)
+    {
+        uint32_t c = 0xFFFFFFFFu;
+        for (char ch : s)
+        {
+            c ^= static_cast<unsigned char>(ch);
+            for (int k = 0; k < 8; ++k)
+                c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+        }
+        return ~c;
+    }
+
+    // Which of a model's `count` variants a prop at design (u, v) stands as (1..count; 0 without variants): the release's
+    // rule (doodads.py variant_of), so the preview is what the bake builds.
+    inline uint32_t variantOf(double u, double v, uint32_t count)
+    {
+        if (count == 0)
+            return 0;
+        char buffer[64];
+        std::snprintf(buffer, sizeof buffer, "%.3f,%.3f", u, v);
+        return crc32(buffer) % count + 1;
+    }
+
+    // The variant the clients can draw: the hashed one when their data has it (`built`: bit k set for variant k, the
+    // variants some release placement stands as), else the lowest built one (the bake builds the hashed one).
+    inline uint32_t shownVariant(double u, double v, uint32_t count, uint32_t built)
+    {
+        uint32_t const want = variantOf(u, v, count);
+        if (want == 0 || want > 31 || (built >> want) & 1u)
+            return want;
+        for (uint32_t k = 1; k <= count && k <= 31; ++k)
+            if ((built >> k) & 1u)
+                return k;
+        return want;
+    }
+
+    inline std::string variantPath(std::string const& base, uint32_t variant)
+    {
+        return variant ? base + "-v" + std::to_string(variant) : base;
+    }
+
+    // An object as placements.yaml has it (model, u, v, yaw, size; a building's name), and where the realm stood it (z,
+    // its map).
+    struct PlaceState
+    {
+        bool present = false;
+        std::string model, name;
+        double u = 0, v = 0, yaw = 0, size = 1;
+        double z = 0;
+        uint32_t map = 0;
+    };
+
+    inline Fields placeFields(Kind k, PlaceState const& s)
+    {
+        Fields o;
+        o["model"] = Value::str(s.model);
+        o["u"] = Value::of(round2(s.u));
+        o["v"] = Value::of(round2(s.v));
+        o["yaw"] = Value::of(std::round(s.yaw * 10.0) / 10.0);
+        o["z"] = Value::of(round2(s.z));
+        o["map"] = Value::of(s.map);
+        if (k == Kind::Prop)
+            o["size"] = Value::of(round2(s.size));
+        else if (!s.name.empty())
+            o["name"] = Value::str(s.name);
+        return o;
+    }
+
+    inline std::optional<PlaceState> placeStateOf(Fields const& f)
+    {
+        auto num = [&](char const* k) -> std::optional<double> {
+            auto it = f.find(k);
+            return it != f.end() && it->second.type == Value::Type::Number ? std::optional<double>(it->second.number) : std::nullopt;
+        };
+        auto model = f.find("model");
+        auto u = num("u"), v = num("v");
+        if (model == f.end() || model->second.type != Value::Type::String || !modelKey(model->second.text) || !u || !v)
+            return std::nullopt;
+        PlaceState s;
+        s.present = true;
+        s.model = model->second.text;
+        s.u = *u, s.v = *v;
+        s.yaw = num("yaw").value_or(0), s.size = num("size").value_or(1), s.z = num("z").value_or(0);
+        s.map = uint32_t(num("map").value_or(0));
+        if (auto n = f.find("name"); n != f.end() && n->second.type == Value::Type::String)
+            s.name = n->second.text;
+        return s;
+    }
+
+    // The same object in the same place (the files' precisions: u, v 2 decimals, yaw 1, size 2).
+    inline bool samePlace(PlaceState const& a, PlaceState const& b)
+    {
+        if (a.present != b.present)
+            return false;
+        if (!a.present)
+            return true;
+        double const turn = std::fabs(std::fmod(a.yaw - b.yaw + 540.0, 360.0) - 180.0);
+        return a.model == b.model && std::fabs(a.u - b.u) < 0.006 && std::fabs(a.v - b.v) < 0.006 && turn < 0.06 &&
+               std::fabs(a.size - b.size) < 0.006;
+    }
+
+    // What a set's ops make of one object (its ops in seq order): from the first active op's `from` (nothing before an
+    // add), each active op's `to` over it (a delete: gone).
+    struct PlaceFold
+    {
+        bool touched = false;   // an active op
+        PlaceState before, after;
+    };
+
+    inline PlaceFold foldPlace(std::vector<Op> const& ops)
+    {
+        PlaceFold out;
+        for (Op const& op : ops)
+        {
+            if (op.undone)
+                continue;
+            if (!out.touched)
+            {
+                out.touched = true;
+                if (op.op != OpKind::Add)
+                    if (auto b = placeStateOf(op.from))
+                        out.before = *b;
+                out.after = out.before;
+            }
+            if (op.op == OpKind::Delete)
+                out.after.present = false;
+            else if (auto t = placeStateOf(op.to))
+                out.after = *t;
+        }
+        return out;
+    }
+
+    // The objects of kind k a set touches (its caps, §9.1).
+    inline size_t placeCount(std::vector<Op> const& ops, Kind k)
+    {
+        std::set<uint32_t> ids;
+        for (Op const& op : ops)
+            if (!op.undone && op.kind == k)
+                ids.insert(op.target);
+        return ids.size();
+    }
+
+    struct PlaceShow
+    {
+        uint32_t cs = 0, id = 0, map = 0;
+        Kind kind = Kind::Prop;
+        std::string flags = "-", path;   // path empty: nothing shown
+        float x = 0, y = 0, z = 0, o = 0, size = 1;
+        std::optional<std::pair<float, float>> hide;
+    };
+
+    // PLACE: one message per object; empty when it would not fit one.
+    inline std::string placeBody(PlaceShow const& s)
+    {
+        std::vector<std::string> f{std::to_string(s.cs), std::string(1, static_cast<char>(s.kind)), std::to_string(s.id),
+                                   s.flags.empty() ? std::string("-") : s.flags, std::to_string(s.map),
+                                   s.path.empty() ? std::string("-") : s.path, fixed(s.x, 2), fixed(s.y, 2), fixed(s.z, 2),
+                                   fixed(s.o, 1), fixed(s.size, 2), s.hide ? fixed(s.hide->first, 2) : std::string("-"),
+                                   s.hide ? fixed(s.hide->second, 2) : std::string("-")};
+        std::string body = eft::body(0, "PLACE", f);
+        return body.size() <= eft::kMaxBody ? body : std::string();
+    }
+
+    // PLACE's fields after its cmd (the client reads them the same way; here for the tests and the fuzz).
+    inline std::optional<PlaceShow> decodePlace(std::vector<std::string> const& f)
+    {
+        if (f.size() != 13)
+            return std::nullopt;
+        PlaceShow s;
+        auto cs = eft::number(f[0]), id = eft::number(f[2]), map = eft::number(f[4], 10000);
+        auto k = placeKindOf(f[1]);
+        auto x = decimal(f[6], 20000), y = decimal(f[7], 20000), z = decimal(f[8], 5000), o = decimal(f[9], 360), size = decimal(f[10], 10);
+        if (!cs || !id || !map || !k || !x || !y || !z || !o || !size || f[3].size() > 4 || f[5].size() > 96)
+            return std::nullopt;
+        s.cs = *cs, s.id = *id, s.map = *map, s.kind = *k, s.flags = f[3], s.x = *x, s.y = *y, s.z = *z, s.o = *o, s.size = *size;
+        if (f[5] != "-")
+        {
+            for (char c : f[5])
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '-' || c == '_'))
+                    return std::nullopt;
+            s.path = f[5];
+        }
+        if (f[11] != "-" || f[12] != "-")
+        {
+            auto hx = decimal(f[11], 20000), hy = decimal(f[12], 20000);
+            if (!hx || !hy)
+                return std::nullopt;
+            s.hide = std::make_pair(*hx, *hy);
+        }
+        return s;
+    }
+
+    // The ADT tile a place is streamed by: where it stands, or (removed) where the release instance stood.
+    inline std::pair<int32_t, int32_t> placeTile(PlaceShow const& s)
+    {
+        if (s.path.empty() && s.hide)
+            return tileOf(s.hide->first, s.hide->second);
+        return tileOf(s.x, s.y);
     }
 }

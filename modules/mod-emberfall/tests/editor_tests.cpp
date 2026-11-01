@@ -302,7 +302,10 @@ static void fuzz()
         "1;5;ADD;c;90203;-290.1;96.0;41.7;4.1", "1;6;MOVE;n;90129;-158.17;91.83;42.23;3.9",
         "1;7;SET;c;91019;wander;10", "1;8;DEL;c;9000001", "1;9;SCAN;0;-280;100;120",
         "{\"x\":1.5,\"y\":-2,\"z\":null,\"s\":\"t\"}", "c,91019,90203,-1137.11,-955.56,48.99,1.012,6.0,120,mp,4711",
-        "1;10;SET;c;91019;count;3", "c,91019,90203,-1137.11,-955.56,48.99,1.012,6.0,120,mp,4711,3:4712:4713"};
+        "1;10;SET;c;91019;count;3", "c,91019,90203,-1137.11,-955.56,48.99,1.012,6.0,120,mp,4711,3:4712:4713",
+        "1;11;PADD;p;trees/elderwood-oak;-400.5;-1337.9;41.2;52.5;1.25", "1;12;PMOVE;b;@-400.54,-1337.92;-401;-1338;41;10;1",
+        "1;13;PDEL;p;9000001", "1;0;PLACE;12;b;7;dm;0;World/wmo/Elderwood/kit-inn;-1.5;2.25;41;270;1;-1.5;3",
+        "{\"map\":0,\"model\":\"trees/oak\",\"size\":1.1,\"u\":1713.75,\"v\":698.37,\"yaw\":52.8,\"z\":0}"};
     char const alphabet[] = "0123456789.-;,|:/{}\"\\ acnxyzADDMOVESETwanderrespawnnull\t\x01\xff";
     for (int round = 0; round < 200000; ++round)
     {
@@ -322,6 +325,14 @@ static void fuzz()
         (void)parseAdd(f), (void)parseMove(f), (void)parseSet(f), (void)parseDel(f), (void)parseScan(f);
         (void)fromJson(s), (void)decodeMarker(s), (void)decimal(s), (void)parseZones(s), (void)decodePath(s);
         (void)parsePaint(f), (void)parseRoad(f), (void)parseSculpt(f);
+        (void)parsePlaceAdd(f), (void)parsePlaceMove(f), (void)parsePlaceDel(f), (void)parseRef(s), (void)modelKey(s);
+        if (auto j = fromJson(s))
+            if (auto st = placeStateOf(*j))
+                CHECK(modelKey(st->model));
+        if (auto pa = parsePlaceAdd(f))
+            CHECK(modelKey(pa->model) && pa->yaw >= 0 && pa->yaw < 360 && pa->size > 0 && std::isfinite(pa->pos.x));
+        if (auto pd = decodePlace(f))
+            CHECK(!placeBody(*pd).empty());
         if (auto m = parseMove(f))
             CHECK(std::isfinite(m->pos.x) && std::isfinite(m->pos.o) && m->pos.o >= 0 && m->pos.o < 6.2832f);
     }
@@ -623,8 +634,129 @@ static void ground()
     CHECK(netObjects(ops) == 0);
 }
 
+// Step 2 (world-editor.md §22): props and kit buildings. The vectors of variantOf, worldOf and orientationOf are
+// Emberfall's doodads.py (variant_of, design_to_world, prop_orientation), so the preview stands what the bake builds.
+static Op placeOp(uint32_t seq, OpKind kind, uint32_t target, Fields from, Fields to, bool undone = false)
+{
+    Op op;
+    op.seq = seq, op.op = kind, op.kind = Kind::Prop, op.target = target, op.from = std::move(from), op.to = std::move(to);
+    op.undone = undone;
+    return op;
+}
+
+static void places()
+{
+    // requests
+    auto a = parsePlaceAdd(fields("1;5;PADD;p;trees/elderwood-oak;-400.5;-1337.9;41.2;412.5;1.25"));
+    CHECK(a && a->kind == Kind::Prop && a->model == "trees/elderwood-oak" && std::fabs(a->yaw - 52.5f) < 1e-3f &&
+          std::fabs(a->size - 1.25f) < 1e-4f && std::fabs(a->pos.z - 41.2f) < 1e-3f);
+    auto b = parsePlaceAdd(fields("1;5;PADD;b;kit-hut;-400.5;-1337.9;41.2;-90;1"));
+    CHECK(b && b->kind == Kind::Building && std::fabs(b->yaw - 270.0f) < 1e-3f);
+    CHECK(!parsePlaceAdd(fields("1;5;PADD;c;trees/oak;1;2;3;0;1")));        // creatures go through ADD
+    CHECK(!parsePlaceAdd(fields("1;5;PADD;p;Trees/Oak;1;2;3;0;1")));        // keys are lower case
+    CHECK(!parsePlaceAdd(fields("1;5;PADD;p;a/b/c;1;2;3;0;1")));
+    CHECK(!parsePlaceAdd(fields("1;5;PADD;p;../x;1;2;3;0;1")));
+    CHECK(!parsePlaceAdd(fields("1;5;PADD;p;trees/oak;1;2;3;0;0")));        // no size 0
+    CHECK(!parsePlaceAdd(fields("1;5;PADD;p;trees/oak;1;2;3;0")));
+    auto m = parsePlaceMove(fields("1;6;PMOVE;p;@-400.54,-1337.92;-401;-1338;41;10;1"));
+    CHECK(m && m->ref.at && std::fabs(m->ref.x + 400.54f) < 1e-3f && std::fabs(m->ref.y + 1337.92f) < 1e-3f);
+    auto m2 = parsePlaceMove(fields("1;6;PMOVE;b;9000004;-401;-1338;41;10;1"));
+    CHECK(m2 && !m2->ref.at && m2->ref.id == 9000004);
+    CHECK(!parsePlaceMove(fields("1;6;PMOVE;p;0;-401;-1338;41;10;1")));
+    CHECK(!parsePlaceMove(fields("1;6;PMOVE;p;@1;-401;-1338;41;10;1")));
+    auto d = parsePlaceDel(fields("1;7;PDEL;p;@-400.54,-1337.92"));
+    CHECK(d && d->ref.at);
+    CHECK(!parsePlaceDel(fields("1;7;PDEL;p")));
+    CHECK(normaliseYaw(-0.01f) == 0.0f && normaliseYaw(359.97f) == 0.0f && std::fabs(normaliseYaw(720.4f) - 0.4f) < 1e-5f);
+
+    // sizes: a contributor's prop 0.5-2, a maintainer's 0.1-5, a kit building 1 only
+    PlaceLimits const pl;
+    CHECK(checkPlaceSize(Kind::Prop, 1.5f, Level::Contributor, pl) == Code::Ok);
+    CHECK(checkPlaceSize(Kind::Prop, 3.0f, Level::Contributor, pl) == Code::Value);
+    CHECK(checkPlaceSize(Kind::Prop, 3.0f, Level::Maintainer, pl) == Code::Ok);
+    CHECK(checkPlaceSize(Kind::Building, 1.0f, Level::Maintainer, pl) == Code::Ok);
+    CHECK(checkPlaceSize(Kind::Building, 1.2f, Level::Maintainer, pl) == Code::Value);
+
+    // the frame (Elderwood's origin 157, 235; a continent zone's -1053, -61), doodads.py design_to_world
+    Frame const ew{157, 235, 1600.0 / 3.0}, cont{-1053, -61, 1600.0 / 3.0};
+    auto w = worldOf(ew, 1713.75, 698.37, Kind::Prop);
+    CHECK(std::fabs(w.first + 400.53666666) < 1e-6 && std::fabs(w.second + 1337.91666666) < 1e-6);
+    auto w2 = worldOf(cont, 5971.0, 891.3, Kind::Prop);
+    CHECK(std::fabs(w2.first + 297.46666666) < 1e-6 && std::fabs(w2.second + 4385.16666666) < 1e-6);
+    auto uv = designOf(ew, w.first, w.second, Kind::Prop);
+    CHECK(uv.first == 1713.75 && uv.second == 698.37);
+    auto bw = worldOf(ew, 1231.83, 1119.28, Kind::Building);   // a building's u, v is its centre: no half tile
+    auto buv = designOf(ew, bw.first, bw.second, Kind::Building);
+    CHECK(buv.first == 1231.83 && buv.second == 1119.28);
+    CHECK(orientationOf(Kind::Prop, 257.0) == 77.0 && orientationOf(Kind::Prop, 300.0) == 120.0);
+    CHECK(orientationOf(Kind::Building, 90.0) == 270.0 && orientationOf(Kind::Building, 0.0) == 0.0);
+
+    // variants: zlib's CRC-32 of "%.3f,%.3f"
+    CHECK(crc32("hello") == 907060870u);
+    CHECK(crc32("1713.750,698.370") == 1072536343u);
+    CHECK(variantOf(1713.75, 698.37, 6) == 2 && variantOf(1824.6, 724.0, 6) == 4 && variantOf(1824.6, 724.0, 3) == 1);
+    CHECK(variantOf(5971.0, 891.3, 6) == 5 && variantOf(0.0, 0.0, 6) == 6 && variantOf(-12.5, 3.25, 3) == 2);
+    CHECK(variantOf(1713.75, 698.37, 0) == 0);
+    CHECK(shownVariant(1824.6, 724.0, 6, 1u << 4) == 4);                 // the hashed one is built
+    CHECK(shownVariant(1824.6, 724.0, 6, (1u << 2) | (1u << 6)) == 2);   // not built: the lowest one that is
+    CHECK(variantPath("World/Doodads/trees/elderwood-oak", 2) == "World/Doodads/trees/elderwood-oak-v2");
+    CHECK(variantPath("World/Doodads/clutter/rock", 0) == "World/Doodads/clutter/rock");
+
+    // ops fold: a release prop moved, then removed; an add moved; undone ops skipped
+    PlaceState rel;
+    rel.present = true, rel.model = "trees/elderwood-oak", rel.u = 1713.75, rel.v = 698.37, rel.yaw = 52.8, rel.size = 1.1;
+    PlaceState moved = rel;
+    moved.u = 1720.0, moved.yaw = 90.0, moved.z = 41.5;
+    Fields const relF = placeFields(Kind::Prop, rel), movedF = placeFields(Kind::Prop, moved);
+    CHECK(toJson(relF) == "{\"map\":0,\"model\":\"trees/elderwood-oak\",\"size\":1.1,\"u\":1713.75,\"v\":698.37,\"yaw\":52.8,\"z\":0}");
+    auto back = placeStateOf(*fromJson(toJson(movedF)));
+    CHECK(back && samePlace(*back, moved));
+    std::vector<Op> ops{placeOp(1, OpKind::Move, 7, relF, movedF)};
+    PlaceFold f = foldPlace(ops);
+    CHECK(f.touched && f.before.present && samePlace(f.before, rel) && samePlace(f.after, moved));
+    ops.push_back(placeOp(2, OpKind::Delete, 7, movedF, {}));
+    f = foldPlace(ops);
+    CHECK(f.touched && !f.after.present);
+    ops[1].undone = true;
+    CHECK(samePlace(foldPlace(ops).after, moved));
+    ops[0].undone = true;
+    CHECK(!foldPlace(ops).touched);
+    std::vector<Op> added{placeOp(1, OpKind::Add, 9000001, {}, movedF), placeOp(2, OpKind::Move, 9000001, movedF, relF)};
+    f = foldPlace(added);
+    CHECK(!f.before.present && f.after.present && samePlace(f.after, rel));
+    CHECK(placeCount(added, Kind::Prop) == 1 && placeCount(added, Kind::Building) == 0);
+    CHECK(netObjects(added) == 0);   // props have their own caps
+    PlaceState turned = rel;
+    turned.yaw = 52.8 + 360.0;
+    CHECK(samePlace(rel, turned));
+    turned.size = 1.2;
+    CHECK(!samePlace(rel, turned));
+
+    // PLACE fits one message and reads back; a removed object streams by the tile of its release instance
+    PlaceShow s;
+    s.cs = 9999, s.id = 9999999, s.map = 1, s.kind = Kind::Building, s.flags = "dm";
+    s.path = "World/wmo/SunkenTerrace/kit-kf-tollhouse-and-a-very-long-model-name-x";
+    s.x = -12345.67f, s.y = -12345.67f, s.z = -1234.56f, s.o = 359.9f, s.size = 1, s.hide = std::make_pair(-12345.67f, -12345.67f);
+    std::string const body = placeBody(s);
+    CHECK(!body.empty() && body.size() <= ef::eft::kMaxBody);
+    auto r = ef::eft::parse(body);
+    CHECK(r.ok() && r.request.cmd == "PLACE");
+    auto got = decodePlace(r.request.fields);
+    CHECK(got && got->cs == 9999 && got->kind == Kind::Building && got->path == s.path && got->hide &&
+          std::fabs(got->hide->first + 12345.67f) < 0.01f && got->flags == "dm");
+    PlaceShow gone = s;
+    gone.path.clear();
+    gone.x = gone.y = 0;
+    gone.hide = std::make_pair(-283.4f, 101.9f);
+    CHECK(placeTile(gone) == std::make_pair(31, 32));
+    auto g2 = decodePlace(ef::eft::parse(placeBody(gone)).request.fields);
+    CHECK(g2 && g2->path.empty() && g2->hide);
+    CHECK(!decodePlace(ef::eft::parse("1;0;PLACE;1;p;7;-;0;World\\Doodads;0;0;0;0;1;-;-").request.fields));   // no backslashes
+}
+
 int main()
 {
+    places();
     ground();
     numbers();
     requests();
