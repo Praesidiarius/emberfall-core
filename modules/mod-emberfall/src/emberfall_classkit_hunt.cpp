@@ -45,7 +45,11 @@
 //                                   stopped short of walls and solid terrain; MoveCharge at its own speed, so slows change
 //                                   neither speed nor distance); this script refuses it while rooted (the engine checks
 //                                   roots for charges and jumps but not for CHARGE_DEST) and when not on the ground
-//                                   (falling or jumping, flying, swimming)
+//                                   (falling or jumping, flying, swimming). It goes the way the caster moves (feedback
+//                                   #307): strafing, backing or diagonal (the client's movement flags at the cast,
+//                                   Logic::DashAngle) turns the destination by that angle, the same distance, stopped at
+//                                   the first collision (WorldObject::MovePositionToFirstCollision); standing or running
+//                                   forward keeps the engine's stepped front leap
 //   spell_ef_kit_feint              a feint (Lie Still, feedback #232), an aura script beside its FEIGN_DEATH (effect
 //                                   1): the core drops the hunter's combat and threat, but the companion still fighting
 //                                   put the hunter back in at its next hit (Unit::AtTargetAttacked engages the attacker's
@@ -295,9 +299,26 @@ class spell_ef_kit_dash : public SpellScript
         return SPELL_CAST_OK;
     }
 
+    // feedback #307: the way the caster moves, not only its facing
+    void Aim(SpellDestination& dest)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+        float const angle = Emberfall::ClassKit::Logic::DashAngle(caster->HasUnitMovementFlag(MOVEMENTFLAG_FORWARD),
+            caster->HasUnitMovementFlag(MOVEMENTFLAG_BACKWARD), caster->HasUnitMovementFlag(MOVEMENTFLAG_STRAFE_LEFT),
+            caster->HasUnitMovementFlag(MOVEMENTFLAG_STRAFE_RIGHT));
+        if (angle == 0.0f)
+            return;   // ahead: the engine's front leap as it chose it
+        Position pos = caster->GetPosition();
+        caster->MovePositionToFirstCollision(pos, GetSpellInfo()->Effects[EFFECT_0].CalcRadius(caster), angle);
+        dest.Relocate(pos);
+    }
+
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_ef_kit_dash::Check);
+        OnDestinationTargetSelect += SpellDestinationTargetSelectFn(spell_ef_kit_dash::Aim, EFFECT_0, TARGET_DEST_CASTER_FRONT_LEAP);
     }
 };
 

@@ -54,6 +54,16 @@ int main()
     check(StackCap(0, 8) == 8, "no value: the stack maximum");
     check(StackCap(3, 0) == 1, "a broken stack maximum still holds one");
 
+    // a directional dash (Verdant Dash, feedback #307)
+    auto near = [](float a, float b) { return a - b < 0.001f && b - a < 0.001f; };
+    check(DashAngle(false, false, false, false) == 0.0f && DashAngle(true, false, false, false) == 0.0f, "standing or ahead: ahead");
+    check(near(DashAngle(false, true, false, false), 3.14159265f), "backing: behind");
+    check(near(DashAngle(false, false, true, false), 1.57079633f) && near(DashAngle(false, false, false, true), -1.57079633f),
+          "strafing: to that side");
+    check(near(DashAngle(true, false, true, false), 0.78539816f) && near(DashAngle(false, true, false, true), -2.35619449f),
+          "diagonals: between");
+    check(DashAngle(true, true, true, true) == 0.0f, "keys that cancel: ahead");
+
     // builders
     check(BuilderGain(1, 0, 1, true) == 1, "Sacred Brand: +1");
     check(BuilderGain(1, 0, 0, true) == 0, "a dodged Sacred Brand raises nothing");
@@ -143,6 +153,9 @@ int main()
     check(Transfused(200, 15) == 30, "Overflow: 15 % of 200");
     check(Transfused(6, 15) == 0, "below a point: nothing");
     check(Transfused(0, 40) == 0, "no damage: nothing");
+    check(TransfuseSelf(1) && !TransfuseOneTarget(1), "misc B 1: the owner, every enemy's damage (Iron Resolve)");
+    check(TransfuseSelf(3) && TransfuseOneTarget(3), "misc B 3: the owner, one enemy's damage (Vampiric Venom, #299)");
+    check(!TransfuseSelf(0) && !TransfuseOneTarget(0), "misc B 0: the most injured ally, every enemy");
 
     // the most injured ally
     {
@@ -330,6 +343,11 @@ int main()
               "Sweeping Opportunity: 2 at 3 or more, 1 below, 0 on nobody");
     }
     check(!CountReached(5, 0), "no count set: never reached");
+    // a class power's out-of-combat rate after a delay (Focus, feedback #294: 5 s)
+    check(ClassRegenAtFightRate(true, 0, 5000) && ClassRegenAtFightRate(true, 9000, 5000), "in a fight: the fight's rate");
+    check(ClassRegenAtFightRate(false, 4999, 5000) && !ClassRegenAtFightRate(false, 5000, 5000),
+          "out of it: the fight's rate for 5 s, then the out-of-combat rate");
+    check(!ClassRegenAtFightRate(false, 0, 0), "no delay: the out-of-combat rate at once");
     // a crit ramp: a stack per non-crit, a crit takes them all, at most a maximum
     check(CritRampStacks(0, false, 10) == 1, "first non-crit: 1 stack");
     check(CritRampStacks(3, false, 10) == 4, "repeated non-crits accumulate");

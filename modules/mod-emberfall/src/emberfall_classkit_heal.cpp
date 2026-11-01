@@ -26,11 +26,15 @@
 //                                 misc = the spell whose damage counts, none: any) is cast as the effect's trigger (a heal
 //                                 of the amount it is cast with) on the most injured ally within 40 yards, the owner
 //                                 included (EfClassKit.h MostInjuredAlly: group, pets and guardians, the .efparty
-//                                 companions; Overflow, Harvest Tide); misc B 1: the owner itself (Iron Resolve)
+//                                 companions; Overflow, Harvest Tide); misc B bits: 1 the owner itself (Iron Resolve),
+//                                 2 only the damage done to the owner's chosen target counts (its selected enemy, else
+//                                 its victim): Vampiric Venom, feedback #299, one target's venom however many Venom
+//                                 Spit poisoned
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
 
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -93,6 +97,14 @@ class spell_ef_kit_transfuse : public AuraScript
 {
     PrepareAuraScript(spell_ef_kit_transfuse);
 
+    // the enemy whose damage counts with misc B bit 2: the owner's selected unit, else its victim
+    static Unit* ChosenEnemy(Unit* owner)
+    {
+        if (Unit* selected = ObjectAccessor::GetUnit(*owner, owner->GetTarget()); selected && selected != owner)
+            return selected;
+        return owner->GetVictim();
+    }
+
     bool CheckProc(ProcEventInfo& info)
     {
         DamageInfo* damage = info.GetDamageInfo();
@@ -111,11 +123,15 @@ class spell_ef_kit_transfuse : public AuraScript
         SpellInfo const* by = damage->GetSpellInfo();
         if (only && (!by || by->Id != uint32(only)))
             return;
+        int32 const miscB = GetSpellInfo()->Effects[aurEff->GetEffIndex()].MiscValueB;
+        // misc B bit 2: one enemy's damage only, the owner's chosen target (Vampiric Venom, #299)
+        if (Emberfall::ClassKit::Logic::TransfuseOneTarget(miscB) && damage->GetVictim() != ChosenEnemy(owner))
+            return;
         int32 amount = Emberfall::ClassKit::Logic::Transfused(int32(damage->GetDamage()), aurEff->GetAmount());
         if (amount <= 0)
             return;
-        // misc B 1: the owner itself (the Warrior's Iron Resolve: Life Steal)
-        Unit* ally = GetSpellInfo()->Effects[aurEff->GetEffIndex()].MiscValueB == 1
+        // misc B bit 1: the owner itself (the Warrior's Iron Resolve: Life Steal; the Spirit Caller's venoms)
+        Unit* ally = Emberfall::ClassKit::Logic::TransfuseSelf(miscB)
             ? owner : Emberfall::ClassKit::MostInjuredAlly(owner, kTransfuseRange);
         if (!ally)
             return;

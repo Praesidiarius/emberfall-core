@@ -58,6 +58,7 @@ namespace Emberfall::ClassKit
             bool inCombat = false;
             int32 holds = 0;                        // Overheat: nothing drains the power while > 0
             int64 regenCarry = 0;   // the class power's regeneration (millionths of a point)
+            uint32 classOutMs = UINT32_MAX;         // out of a fight so long, for the class power (none yet: long out)
             bool markerFight = false;               // in a fight as the fight markers saw it (every kit player)
             uint32 markerOutMs = 0;                 // out of that fight so long (the spec power's markers delay)
             int64 specRegenCarry = 0;   // a spec power's regeneration (millionths of a stored unit)
@@ -72,6 +73,13 @@ namespace Emberfall::ClassKit
         }
 
         bool SpecPowerTableExists() { return TableExists("ef_class_kit_spec_power"); }
+
+        bool ColumnExists(char const* table, char const* column)
+        {
+            QueryResult r = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+                                                "AND TABLE_NAME = '{}' AND COLUMN_NAME = '{}'", table, column);
+            return r && r->Fetch()[0].Get<uint64>() == 1;
+        }
 
         // Every tier aura of every spec power of the player's class off the player (its power is the class's again).
         void RemoveTierAuras(Player* player)
@@ -212,8 +220,11 @@ namespace Emberfall::ClassKit
             LOG_INFO("server.loading", ">> Emberfall class kits: no ef_class_kit_class_power table (no class has a power of its own)");
             return;
         }
-        if (QueryResult r = WorldDatabase.Query("SELECT `class`, `power`, `max_power`, `regen_per_second`, `regen_out_of_combat` "
-                                                "FROM `ef_class_kit_class_power`"))
+        // the delay column came with feedback #294 (mod_emberfall_2026_11_01_00_class_power_delay.sql): 0 without it
+        bool const hasDelay = ColumnExists("ef_class_kit_class_power", "regen_out_of_combat_delay_ms");
+        if (QueryResult r = WorldDatabase.Query("SELECT `class`, `power`, `max_power`, `regen_per_second`, `regen_out_of_combat`, {} "
+                                                "FROM `ef_class_kit_class_power`",
+                                                hasDelay ? "`regen_out_of_combat_delay_ms`" : "0"))
         {
             do
             {
@@ -224,14 +235,15 @@ namespace Emberfall::ClassKit
                 p.max = f[2].Get<uint32>();
                 p.regen = f[3].Get<float>();
                 p.regenOutOfCombat = f[4].Get<float>();
+                p.outOfCombatDelayMs = hasDelay ? f[5].Get<uint32>() : 0;
                 if (p.power >= MAX_POWERS || p.power == POWER_MANA || p.power == POWER_RUNE || p.power == POWER_HAPPINESS)
                 {
                     LOG_ERROR("server.loading", ">> Emberfall class kits: class {}: power {} cannot be a class power", p.classId, p.power);
                     continue;
                 }
                 s_classPowers[p.classId] = p;
-                LOG_INFO("server.loading", ">> Emberfall class kits: class {} uses power {} (max {}, {} a second in a fight, {} out of one)",
-                         p.classId, p.power, p.max, p.regen, p.regenOutOfCombat);
+                LOG_INFO("server.loading", ">> Emberfall class kits: class {} uses power {} (max {}, {} a second in a fight, {} out of one "
+                         "after {} ms)", p.classId, p.power, p.max, p.regen, p.regenOutOfCombat, p.outOfCombatDelayMs);
             } while (r->NextRow());
         }
     }
@@ -359,14 +371,19 @@ namespace Emberfall::ClassKit
     void UpdateSpecPower(Player* player, uint32 diff)
     {
         // a class power (the Hunter's Focus): regenerated every tick, in a fight at its rate times the haste factor and the
-        // slot's regen-percent auras (Held Breath), out of one at its out-of-combat rate (every pull starts full)
+        // slot's regen-percent auras (Held Breath), out of one at its out-of-combat rate (every pull starts full) once the
+        // rule's delay has passed since the fight (feedback #294: 5 s; the fight's rate until then)
         if (ClassPowerRule const* rule = ActiveClassPower(player); rule && player->IsAlive())
         {
             PowerState* cs = player->CustomData.GetDefault<PowerState>(kStateKey);
             Powers const slot = Powers(rule->power);
+            if (player->IsInCombat())
+                cs->classOutMs = 0;
+            else if (cs->classOutMs < UINT32_MAX - diff)
+                cs->classOutMs += diff;
             if (player->GetPower(slot) < player->GetMaxPower(slot))
             {
-                bool const fight = player->IsInCombat();
+                bool const fight = Logic::ClassRegenAtFightRate(player->IsInCombat(), cs->classOutMs, rule->outOfCombatDelayMs);
                 float multiplier = 1.0f;
                 if (fight)
                     multiplier = Logic::HasteFactor(player->GetFloatValue(UNIT_MOD_CAST_SPEED))
