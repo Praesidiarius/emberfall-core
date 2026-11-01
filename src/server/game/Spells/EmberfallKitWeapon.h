@@ -50,6 +50,27 @@ namespace Emberfall::KitWeapon
         return miscValue > 0 ? float(miscValue) : 100.0f;
     }
 
+    // The hand whose weapon skill a kit strike rolls its hit table with (PATCHES.md #35; Emberfall feedback #250,
+    // docs/design/classes.md §4.8.1: a weapon strike is affected by the weapon skill as the white hit of that weapon).
+    // The order is WeaponAttackType's. Upstream's Unit::MeleeSpellHitResult rolls every melee strike with the main hand
+    // (its miss, dodge, parry and block against the main hand's weapon skill and expertise), so a strike that requires
+    // the off hand (the Corsair's off-hand blow) rolled with a weapon it does not strike with; its crit (the off hand's
+    // crit field, which carries the off hand's weapon skill) and its damage were the off hand's already. A ranged
+    // strike rolls with the ranged weapon (upstream too).
+    enum class Hand : uint8_t
+    {
+        Main = 0,
+        Off = 1,
+        Ranged = 2
+    };
+
+    constexpr Hand StrikeHand(bool rangedDamageClass, bool requiresOffHand)
+    {
+        if (rangedDamageClass)
+            return Hand::Ranged;
+        return requiresOffHand ? Hand::Off : Hand::Main;
+    }
+
     // The strike's damage before the hit's bonuses: `pct` percent of `weapon` (the weapon's rolled damage), then the
     // points; never below 0.
     constexpr int32_t Strike(int32_t weapon, float pct, int32_t points)

@@ -234,6 +234,13 @@ int main()
     check(StackedDamage(200, 14, 5) == 340, "Patient Kill: 14 % a Bead");
     check(StackedDamage(200, 10, 0) == 200, "no Beads: the base");
     check(StackedDamage(0, 10, 5) == 0, "a miss stays a miss");
+    // spend bonuses (feedback #249): a passive with or without a trigger, a buff only with one; never below its need
+    check(SpendBonusActs(true, true, 5, 5) && !SpendBonusActs(true, true, 5, 4), "a passive's trigger at its stacks only");
+    check(SpendBonusActs(true, false, 5, 5), "a passive without a trigger (stacks kept) acts too");
+    check(SpendBonusActs(false, true, 1, 1) && SpendBonusActs(false, true, 1, 5), "a buff's trigger from one stack spent");
+    check(!SpendBonusActs(false, true, 1, 0), "a spend of no stacks leaves the buff for the next");
+    check(!SpendBonusActs(false, false, 1, 3), "a buff without a trigger is no spend bonus");
+    check(!SpendBonusActs(true, true, 0, 5) && !SpendBonusActs(false, true, -1, 5), "misc B 0 or less: a hit bonus, never a spend bonus");
 
     // a cut of a percent of the BASE cooldown (Q4, 2026-10-23), never more than is left, nothing while ready, the
     // reset, a floor
