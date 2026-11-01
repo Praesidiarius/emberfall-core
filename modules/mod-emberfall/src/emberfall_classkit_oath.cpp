@@ -52,11 +52,30 @@
 //                                  most once in effect 2's value in ms (Solenne's Aegis's bursts)
 //   spell_ef_kit_stack_refill      a passive's periodic dummy: after misc B seconds out of combat the owner's self stacks of
 //                                  misc are filled to their cap (Shield Oath: Bastion's Resolve's charges)
+//
+// ankarna's update of 2026-11-01 (Emberfall paladin-oathkeeper.md §20):
+//
+//   spell_ef_kit_talent_gate       every trigger_spell effect whose misc names a spell does nothing unless the (player)
+//                                  caster knows that spell: Solenne's Retribution's Solenne's Aegis and Judgment's Echo,
+//                                  Solenne's Sanctuary's cleanse, each with its talent
+//   spell_ef_kit_cast_override     a marker on an aura of the caster's: while it holds, a cast request (the client's
+//                                  CMSG_CAST_SPELL) of effect 1's misc is cast as its trigger instead, from the same action
+//                                  button (Echo Ready: the button of Solenne's Retribution casts Judgment's Echo; the
+//                                  MiscScript emberfall_classkit_cast_override, the core's ValidateSpellAtCastSpell hook)
+//   spell_ef_kit_max_mana_cost     the cost is effect 2's value in percent of the caster's MAXIMUM mana (spell mods in:
+//                                  Efficient Mercy), effect 3's value with an aura of effect 3's misc on the caster (one of
+//                                  its charges goes with the cast: Solenne's Favor); refused without the mana; nothing for
+//                                  a triggered cast (Divine Intervention). Spell.dbc's own cost stays 0 (Solenne's Mercy)
+//   spell_ef_kit_low_health_proc   a proc_trigger_spell aura (the taken-damage procs; the spell_proc row's cooldown as its
+//                                  internal cooldown) that procs only when the blow leaves its owner alive at or below its
+//                                  value in percent of the maximum health, and then casts its trigger at the owner,
+//                                  triggered (Divine Intervention: Solenne's Mercy at 20 %, free, every 4 min)
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
 
 #include "GameTime.h"
+#include "MiscScript.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -352,6 +371,158 @@ class spell_ef_kit_stack_refill : public AuraScript
     }
 };
 
+// Solenne's Retribution and Sanctuary: a trigger_spell effect with misc = a talent comes only with that talent known.
+class spell_ef_kit_talent_gate : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_talent_gate);
+
+    void Gate(SpellEffIndex effIndex)
+    {
+        int32 const talent = GetSpellInfo()->Effects[effIndex].MiscValue;
+        Unit* caster = GetCaster();
+        Player* player = caster ? caster->ToPlayer() : nullptr;
+        if (talent > 0 && player && !player->HasSpell(uint32(talent)))
+            PreventHitDefaultEffect(effIndex);
+    }
+
+    void Register() override
+    {
+        // the core triggers in the launch modes (Spell::EffectTriggerSpell)
+        OnEffectLaunch += SpellEffectFn(spell_ef_kit_talent_gate::Gate, EFFECT_ALL, SPELL_EFFECT_TRIGGER_SPELL);
+        OnEffectLaunchTarget += SpellEffectFn(spell_ef_kit_talent_gate::Gate, EFFECT_ALL, SPELL_EFFECT_TRIGGER_SPELL);
+    }
+};
+
+// The marker of a cast override (Echo Ready): nothing happens in it; emberfall_classkit_cast_override reads it.
+class spell_ef_kit_cast_override : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_cast_override);
+
+    void Register() override { }
+};
+
+namespace
+{
+    char const* const CAST_OVERRIDE = "spell_ef_kit_cast_override";
+
+    // The spell a request for `spellId` is cast as: the trigger of a dummy of the player's own whose misc is it, on an
+    // aura bound to spell_ef_kit_cast_override; 0: as asked.
+    uint32 CastOverride(Player* player, uint32 spellId)
+    {
+        if (!player || !spellId)
+            return 0;
+        for (AuraEffect const* eff : player->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+        {
+            if (uint32(eff->GetMiscValue()) != spellId || eff->GetCasterGUID() != player->GetGUID())
+                continue;
+            uint32 const instead = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
+            if (instead && instead != spellId && eff->GetBase()->GetScriptByName(CAST_OVERRIDE)
+                && sSpellMgr->GetSpellInfo(instead))
+                return instead;
+        }
+        return 0;
+    }
+}
+
+// Judgment's Echo on Solenne's Retribution's own button: the request comes as the Retribution (its cooldown running) and
+// is cast as the Echo. After the spellbook check (the player knows the Retribution), before the spell is made; a request
+// the server's spell queue held comes through here again when it goes.
+class emberfall_classkit_cast_override : public MiscScript
+{
+public:
+    emberfall_classkit_cast_override() : MiscScript("emberfall_classkit_cast_override", { MISCHOOK_VALIDATE_SPELL_AT_CAST_SPELL }) { }
+
+    void ValidateSpellAtCastSpell(Player* player, uint32& /*oldSpellId*/, uint32& spellId, uint8& /*castCount*/,
+                                  uint8& /*castFlags*/) override
+    {
+        if (uint32 const instead = CastOverride(player, spellId))
+            spellId = instead;
+    }
+};
+
+// Solenne's Mercy: a share of the maximum mana, paid by the script (Spell.dbc's cost is a share of BASE mana).
+class spell_ef_kit_max_mana_cost : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_max_mana_cost);
+
+    // the mana this cast takes and the aura that made it cheaper (0: none)
+    std::pair<int32, uint32> Price()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || GetSpell()->IsTriggered())
+            return { 0, 0 };
+        SpellEffectInfo const& share = GetSpellInfo()->Effects[EFFECT_1];
+        SpellEffectInfo const& cheap = GetSpellInfo()->Effects[EFFECT_2];
+        uint32 const favor = cheap.Effect == SPELL_EFFECT_DUMMY && cheap.MiscValue > 0
+                                 && caster->HasAura(uint32(cheap.MiscValue), caster->GetGUID())
+                             ? uint32(cheap.MiscValue) : 0;
+        int32 const cost = Emberfall::ClassKit::Logic::MaxManaCost(int32(caster->GetMaxPower(POWER_MANA)),
+                                                                   share.CalcValue(caster), favor != 0,
+                                                                   cheap.Effect ? cheap.CalcValue(caster) : 100);
+        return { cost, favor };
+    }
+
+    SpellCastResult Check()
+    {
+        Unit* caster = GetCaster();
+        int32 const cost = Price().first;
+        if (caster && cost > 0 && int32(caster->GetPower(POWER_MANA)) < cost)
+            return SPELL_FAILED_NO_POWER;
+        return SPELL_CAST_OK;
+    }
+
+    void Pay()
+    {
+        Unit* caster = GetCaster();
+        auto const [cost, favor] = Price();
+        if (!caster)
+            return;
+        if (cost > 0)
+        {
+            caster->ModifyPower(POWER_MANA, -cost);
+            caster->SetLastManaUse(GameTime::GetGameTimeMS().count());   // the five-second rule, as Spell::TakePower
+        }
+        if (favor)
+            Emberfall::ClassKit::ConsumeOne(caster, favor);
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_ef_kit_max_mana_cost::Check);
+        OnCast += SpellCastFn(spell_ef_kit_max_mana_cost::Pay);
+    }
+};
+
+// Divine Intervention: at or below the value's percent of health after a blow, the trigger on the owner (the spell_proc
+// row's cooldown: once in 4 min).
+class spell_ef_kit_low_health_proc : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_low_health_proc);
+
+    bool Check(ProcEventInfo& /*eventInfo*/)
+    {
+        Unit* owner = GetUnitOwner();
+        AuraEffect const* eff = GetEffect(EFFECT_0);
+        return owner && eff && owner->IsAlive()
+               && Emberfall::ClassKit::Logic::LowHealthDue(owner->GetHealth(), owner->GetMaxHealth(), eff->GetAmount());
+    }
+
+    void Proc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
+    {
+        PreventDefaultAction();
+        Unit* owner = GetUnitOwner();
+        uint32 const trigger = GetSpellInfo()->Effects[aurEff->GetEffIndex()].TriggerSpell;
+        if (owner && trigger)
+            owner->CastSpell(owner, trigger, true);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_ef_kit_low_health_proc::Check);
+        OnEffectProc += AuraEffectProcFn(spell_ef_kit_low_health_proc::Proc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
 void AddEmberfallClassKitOathScripts()
 {
     RegisterSpellScript(spell_ef_kit_cooldown_cut_pct);
@@ -362,4 +533,9 @@ void AddEmberfallClassKitOathScripts()
     RegisterSpellScript(spell_ef_kit_add_charge);
     RegisterSpellScript(spell_ef_kit_absorb_burst);
     RegisterSpellScript(spell_ef_kit_stack_refill);
+    RegisterSpellScript(spell_ef_kit_talent_gate);
+    RegisterSpellScript(spell_ef_kit_cast_override);
+    RegisterSpellScript(spell_ef_kit_max_mana_cost);
+    RegisterSpellScript(spell_ef_kit_low_health_proc);
+    new emberfall_classkit_cast_override();
 }
