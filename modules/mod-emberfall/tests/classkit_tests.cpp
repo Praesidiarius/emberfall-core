@@ -143,6 +143,9 @@ int main()
     check(Transfused(200, 15) == 30, "Overflow: 15 % of 200");
     check(Transfused(6, 15) == 0, "below a point: nothing");
     check(Transfused(0, 40) == 0, "no damage: nothing");
+    check(TransfuseSelf(1) && !TransfuseOneTarget(1), "misc B 1: the owner, every enemy's damage (Iron Resolve)");
+    check(TransfuseSelf(3) && TransfuseOneTarget(3), "misc B 3: the owner, one enemy's damage (Vampiric Venom, #299)");
+    check(!TransfuseSelf(0) && !TransfuseOneTarget(0), "misc B 0: the most injured ally, every enemy");
 
     // the most injured ally
     {
@@ -330,9 +333,6 @@ int main()
               "Sweeping Opportunity: 2 at 3 or more, 1 below, 0 on nobody");
     }
     check(!CountReached(5, 0), "no count set: never reached");
-    // a count rule with -1: every cast, struck or not (Venom Spit readied by the Bear Claw cast, feedback #295)
-    check(CountOrCastReached(0, -1) && CountOrCastReached(3, -1), "-1: every cast, a miss too");
-    check(!CountOrCastReached(0, 1) && CountOrCastReached(1, 1) && !CountOrCastReached(5, 0), "above 0 as CountReached");
     // a class power's out-of-combat rate after a delay (Focus, feedback #294: 5 s)
     check(ClassRegenAtFightRate(true, 0, 5000) && ClassRegenAtFightRate(true, 9000, 5000), "in a fight: the fight's rate");
     check(ClassRegenAtFightRate(false, 4999, 5000) && !ClassRegenAtFightRate(false, 5000, 5000),

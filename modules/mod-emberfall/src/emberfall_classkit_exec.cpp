@@ -398,12 +398,11 @@ class spell_ef_kit_rules : public SpellScript
             caster->RemoveAurasDueToSpell(trigger);
             caster->CastSpell(caster, trigger, true);
         }
-        // Focused Carnage, Storm of Blades: at least misc B enemies struck; misc B -1: every cast, struck or not (Venom
-        // Spit since feedback #295: the Bear Claw cast readies it)
+        // Focused Carnage, Storm of Blades: at least misc B enemies struck
         for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_count_trigger", id))
         {
             uint32 const trigger = TriggerOf(eff);
-            if (!trigger || !Logic::CountOrCastReached(_hits, eff->GetMiscValueB()))
+            if (!trigger || !Logic::CountReached(_hits, eff->GetMiscValueB()))
                 continue;
             if (eff->GetAmount() <= 0)
             {

@@ -255,6 +255,12 @@ namespace Emberfall::ClassKit::Logic
         return int32_t(int64_t(damage) * pct / 100);
     }
 
+    // spell_ef_kit_transfuse's misc B, bits: 1 the owner itself is healed (Iron Resolve, the Spirit Caller's venoms), 2
+    // only the damage done to one enemy counts: the owner's chosen target (Vampiric Venom since feedback #299: Venom
+    // Spit's venom on several enemies heals from one of them only)
+    constexpr bool TransfuseSelf(int32_t miscB) { return miscB > 0 && (miscB & 1); }
+    constexpr bool TransfuseOneTarget(int32_t miscB) { return miscB > 0 && (miscB & 2); }
+
     // Of allies with `health` of `maxHealth`, the most injured one by the share of health missing; only allies below
     // full count. Returns the index or -1 (everyone full). Ties: the first.
     template <typename It>
@@ -546,13 +552,6 @@ namespace Emberfall::ClassKit::Logic
     constexpr bool CountReached(uint32_t hits, int32_t atLeast)
     {
         return atLeast > 0 && hits >= uint32_t(atLeast);
-    }
-
-    // spell_ef_kit_rule_count_trigger: `atLeast` -1 fires on every cast, struck or not (Venom Spit readied by the Bear
-    // Claw cast, feedback #295); above 0 as CountReached; 0 never.
-    constexpr bool CountOrCastReached(uint32_t hits, int32_t atLeast)
-    {
-        return atLeast < 0 || CountReached(hits, atLeast);
     }
 
     // A class power's regeneration (the Hunter's Focus): the fight's rate in a fight and for `delayMs` after it (feedback
