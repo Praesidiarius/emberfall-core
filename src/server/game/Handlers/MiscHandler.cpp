@@ -25,6 +25,7 @@
 #include "Common.h"
 #include "DBCEnums.h"
 #include "DatabaseEnv.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "GameObjectAI.h"
 #include "GameTime.h"
 #include "GossipDef.h"
@@ -724,7 +725,10 @@ void WorldSession::HandleAreaTriggerOpcode(WorldPacket& recv_data)
         ChatHandler(this).PSendSysMessage(LANG_DEBUG_AREATRIGGER_REACHED, triggerId);
 
     // Skip areatrigger scripts for GMs unless debug areatriggers is enabled
-    if ((!player->IsGameMaster() || player->isDebugAreaTriggers) && sScriptMgr->OnAreaTrigger(player, atEntry))
+    // EMBERFALL: own data (PATCHES.md #35): Emberfall's GMs are its testers and play its quests in GM mode, and its
+    // area trigger scripts are quest steps (a carried thing set down at its place, quests/carry.py): they run for GMs too
+    const bool scriptsForGm = Emberfall::OwnData();
+    if ((scriptsForGm || !player->IsGameMaster() || player->isDebugAreaTriggers) && sScriptMgr->OnAreaTrigger(player, atEntry))
         return;
 
     if (player->IsAlive())
