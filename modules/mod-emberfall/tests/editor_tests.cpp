@@ -376,6 +376,31 @@ static void role()
     CHECK(dropped > 0 && dropped < many.size());
     auto const f = fields(body);
     CHECK(f.size() == 4 && ef::eft::split(f[1], ',').size() == many.size() - dropped);
+    // RZONE carries them all, paged: alpha1's 13 zones (one more long key made ROLE drop one), and 60
+    std::vector<Zone> thirteen = alpha1;
+    thirteen.push_back({"highwall", 0, 5250});
+    std::vector<Zone> sixty = many;
+    for (int i = 0; i < 36; ++i)
+        sixty.push_back({"another-long-zone-key-" + std::to_string(i), 1, uint32_t(7000 + i)});
+    for (std::vector<Zone> const* list : {&thirteen, &sixty})
+    {
+        auto const out = roleZonePages(*list);
+        CHECK(!out.empty());
+        std::vector<std::string> got;
+        for (size_t i = 0; i < out.size(); ++i)
+        {
+            CHECK(out[i].size() <= ef::eft::kMaxBody);
+            auto const pf = fields(out[i]);
+            CHECK(pf.size() == 2 && pf[0] == std::to_string(i + 1) + "/" + std::to_string(out.size()));
+            if (pf.size() == 2)
+                for (auto const& e : ef::eft::split(pf[1], '|'))
+                    got.emplace_back(e);
+        }
+        CHECK(got.size() == list->size());
+        CHECK(!got.empty() && got.back() == list->back().key + ":" + std::to_string(list->back().map) + ":" +
+                                                std::to_string(list->back().area));
+    }
+    CHECK(roleZonePages(sixty).size() > 1);
 }
 
 // A spawn of several creatures (count): derived GUIDs, the ring, the rules, the marker field, the fold and replay.
