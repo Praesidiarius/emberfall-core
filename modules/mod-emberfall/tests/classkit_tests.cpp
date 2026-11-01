@@ -54,6 +54,16 @@ int main()
     check(StackCap(0, 8) == 8, "no value: the stack maximum");
     check(StackCap(3, 0) == 1, "a broken stack maximum still holds one");
 
+    // a directional dash (Verdant Dash, feedback #307)
+    auto near = [](float a, float b) { return a - b < 0.001f && b - a < 0.001f; };
+    check(DashAngle(false, false, false, false) == 0.0f && DashAngle(true, false, false, false) == 0.0f, "standing or ahead: ahead");
+    check(near(DashAngle(false, true, false, false), 3.14159265f), "backing: behind");
+    check(near(DashAngle(false, false, true, false), 1.57079633f) && near(DashAngle(false, false, false, true), -1.57079633f),
+          "strafing: to that side");
+    check(near(DashAngle(true, false, true, false), 0.78539816f) && near(DashAngle(false, true, false, true), -2.35619449f),
+          "diagonals: between");
+    check(DashAngle(true, true, true, true) == 0.0f, "keys that cancel: ahead");
+
     // builders
     check(BuilderGain(1, 0, 1, true) == 1, "Sacred Brand: +1");
     check(BuilderGain(1, 0, 0, true) == 0, "a dodged Sacred Brand raises nothing");
