@@ -548,6 +548,21 @@ namespace Emberfall::ClassKit::Logic
         return atLeast > 0 && hits >= uint32_t(atLeast);
     }
 
+    // spell_ef_kit_rule_count_trigger: `atLeast` -1 fires on every cast, struck or not (Venom Spit readied by the Bear
+    // Claw cast, feedback #295); above 0 as CountReached; 0 never.
+    constexpr bool CountOrCastReached(uint32_t hits, int32_t atLeast)
+    {
+        return atLeast < 0 || CountReached(hits, atLeast);
+    }
+
+    // A class power's regeneration (the Hunter's Focus): the fight's rate in a fight and for `delayMs` after it (feedback
+    // #294: the out-of-combat rate starts 5 s after the fight), the out-of-combat rate after that. `outMs` is how long
+    // the player has been out of the fight.
+    constexpr bool ClassRegenAtFightRate(bool inFight, uint32_t outMs, uint32_t delayMs)
+    {
+        return inFight || outMs < delayMs;
+    }
+
     // Growing Precision's stacks after a Final Verdict that struck: a critical one takes them all, one without a crit adds
     // one, never above `max` (the aura's stack maximum: 10, +100 percentage points).
     constexpr int32_t CritRampStacks(int32_t have, bool crit, int32_t max)

@@ -330,6 +330,14 @@ int main()
               "Sweeping Opportunity: 2 at 3 or more, 1 below, 0 on nobody");
     }
     check(!CountReached(5, 0), "no count set: never reached");
+    // a count rule with -1: every cast, struck or not (Venom Spit readied by the Bear Claw cast, feedback #295)
+    check(CountOrCastReached(0, -1) && CountOrCastReached(3, -1), "-1: every cast, a miss too");
+    check(!CountOrCastReached(0, 1) && CountOrCastReached(1, 1) && !CountOrCastReached(5, 0), "above 0 as CountReached");
+    // a class power's out-of-combat rate after a delay (Focus, feedback #294: 5 s)
+    check(ClassRegenAtFightRate(true, 0, 5000) && ClassRegenAtFightRate(true, 9000, 5000), "in a fight: the fight's rate");
+    check(ClassRegenAtFightRate(false, 4999, 5000) && !ClassRegenAtFightRate(false, 5000, 5000),
+          "out of it: the fight's rate for 5 s, then the out-of-combat rate");
+    check(!ClassRegenAtFightRate(false, 0, 0), "no delay: the out-of-combat rate at once");
     // a crit ramp: a stack per non-crit, a crit takes them all, at most a maximum
     check(CritRampStacks(0, false, 10) == 1, "first non-crit: 1 stack");
     check(CritRampStacks(3, false, 10) == 4, "repeated non-crits accumulate");

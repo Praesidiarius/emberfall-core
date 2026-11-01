@@ -42,13 +42,14 @@
 //                              every family spell that names it (Spell::PrepareTriggersExecutedOnHit, Forbearance's
 //                              rule): feedback #125, Stomp and Rockslide set off a Mountainbreaker on what they hit
 //   spell_ef_kit_strike        the strike (Mountainbreaker's hit): a dummy on the caster with a trigger heals the caster
-//                              its value in percent of max health (the trigger a heal cast with the amount; misc = the
+//                              its value in percent of max health, landed or missed (feedback #286; the trigger a heal
+//                              cast with the amount; misc = the
 //                              shell for Overflowing Stone); the rules naming the strike: _heal_low (value percentage
 //                              points more below misc B % health: Deep Restoration), _heal_during (value % more while the
 //                              caster holds the trigger aura: Relentless Fury), _overflow (at full health the heal goes
 //                              into the shell named by the strike's misc, which must hold: Overflowing Stone),
 //                              _heal_stacks (an aura of stacks on the caster, its dummy naming the strike: value % more
-//                              healing a stack, all its stacks spent by the strike that lands: Mountain's Renewal, whose
+//                              healing a stack, all its stacks spent by the strike, landed or not: Mountain's Renewal, whose
 //                              stacks Headbutt's and Stomp's hit bonuses lay),
 //                              _quake_during (while the caster holds the aura of the passive's other dummy, the trigger is
 //                              cast at the enemy's feet: Fury of the Earth), _every_nth (every value-th strike casts the
@@ -361,6 +362,7 @@ class spell_ef_kit_strike : public SpellScript
             return;
         uint32 const id = GetSpellInfo()->Id;
         Heal(caster);
+        _healed = true;
         // Mountain's Renewal: the strike spends every stack (after its heal read them); a missed one in Finish
         SpendHealStacks(caster);
         // Fury of the Earth: an earthquake under the enemy while the fury holds
@@ -446,11 +448,20 @@ class spell_ef_kit_strike : public SpellScript
                 stacks->Remove();
     }
 
+    // the heal comes with the strike, landed or not (feedback #286, an exception to the miss rules like the Marksman's
+    // Beads: the heal is the blow, not the hit); a missed strike heals here, before it spends the stacks it read
     void Finish()
     {
-        if (Unit* caster = GetCaster())
-            SpendHealStacks(caster);
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+        if (!_healed && caster->IsAlive())
+            Heal(caster);
+        _healed = true;
+        SpendHealStacks(caster);
     }
+
+    bool _healed = false;
 
     void Register() override
     {

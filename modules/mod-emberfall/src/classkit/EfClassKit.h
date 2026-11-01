@@ -305,7 +305,8 @@ namespace Emberfall::ClassKit
     // player). For a player of that class whose power is that slot (no spec power in force) the module gives it its
     // maximum (`max_power` plus the slot's max-power auras: Wide Lungs), regenerates it every tick (in a fight
     // `regen_per_second` times the haste factor and the slot's regen-percent auras: Keen Draw, Held Breath; out of one
-    // `regen_out_of_combat`, so every pull starts full) and fills it at login, level up and spec change.
+    // `regen_out_of_combat`, so every pull starts full, once `regen_out_of_combat_delay_ms` have passed since the fight:
+    // until then the fight's rate, feedback #294) and fills it at login, level up and spec change.
     struct ClassPowerRule
     {
         uint8 classId = 0;
@@ -313,6 +314,7 @@ namespace Emberfall::ClassKit
         uint32 max = 0;
         float regen = 0.0f;         // points a second in a fight
         float regenOutOfCombat = 0.0f;
+        uint32 outOfCombatDelayMs = 0;  // the fight's rate goes on so long after the fight (feedback #294: 5 s)
     };
     // Loads ef_class_kit_class_power (Load calls it with the spec powers).
     void LoadClassPowers();
