@@ -50,7 +50,7 @@ namespace Emberfall::KitWeapon
         return miscValue > 0 ? float(miscValue) : 100.0f;
     }
 
-    // The hand whose weapon skill a kit strike rolls its hit table with (PATCHES.md #35; Emberfall feedback #250,
+    // The hand whose weapon skill a kit strike rolls its hit table with (PATCHES.md #36; Emberfall feedback #250,
     // docs/design/classes.md §4.8.1: a weapon strike is affected by the weapon skill as the white hit of that weapon).
     // The order is WeaponAttackType's. Upstream's Unit::MeleeSpellHitResult rolls every melee strike with the main hand
     // (its miss, dodge, parry and block against the main hand's weapon skill and expertise), so a strike that requires

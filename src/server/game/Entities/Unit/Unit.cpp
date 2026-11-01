@@ -19,7 +19,7 @@
 #include "EmberfallCombatLog.h"
 #include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "EmberfallCastWhileMoving.h" // EMBERFALL: casting on the move (PATCHES.md #25)
-#include "EmberfallKitWeapon.h" // EMBERFALL: kit strikes roll with their own hand (PATCHES.md #35)
+#include "EmberfallKitWeapon.h" // EMBERFALL: kit strikes roll with their own hand (PATCHES.md #36)
 #include "AbstractFollower.h"
 #include "AreaDefines.h"
 #include "ArenaSpectator.h"
@@ -3406,7 +3406,7 @@ SpellMissInfo Unit::MeleeSpellHitResult(Unit* victim, SpellInfo const* spellInfo
     // - they are meele, but can't be dodged/parried/deflected because of ranged dmg class
     if (spellInfo->DmgClass == SPELL_DAMAGE_CLASS_RANGED)
         attType = RANGED_ATTACK;
-    // EMBERFALL: a class kit's strike rolls with the hand it strikes with (PATCHES.md #35): an off-hand strike with the
+    // EMBERFALL: a class kit's strike rolls with the hand it strikes with (PATCHES.md #36): an off-hand strike with the
     // off hand's weapon skill and expertise, as that hand's white hit (upstream: the main hand's)
     else if (Emberfall::KitWeapon::IsKitFamily(spellInfo->SpellFamilyName))
         attType = WeaponAttackType(Emberfall::KitWeapon::StrikeHand(false,
