@@ -22,7 +22,8 @@
 //   C->S  HELLO;<data>  MODE;on|off  VIEW;on|off  SCAN;<map>;<x>;<y>;<radius>  OPEN;<cs>  NEW;<title>
 //         ADD;c;<entry>;<x>;<y>;<z>;<o>  MOVE;<k>;<id>;<x>;<y>;<z>;<o>  SET;c;<id>;wander|respawn|count;<value>
 //         DEL;c;<id>  UNDO;<cs>  REDO;<cs>  SUBMIT;<cs>;<p>/<t>;<description>  WITHDRAW;<cs>
-//   S->C  ROLE;<level>;<zones>;<limits>  MARK;<scan>;<p>/<t>;<entry|...>  DELTA;<entry>  GONE;<k>;<id>
+//   S->C  ROLE;<level>;<zones>;<limits>  RZONE;<p>/<t>;<zone|...> (every zone, paged)  MARK;<scan>;<p>/<t>;<entry|...>
+//         DELTA;<entry>  GONE;<k>;<id>
 //         CS;<id>;<state>;<ops>;<title>[;1]  OPS;<cs>;<p>/<t>;<op|...>  OK;<seq>;<id>  ERR;<seq>;<code>;<detail>
 //         (CS's sixth field 1: the editor's active set, e.g. one the realm opened by itself for a change without one)
 //
@@ -1002,6 +1003,17 @@ namespace ef::editor
                 return body;
             }
         }
+    }
+
+    // RZONE;<p>/<t>;<key:map:area|...> - every zone, paged (any number of them; whole entries per page), sent right after
+    // ROLE. ROLE keeps the zones that fit one message (a client from before RZONE reads only those); a client that knows
+    // RZONE replaces ROLE's list with the pages' once the last page is there.
+    inline std::vector<std::string> roleZonePages(std::vector<Zone> const& zones)
+    {
+        std::vector<std::string> list;
+        for (Zone const& z : zones)
+            list.push_back(z.key + ":" + std::to_string(z.map) + ":" + std::to_string(z.area));
+        return pages("RZONE", {}, list, 64);
     }
 
     // ------------------------------------------------------------------------------------------ ops

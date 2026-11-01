@@ -1787,9 +1787,12 @@ namespace Emberfall::Editor
             size_t dropped = 0;
             SendBody(player, roleBody(uint32(a.level), zones, l.opsPerDay - std::min<uint32>(l.opsPerDay, uint32(r.day.count(now))),
                                       uint32(l.openSets > open ? l.openSets - open : 0), l.opsPerSet, s_config.local, &dropped));
+            // every zone, paged (RZONE): ROLE holds those that fit one message, for a client from before the pages
+            for (std::string const& body : roleZonePages(zones))
+                SendBody(player, body);
             if (dropped)
-                LOG_ERROR("module", "Emberfall.Editor: ROLE for account {} leaves {} of {} zone(s) off to fit one message",
-                          player->GetSession()->GetAccountId(), dropped, zones.size());
+                LOG_DEBUG("module", "Emberfall.Editor: ROLE for account {} holds {} of {} zone(s); RZONE pages carry them all",
+                          player->GetSession()->GetAccountId(), zones.size() - dropped, zones.size());
             // PAL;<zone>;<p>/<t>;<entry:named|...>: the creatures the editor may place (the zone brief's)
             for (auto const& [key, entries] : s_entries)
             {
