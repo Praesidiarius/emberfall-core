@@ -507,7 +507,9 @@ static void count()
     CHECK(r.allowsAdds(1, 1000) && !r.allowsAdds(2, 1000) && r.allows(OpKind::Add, 1000));
     r.recordAdds(1, 1000);
     CHECK(!r.allows(OpKind::Add, 1000) && r.allowsAdds(3, 1000 + 86400000));
-// Step 3 (world-editor.md §20): ground strokes, roads and height stamps.
+}
+
+// Step 3 (world-editor.md §21): ground strokes, roads and height stamps.
 static Op groundOp(uint32_t seq, Kind kind, uint32_t group, bool undone = false)
 {
     Op op;

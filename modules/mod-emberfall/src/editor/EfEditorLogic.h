@@ -181,7 +181,7 @@ namespace ef::editor
 
     // ------------------------------------------------------------------------------------------ requests
 
-    // c creature spawn, n NPC; step 3 (world-editor.md §20): l a ground layer stroke, r a road, h a height stamp (the
+    // c creature spawn, n NPC; step 3 (world-editor.md §21): l a ground layer stroke, r a road, h a height stamp (the
     // ground kinds are no objects: no lock, no marker, nothing the server applies; ground below).
     enum class Kind : char { Creature = 'c', Npc = 'n', Ground = 'l', Road = 'r', Height = 'h' };
 
@@ -1224,7 +1224,7 @@ namespace ef::editor
     // stroke (a click, or a line of up to kMaxGroundPoints points). Nothing on the server changes: the realm validates,
     // stores and forwards them (GND), the client paints them over its own copy of the ground (a ghost for heights), and
     // the release bakes them (Emberfall tools/py emberfall_content/editor/ground.py). Collision, paths and line of sight
-    // stay the release's. The rules are written down in docs/design/world-editor.md §20.
+    // stay the release's. The rules are written down in docs/design/world-editor.md §21.
     //
     //   C->S  PAINT;<layer>;<radius>;<strength>;<hardness>;<group>;<path>
     //         ROAD;<layer>;<class>;<group>;<path>
