@@ -369,6 +369,22 @@ Bulwark's ward) are not reported. Nothing is sent at login unless an absorb is u
 | `emberfall_absorbs_commands` | `CommandScript` | `.efabsorb` (GM): the selected player's (or one's own) tracked values, `EFABS <spellId> <left> <cap>` per absorb, then `EFABS end` |
 | `emberfall_absorbs_world` | `WorldScript` | reads the config; boot line `>> Emberfall absorbs: on (EFA, every 100 ms)` |
 
+## Quest log of 50 (Emberfall `docs/design/quest-log.md`, feedback #251)
+
+`src/emberfall_questlog.cpp`; the logic without the core is `src/questlog/EfQuestLogLogic.h` and the core's
+`EmberfallQuestLog.h` (`tests/questlog_tests.cpp`). The core keeps 50 quest log slots (PATCHES.md #36); slots 25-49 are
+no update fields, so the client hears of them here. No switch: the core's 50 slots are unconditional.
+
+Protocol: an addon whisper from the player to themselves (as EFA), on any update where one of slots 25-49 changed, one
+message per changed slot: `EFQL\t1;0;SLOT;<slot>;<quest>;<state>;<c0>;<c1>;<c2>;<c3>;<time>` (quest 0: the slot is
+empty now). The first update after a login sends `EFQL\t1;0;CLR` and then every slot in use. The longest body is 68
+bytes (EFT's limit is 251).
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_questlog_player` | `PlayerScript` `OnPlayerUpdate`, `OnPlayerLogin`, `OnPlayerLogout` | compares the 125 words of slots 25-49 with what was sent and sends the changed slots (state in the player's `CustomData`); login and logout clear the state |
+| `emberfall_questlog_commands` | `CommandScript` | `.efquestlog` (GM): the selected player's (or one's own) slots in use, `EFQL <slot> <quest> <state> <c0> <c1> <c2> <c3> <time>` each, then `EFQL end <used>/50` |
+
 ## Damage meter (Emberfall `docs/design/damage-meter.md`)
 
 `src/emberfall_meter.cpp`; the logic without the core is `src/meter/EfMeterLogic.h` (`tests/meter_tests.cpp`). The

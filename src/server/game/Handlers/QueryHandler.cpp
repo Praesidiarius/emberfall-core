@@ -411,7 +411,7 @@ void WorldSession::HandleCorpseMapPositionQuery(WorldPackets::Query::CorpseMapPo
 void WorldSession::HandleQuestPOIQuery(WorldPacket& recvData)
 {
     uint32 count;
-    recvData >> count; // quest count, max=25
+    recvData >> count; // quest count, max=MAX_QUEST_LOG_SIZE (EMBERFALL: 50, PATCHES.md #36)
 
     if (count > MAX_QUEST_LOG_SIZE)
     {
