@@ -225,6 +225,17 @@ namespace Emberfall::ClassKit::Logic
         return base <= 0 ? base : int32_t(int64_t(base) * (100 + int64_t(pctPerStack) * stacks) / 100);
     }
 
+    // Whether a dummy naming that spender acts as a spend bonus after `spent` stacks: it needs at least `need` (its misc
+    // B; 0 or less: never one, it is a hit bonus or nothing); a passive acts with a trigger (Second Arrow, the Ranger's
+    // splash) or without (Unbroken Aim's stacks kept); a buff only with a trigger, and the spend uses it up (Arrowfall's
+    // cleave on the next Full Draw, feedback #249). A buff needing more than was spent stays for a later spend.
+    constexpr bool SpendBonusActs(bool passive, bool hasTrigger, int32_t need, uint32_t spent)
+    {
+        if (need <= 0 || spent < uint32_t(need))
+            return false;
+        return passive || hasTrigger;
+    }
+
     // The Warlock's Blood Price (spell_ef_kit_health_price): `pct` percent (spell mods in: Thinned Blood) of the caster's
     // `maxHealth`, at least 1; the cast is refused unless the caster keeps at least 1 health after paying it.
     constexpr int32_t HealthPrice(uint32_t maxHealth, int32_t pct)

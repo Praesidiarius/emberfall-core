@@ -68,11 +68,27 @@ namespace
     }
 }
 
+namespace
+{
+    // feedback #250: a strike rolls its hit table with the weapon skill of the hand it strikes with, as that hand's
+    // white hit (PATCHES.md #35)
+    void testHand()
+    {
+        check(StrikeHand(false, false) == Hand::Main, "a melee strike: the main hand's skill");
+        check(StrikeHand(false, true) == Hand::Off, "a strike that requires the off hand: the off hand's skill");
+        check(StrikeHand(true, false) == Hand::Ranged, "a ranged shot: the ranged weapon's skill");
+        check(StrikeHand(true, true) == Hand::Ranged, "the ranged damage class wins (the off-hand flag is a melee one)");
+        check(uint8_t(Hand::Main) == 0 && uint8_t(Hand::Off) == 1 && uint8_t(Hand::Ranged) == 2,
+              "the order is WeaponAttackType's (BASE_ATTACK, OFF_ATTACK, RANGED_ATTACK)");
+    }
+}
+
 int main()
 {
     testFamily();
     testPct();
     testStrike();
+    testHand();
     std::cout << "kit weapon tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed == 0 ? 0 : 1;
 }

@@ -27,8 +27,11 @@
 //                                   mods in: Killing Draw) in points of the caster's power back. Spend bonuses: the caster's
 //                                   passive dummy auras with misc = this spell and misc B > 0 act when at least misc B
 //                                   stacks were spent: with a trigger it is cast at the first enemy with its value in
-//                                   percent of the damage dealt there (Second Arrow; an area trigger from the caster:
-//                                   Through and Through), without one its value in stacks stays (Unbroken Aim). The hit
+//                                   percent of the damage dealt there (Second Arrow; an area trigger round the target:
+//                                   the Ranger's Retreat splash), without one its value in stacks stays (Unbroken Aim). A
+//                                   buff's dummy (no passive) with a trigger acts the same way and the spend uses one of
+//                                   it up (Arrowfall's cleave on the next Full Draw, feedback #249; EfClassKitLogic.h
+//                                   SpendBonusActs). The hit
 //                                   bonuses for this spell run on every enemy struck (EfClassKit.h HitBonuses: Broadhead)
 //   spell_ef_kit_pet_strike         the hunter sends the companion (Set On, Pin Down): refused without a living companion
 //                                   or with it farther than effect 1's value in yards from the target; on the hit the
@@ -199,21 +202,30 @@ class spell_ef_kit_spend_self_stacks : public SpellScript
         }
         if (!_spent)
             return;
-        // spend bonuses: passive dummies naming this spell, misc B = the stacks needed
+        // spend bonuses: passive dummies naming this spell, misc B = the stacks needed; or a buff's (a dummy with a
+        // trigger on an aura that is no passive: Arrowfall's cleave, feedback #249), used up by the spend that casts it
         int32 keep = 0;
+        std::vector<uint32> used;
         for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
         {
-            if (uint32(eff->GetMiscValue()) != GetSpellInfo()->Id || !eff->GetBase()->IsPassive())
+            if (uint32(eff->GetMiscValue()) != GetSpellInfo()->Id)
                 continue;
+            bool const passive = eff->GetBase()->IsPassive();
             int32 const need = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].MiscValueB;
-            if (need <= 0 || _spent < uint32(need))
-                continue;
             uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
+            if (!Emberfall::ClassKit::Logic::SpendBonusActs(passive, trigger != 0, need, _spent))
+                continue;
             if (trigger)
+            {
                 _bonuses.emplace_back(trigger, eff->GetAmount());
+                if (!passive && std::find(used.begin(), used.end(), eff->GetId()) == used.end())
+                    used.push_back(eff->GetId());
+            }
             else
                 keep = std::max(keep, eff->GetAmount());
         }
+        for (uint32 buff : used)
+            Emberfall::ClassKit::ConsumeOne(caster, buff);
         if (keep > 0)
             Emberfall::ClassKit::AddSelfStacks(caster, StackSpell(), keep);
         _cast = true;
