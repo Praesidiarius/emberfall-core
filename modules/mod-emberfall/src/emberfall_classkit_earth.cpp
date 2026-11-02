@@ -44,7 +44,7 @@
 //   spell_ef_kit_strike        the strike (Mountainbreaker's hit): a dummy on the caster with misc = a pooled absorb aura of
 //                              the caster's (spell_ef_kit_pooled_absorb: effect 1 the school absorb, effect 2's value its cap
 //                              in % of max health) adds its value in percent of max health to that pool on a hit, at most
-//                              the cap; with no shell up one is made, empty, and filled (ankarna's rework of 2026-11-02:
+//                              the cap; with no shell up the aura is put on (not cast) holding the gain (ankarna's rework of 2026-11-02:
 //                              Stone Shell, one shared pool; a miss adds nothing). The rules naming the strike:
 //                              _shield_low (value percentage points more below misc B % health: Deep Restoration),
 //                              _shield_during (value % more while the caster holds the trigger aura: Relentless Fury),
@@ -381,7 +381,7 @@ class spell_ef_kit_strike : public SpellScript
     }
 
     // the shield gain: the strike's own percent, the low-health ranks, the ready aura it spends, the fury's share, into
-    // the pool its dummy names (Stone Shell), at most that pool's cap; a missing shell is made first, empty
+    // the pool its dummy names (Stone Shell), at most that pool's cap; a missing shell is put on with the gain only
     void Shield(Unit* caster)
     {
         uint32 const id = GetSpellInfo()->Id;
@@ -414,19 +414,17 @@ class spell_ef_kit_strike : public SpellScript
         if (add <= 0)
             return;
         Aura* shell = caster->GetAura(shellId, caster->GetGUID());
-        if (!shell)
-        {
-            // the shell made empty (its own percent cast as 0: a fixed value has no die, Spell.dbc), then filled;
-            // triggered, so Stone Shell's cooldown does not start
-            int32 none = 0;
-            caster->CastCustomSpell(caster, shellId, &none, nullptr, nullptr, true);
-            shell = caster->GetAura(shellId, caster->GetGUID());
-        }
+        bool const made = !shell;
+        // no shell up: the aura is put on, not cast (a cast, even triggered, starts Stone Shell's cooldown on the
+        // client: the live check of 2026-11-02), and holds only the gain
+        if (made)
+            shell = caster->AddAura(shellId, caster);
         AuraEffect* pool = shell ? shell->GetEffect(EFFECT_0) : nullptr;
         if (!pool)
             return;
         int64 const cap = int64(caster->CountPctFromMaxHealth(shellInfo->Effects[EFFECT_1].CalcValue(caster)));
-        pool->ChangeAmount(int32(Earth::ShieldGain(std::max(0, pool->GetAmount()), add, cap)));
+        int64 const left = made ? 0 : std::max(0, pool->GetAmount());
+        pool->ChangeAmount(int32(Earth::ShieldGain(left, add, cap)));
     }
 
     // Mountain's Momentum goes with the strike, landed or not (the miss rules, alpha1 feedback #143); a channel cut short
