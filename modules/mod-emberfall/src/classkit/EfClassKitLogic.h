@@ -570,6 +570,18 @@ namespace Emberfall::ClassKit::Logic
         return side * (ahead > 0 ? quarter / 2.0f : quarter * 1.5f);
     }
 
+    // A leap's vertical take-off speed (spell_ef_kit_leap, feedback #318: the companion's Set On and Pin Down): the arc of
+    // a jump over `dist` yards at `speedXY` yards a second under `gravity`, its top a quarter of the flight's ballistic
+    // height (g t^2 / 8, Spell::CalculateJumpSpeeds' rule) kept between `minHeight` and `maxHeight` yards; 0 for no flight.
+    inline float LeapSpeedZ(float dist, float speedXY, float minHeight, float maxHeight, float gravity)
+    {
+        if (speedXY <= 0.0f || gravity <= 0.0f)
+            return 0.0f;
+        float const t = std::max(0.0f, dist) / speedXY;
+        float const height = std::clamp(gravity * t * t / 8.0f, minHeight, std::max(minHeight, maxHeight));
+        return std::sqrt(2.0f * gravity * height);
+    }
+
     // What a builder builds with its rules (spell_ef_kit_build_power): `gain` its own (0: it struck nobody, then nothing),
     // plus `bonus` (Executioner's Opportunity +1 at 30 %, Sweeping Opportunity +1 at 3 enemies), and at least `floor`
     // (Murderous Instinct: Deathblow 3 while Killing Instinct holds; not on top of its own 1 or Deadly Opportunity's 2).
