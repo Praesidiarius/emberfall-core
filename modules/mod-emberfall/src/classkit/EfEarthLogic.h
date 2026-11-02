@@ -18,8 +18,9 @@
 #pragma once
 
 // The arithmetic of the Druid Earthwarden's scripts (Emberfall docs/design/classes/druid-earthwarden.md, ankarna's v1.0-v1.2;
-// src/emberfall_classkit_earth.cpp), free of the core so tests/classkit_tests.cpp can run it: the strike's heal (Deep
-// Restoration, Mountain's Renewal, Relentless Fury, Earthen Regeneration), the overflow into the shell, the growth stage,
+// src/emberfall_classkit_earth.cpp), free of the core so tests/classkit_tests.cpp can run it: the strike's shield gain
+// (Deep Restoration, Mountain's Momentum, Relentless Fury; ankarna's rework of 2026-11-02), the pool's cap and its
+// out-of-combat trim, the growth stage,
 // the roll's speed and reach (Gathering Momentum, Long Roll), the every-Nth counter (Titan's Retribution), the reflected
 // share (Reflective Stone) and the channel time the spell mods give (Brutal Follow-Up flat, Tectonic Fury percent: (base +
 // flat) x (1 + pct)).
@@ -29,43 +30,46 @@
 
 namespace Emberfall::ClassKit::Earth
 {
-    // The strike's heal in percent of max health: the base (5), plus the low-health ranks' percentage points while the
-    // owner is below `lowAt` percent health (Deep Restoration: +5 / +10 below 50), times (100 + `stacksPct`) / 100 for
-    // the stacks the strike spends (Mountain's Renewal: +100 a stack, 1 stack 200 %, 2 stacks 300 %), times (100 +
-    // `duringPct`) / 100 while the fury holds (Relentless Fury: +50). The self-heal rules (Earthen Regeneration: SelfHealed)
-    // come on top in the core. No cap (ankarna's defensive rebalancing, 2026-10-29: 15 -> 45 -> 67.5 -> 74.25 %).
-    constexpr int32_t HealPct(int32_t base, float healthPct, int32_t lowAt, int32_t lowBonus, int32_t duringPct,
-                              int32_t stacksPct = 0)
+    // The strike's shield gain in percent of max health (ankarna's rework of 2026-11-02: Mountainbreaker no longer heals,
+    // every hit adds to Stone Shell's pool): the base (5), plus the low-health ranks' percentage points while the owner
+    // is below `lowAt` percent health (Deep Restoration: +5 / +10 below 50, so 10 / 15), times (100 + `stacksPct`) / 100
+    // for the ready aura the strike spends (Mountain's Momentum: +100, so double), times (100 + `duringPct`) / 100 while
+    // the fury holds (Relentless Fury: +50). They multiply: 5 -> 7.5 (Relentless Fury), 15 -> 22.5 (with Deep Restoration
+    // 2 below half health), 45 % (and Mountain's Momentum). Percent x 100, so 7.5 % and 22.5 % stay exact.
+    constexpr int32_t ShieldPct(int32_t base, float healthPct, int32_t lowAt, int32_t lowBonus, int32_t duringPct,
+                                int32_t stacksPct = 0)
     {
         int64_t pct = std::max<int32_t>(0, base);
         if (lowAt > 0 && healthPct < float(lowAt))
             pct += std::max<int32_t>(0, lowBonus);
-        // percent x 100, so 7.5 % and 67.5 % stay exact
         return int32_t(pct * (100 + std::max<int32_t>(0, stacksPct)) * (100 + std::max<int32_t>(0, duringPct)) / 100);
     }
 
-    // A heal the owner casts on itself raised by its self-heal rules (Earthen Regeneration: +10 %).
-    constexpr int64_t SelfHealed(int64_t heal, int32_t pct)
-    {
-        if (heal <= 0 || pct <= 0)
-            return heal;
-        return heal * (100 + pct) / 100;
-    }
-
-    // HealPct's result (percent x 100) of `maxHealth` as an amount.
-    constexpr int64_t HealAmount(int64_t maxHealth, int32_t pctTimes100)
+    // ShieldPct's result (percent x 100) of `maxHealth` as an amount, rounded down.
+    constexpr int64_t ShieldAmount(int64_t maxHealth, int32_t pctTimes100)
     {
         if (maxHealth <= 0 || pctTimes100 <= 0)
             return 0;
         return maxHealth * pctTimes100 / 10000;
     }
 
-    // Overflowing Stone: the absorb a shell holding `left` gains from `add`, never above `cap` (and never less than it had).
-    constexpr int64_t Overflow(int64_t left, int64_t add, int64_t cap)
+    // What a pooled shield holding `left` holds after a gain of `add`: never above `cap`, never less than it had (a shield
+    // above a cap that fell keeps what it holds). Mountainbreaker's gain into Stone Shell, at most 80 %.
+    constexpr int64_t ShieldGain(int64_t left, int64_t add, int64_t cap)
     {
         if (add <= 0 || left >= cap)
             return left;
         return std::min(cap, left + add);
+    }
+
+    // The out-of-combat trim (Stone Shell: 10 s after leaving combat anything above 40 % of max health goes): what a
+    // shield holding `left` keeps once its owner has been out of combat `outMs` of the `afterMs` needed; in combat
+    // (`outMs` 0) or before the time, all of it; at or below `cap`, all of it.
+    constexpr int64_t Trimmed(int64_t left, int64_t cap, int64_t outMs, int64_t afterMs)
+    {
+        if (outMs <= 0 || outMs < afterMs || cap < 0 || left <= cap)
+            return left;
+        return cap;
     }
 
     // The growth stage of the form: the points in the form's row (each growth talent's misc B), at most `stages`.
@@ -82,7 +86,7 @@ namespace Emberfall::ClassKit::Earth
         return (lookBase > 0 ? lookBase : formBase) + std::max<int32_t>(0, stage);
     }
 
-    // The roll's speed bonus in percent: the base (+50, so 150 %) plus `stepPct` for every whole `stepYards` travelled
+    // The roll's speed bonus in percent: the base (+100, so 200 % since 2026-11-02; +50 before) plus `stepPct` for every whole `stepYards` travelled
     // (Gathering Momentum: +10 every 5 yd; 0: none).
     constexpr int32_t RollSpeed(int32_t basePct, float travelled, int32_t stepPct, int32_t stepYards)
     {

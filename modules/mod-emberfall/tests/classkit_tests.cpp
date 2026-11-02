@@ -578,37 +578,41 @@ int main()
     // the Earthwarden's (EfEarthLogic.h)
     {
         using namespace Emberfall::ClassKit::Earth;
-        // the strike's heal, percent x 100: 5 %, Deep Restoration below 50 %, Relentless Fury +50 %
-        check(HealPct(5, 80.0f, 50, 10, 0) == 500, "5 % above half health");
-        check(HealPct(5, 40.0f, 50, 5, 0) == 1000 && HealPct(5, 40.0f, 50, 10, 0) == 1500, "Deep Restoration 10 / 15 %");
-        check(HealPct(5, 80.0f, 50, 10, 50) == 750, "Relentless Fury: 7.5 %");
-        check(HealPct(5, 30.0f, 50, 10, 50) == 2250, "both: 15 % x 1.5");
-        check(HealPct(5, 40.0f, 0, 10, 0) == 500, "no rank: no low-health bonus");
-        check(HealAmount(10000, 750) == 750 && HealAmount(0, 750) == 0 && HealAmount(10000, 0) == 0, "the amount");
-        // Mountain's Renewal (ankarna's defensive rebalancing, 2026-10-29): +100 % a stack, 1 stack 200 %, 2 stacks 300 %
-        check(HealPct(5, 80.0f, 50, 10, 0, 100) == 1000 && HealPct(5, 80.0f, 50, 10, 0, 200) == 1500, "Renewal 10 / 15 %");
-        check(HealPct(5, 80.0f, 50, 10, 0, -100) == 500, "no stacks below none");
-        // the doc's example: Deep Restoration 2 below half health 15 %, 2 stacks 45 %, Relentless Fury 67.5 %, Earthen
-        // Regeneration (+10 %, the self-heal hook) 74.25 % of max health; no cap
-        check(HealPct(5, 40.0f, 50, 10, 0, 0) == 1500, "the example: 15 %");
-        check(HealPct(5, 40.0f, 50, 10, 0, 200) == 4500, "the example: 45 %");
-        check(HealPct(5, 40.0f, 50, 10, 50, 200) == 6750, "the example: 67.5 %");
-        check(SelfHealed(HealAmount(100000, HealPct(5, 40.0f, 50, 10, 50, 200)), 10) == 74250, "the example: 74.25 %");
-        check(SelfHealed(500, 0) == 500 && SelfHealed(0, 10) == 0 && SelfHealed(1000, 10) == 1100, "Earthen Regeneration");
-        // Overflowing Stone: into the shell up to 80 %
-        check(Overflow(1000, 500, 8000) == 1500 && Overflow(7800, 500, 8000) == 8000 && Overflow(8000, 500, 8000) == 8000,
+        // the strike's shield gain, percent x 100 (ankarna's rework of 2026-11-02): 5 %, Deep Restoration below 50 %,
+        // Relentless Fury +50 %, Mountain's Momentum +100 %; they multiply
+        check(ShieldPct(5, 80.0f, 50, 10, 0) == 500, "5 % above half health");
+        check(ShieldPct(5, 40.0f, 50, 5, 0) == 1000 && ShieldPct(5, 40.0f, 50, 10, 0) == 1500, "Deep Restoration 10 / 15 %");
+        check(ShieldPct(5, 40.0f, 0, 10, 0) == 500, "no rank: no low-health bonus");
+        check(ShieldPct(5, 80.0f, 50, 10, 0, 100) == 1000, "Mountain's Momentum: 5 -> 10 %");
+        check(ShieldPct(5, 80.0f, 50, 10, 0, -100) == 500, "no ready aura below none");
+        // the spec's worked examples (§7 of the rework): 5 -> 7.5; Deep Restoration 2 + Relentless Fury 22.5; and
+        // Mountain's Momentum 45 % of max health
+        check(ShieldPct(5, 80.0f, 50, 10, 50) == 750, "the example: Relentless Fury 7.5 %");
+        check(ShieldPct(5, 40.0f, 50, 10, 50) == 2250, "the example: Deep Restoration 2 + Relentless Fury 22.5 %");
+        check(ShieldPct(5, 40.0f, 50, 10, 50, 100) == 4500, "the example: all three 45 %");
+        check(ShieldAmount(10000, 750) == 750 && ShieldAmount(0, 750) == 0 && ShieldAmount(10000, 0) == 0, "the amount");
+        check(ShieldAmount(1999, 750) == 149, "rounded down");
+        // the pool: up to 80 %, never less than it had
+        check(ShieldGain(0, 500, 8000) == 500, "an empty shell takes the gain");
+        check(ShieldGain(1000, 500, 8000) == 1500 && ShieldGain(7800, 500, 8000) == 8000 && ShieldGain(8000, 500, 8000) == 8000,
               "up to the cap");
-        check(Overflow(9000, 500, 8000) == 9000, "never less than it had");
+        check(ShieldGain(9000, 500, 8000) == 9000, "never less than it had");
+        // the out-of-combat trim: 10 s out of combat, above 40 % to 40 %
+        check(Trimmed(8000, 4000, 0, 10000) == 8000, "in combat: kept");
+        check(Trimmed(8000, 4000, 9000, 10000) == 8000, "before 10 s: kept");
+        check(Trimmed(8000, 4000, 10000, 10000) == 4000 && Trimmed(8000, 4000, 30000, 10000) == 4000, "after: 40 %");
+        check(Trimmed(3000, 4000, 30000, 10000) == 3000 && Trimmed(4000, 4000, 30000, 10000) == 4000, "at or below: kept");
         // the growth: one stage a point, at most 3
         check(GrowthStage(0, 3) == 0 && GrowthStage(2, 3) == 2 && GrowthStage(5, 3) == 3 && GrowthStage(-1, 3) == 0, "stages");
         // the look rule (a stoneborn: their own smaller elementals 99165-99168); without one the form's 99160-99163
         check(FormCreature(99160, 0, 0) == 99160 && FormCreature(99160, 0, 3) == 99163, "the form's own creatures");
         check(FormCreature(99160, 99165, 0) == 99165 && FormCreature(99160, 99165, 3) == 99168 &&
               FormCreature(99160, 99165, -1) == 99165, "a look rule's creatures, the same stages");
-        // the roll: 150 % (+50), +10 every 5 yd, 30 yd (Long Roll 40)
-        check(RollSpeed(50, 4.9f, 10, 5) == 50 && RollSpeed(50, 5.0f, 10, 5) == 60 && RollSpeed(50, 37.0f, 10, 5) == 120,
-              "Gathering Momentum: 150 % to 220 %");
-        check(RollSpeed(50, 37.0f, 0, 5) == 50, "no momentum");
+        // the roll: 200 % (+100, since 2026-11-02), +10 every 5 yd, 30 yd (Long Roll 40): the rework's table
+        check(RollSpeed(100, 4.9f, 10, 5) == 100 && RollSpeed(100, 5.0f, 10, 5) == 110 && RollSpeed(100, 25.0f, 10, 5) == 150,
+              "Gathering Momentum: 200 % to 250 % in 30 yd");
+        check(RollSpeed(100, 39.9f, 10, 5) == 170, "Long Roll 2: 270 % in the last 5 yd");
+        check(RollSpeed(100, 37.0f, 0, 5) == 100, "no momentum");
         check(!RollDone(29.9f, 30) && RollDone(30.0f, 30) && !RollDone(35.0f, 40) && RollDone(40.5f, 40), "the reach");
         // Titan's Retribution: every third strike
         {

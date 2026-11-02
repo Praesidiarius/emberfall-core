@@ -24,7 +24,7 @@
 //                              (misc = an aura the owner loses with the form: Stone Shell). A cast while the form holds
 //                              ends it instead (the cast is refused silently). The caster's passive dummies naming the
 //                              form: a trigger is a rider aura kept on the owner while the form holds (Unyielding Earth,
-//                              Earthen Regeneration, Unyielding Mountain), misc B the growth stages it adds (purely the
+//                              Earthen Resilience, Unyielding Mountain), misc B the growth stages it adds (purely the
 //                              look: each stage a creature with a larger display). The form's own other effects (effect
 //                              2: the armour) follow the talents' spell mods on every sync (Unyielding Mountain's +50
 //                              points on the armour, one sum with the form's +200 %: never a second percent aura, which
@@ -41,22 +41,25 @@
 //                              aura at the enemy), and the core casts a negative ExcludeCasterAuraSpell on the targets of
 //                              every family spell that names it (Spell::PrepareTriggersExecutedOnHit, Forbearance's
 //                              rule): feedback #125, Stomp and Rockslide set off a Mountainbreaker on what they hit
-//   spell_ef_kit_strike        the strike (Mountainbreaker's hit): a dummy on the caster with a trigger heals the caster
-//                              its value in percent of max health, landed or missed (feedback #286; the trigger a heal
-//                              cast with the amount; misc = the
-//                              shell for Overflowing Stone); the rules naming the strike: _heal_low (value percentage
-//                              points more below misc B % health: Deep Restoration), _heal_during (value % more while the
-//                              caster holds the trigger aura: Relentless Fury), _overflow (at full health the heal goes
-//                              into the shell named by the strike's misc, which must hold: Overflowing Stone),
-//                              _heal_stacks (an aura of stacks on the caster, its dummy naming the strike: value % more
-//                              healing a stack, all its stacks spent by the strike, landed or not: Mountain's Renewal, whose
-//                              stacks Headbutt's and Stomp's hit bonuses lay),
+//   spell_ef_kit_strike        the strike (Mountainbreaker's hit): a dummy on the caster with misc = a pooled absorb aura of
+//                              the caster's (spell_ef_kit_pooled_absorb: effect 1 the school absorb, effect 2's value its cap
+//                              in % of max health) adds its value in percent of max health to that pool on a hit, at most
+//                              the cap; with no shell up one is made, empty, and filled (ankarna's rework of 2026-11-02:
+//                              Stone Shell, one shared pool; a miss adds nothing). The rules naming the strike:
+//                              _shield_low (value percentage points more below misc B % health: Deep Restoration),
+//                              _shield_during (value % more while the caster holds the trigger aura: Relentless Fury),
+//                              _shield_stacks (an aura on the caster, its dummy naming the strike: value % more a stack,
+//                              spent by the strike, landed or not: Mountain's Momentum, which Headbutt's and Stomp's hit
+//                              bonuses lay); they multiply,
 //                              _quake_during (while the caster holds the aura of the passive's other dummy, the trigger is
 //                              cast at the enemy's feet: Fury of the Earth), _every_nth (every value-th strike casts the
 //                              trigger at the enemy, free and at once: Titan's Retribution)
 //   spell_ef_kit_absorb_reflect an absorb (Stone Shell): the caster's rules _reflect naming it add their value in percent;
 //                              the one with a trigger casts it at the attacker with that share of what was absorbed
 //                              (Reflective Stone, Reflective Fury)
+//   spell_ef_kit_absorb_trim   an absorb (effect 1) with a periodic dummy: once its owner has been out of combat misc B
+//                              seconds, anything above the dummy's value in percent of max health goes (Stone Shell: 10 s,
+//                              40 %); combat again resets the clock, in combat nothing is trimmed
 //   spell_ef_kit_drop_field    dummies on the caster with a trigger: the trigger (a ground field) is cast at the caster's
 //                              feet; one whose misc names an aura the caster held as the cast went off replaces the plain
 //                              one (Stomp's earthquake; Worldbreaker's empowered one)
@@ -71,8 +74,6 @@
 //                              Impact). A cast while rolling stops it; the cooldown counts from the start. Effect 3's
 //                              misc B: a creature whose display the roller shows while it rolls (the boulder), the look
 //                              of before (the form's growth stage) back when it ends
-//   spell_ef_kit_rule_self_heal a rider aura (dummy, value = percent): every heal its owner casts on itself is raised by it
-//                              (Earthen Regeneration while the form holds; the unit hook ModifyHealReceived)
 //   spell_ef_kit_rule_*        the rules' own aura scripts (markers; src/emberfall_classkit_exec.cpp's pattern)
 
 #include "EfClassKit.h"
@@ -144,17 +145,6 @@ namespace
             if (uint32(eff->GetMiscValue()) == spell && eff->GetBase()->IsPassive())
                 out.push_back(eff);
         return out;
-    }
-
-    // The owner's self-heal rules (Earthen Regeneration's ward while the form holds): their values in percent, added
-    // to every heal the owner casts on itself (EmberfallEarthUnitScript::ModifyHealReceived).
-    int32 SelfHealPct(Unit* owner)
-    {
-        int32 pct = 0;
-        for (AuraEffect const* eff : owner->GetAuraEffectsByType(SPELL_AURA_DUMMY))
-            if (eff->GetBase()->GetScriptByName("spell_ef_kit_rule_self_heal"))
-                pct += eff->GetAmount();
-        return pct;
     }
 
     // ---- the form ---------------------------------------------------------------------------------------------------------
@@ -361,10 +351,9 @@ class spell_ef_kit_strike : public SpellScript
         if (!caster || !target || target == caster)
             return;
         uint32 const id = GetSpellInfo()->Id;
-        Heal(caster);
-        _healed = true;
-        // Mountain's Renewal: the strike spends every stack (after its heal read them); a missed one in Finish
-        SpendHealStacks(caster);
+        Shield(caster);
+        // Mountain's Momentum: the strike spends it (after the gain read it); a missed one in Finish
+        SpendStacks(caster);
         // Fury of the Earth: an earthquake under the enemy while the fury holds
         for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_quake_during", id))
         {
@@ -391,77 +380,71 @@ class spell_ef_kit_strike : public SpellScript
         }
     }
 
-    // the heal: the strike's own percent, the low-health ranks, the stacks it spends, the fury's share; at full health
-    // into the shell
-    void Heal(Unit* caster)
+    // the shield gain: the strike's own percent, the low-health ranks, the ready aura it spends, the fury's share, into
+    // the pool its dummy names (Stone Shell), at most that pool's cap; a missing shell is made first, empty
+    void Shield(Unit* caster)
     {
         uint32 const id = GetSpellInfo()->Id;
-        SpellEffectInfo const* heal = nullptr;
+        SpellEffectInfo const* gain = nullptr;
         for (SpellEffectInfo const& eff : GetSpellInfo()->Effects)
-            if (eff.Effect == SPELL_EFFECT_DUMMY && eff.TargetA.GetTarget() == TARGET_UNIT_CASTER && eff.TriggerSpell)
-                heal = &eff;
-        if (!heal)
+            if (eff.Effect == SPELL_EFFECT_DUMMY && eff.TargetA.GetTarget() == TARGET_UNIT_CASTER && eff.MiscValue > 0)
+                gain = &eff;
+        if (!gain)
+            return;
+        uint32 const shellId = uint32(gain->MiscValue);
+        SpellInfo const* shellInfo = sSpellMgr->GetSpellInfo(shellId);
+        if (!shellInfo)
             return;
         float const healthPct = caster->GetHealthPct();
         int32 lowAt = 0, lowBonus = 0, during = 0, stacks = 0;
-        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_heal_low", id))
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_shield_low", id))
         {
             lowAt = std::max(lowAt, eff->GetMiscValueB());
             lowBonus += eff->GetAmount();
         }
-        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_heal_during", id))
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_shield_during", id))
             if (uint32 const aura = TriggerOf(eff); aura && caster->HasAura(aura))
                 during += eff->GetAmount();
-        // Mountain's Renewal: the stack aura's dummy, its amount already times its stacks (100 a stack)
-        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_heal_stacks", id))
+        // Mountain's Momentum: the ready aura's dummy, its amount times its stacks (one at most: +100)
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_shield_stacks", id))
             if (!eff->GetBase()->IsPassive())
                 stacks += eff->GetAmount();
-        int32 const pct = Earth::HealPct(heal->CalcValue(caster), healthPct, lowAt, lowBonus, during, stacks);
-        int32 amount = int32(Earth::HealAmount(int64(caster->GetMaxHealth()), pct));
-        if (amount <= 0)
+        int32 const pct = Earth::ShieldPct(gain->CalcValue(caster), healthPct, lowAt, lowBonus, during, stacks);
+        int64 const add = Earth::ShieldAmount(int64(caster->GetMaxHealth()), pct);
+        if (add <= 0)
             return;
-        // Overflowing Stone: at full health the healing becomes absorption of the shell that already holds
-        if (caster->IsFullHealth() && heal->MiscValue > 0 && !Rules(caster, "spell_ef_kit_rule_overflow", id).empty())
+        Aura* shell = caster->GetAura(shellId, caster->GetGUID());
+        if (!shell)
         {
-            Aura* shell = caster->GetAura(uint32(heal->MiscValue), caster->GetGUID());
-            AuraEffect* pool = shell ? shell->GetEffect(EFFECT_0) : nullptr;
-            if (pool)
-            {
-                SpellEffectInfo const& rule = shell->GetSpellInfo()->Effects[EFFECT_1];
-                int64 const cap = int64(caster->CountPctFromMaxHealth(rule.CalcValue(caster)));
-                // the healing-done auras and the self-heal rules (Earthen Regeneration) count as for the heal
-                int64 const add = Earth::SelfHealed(int64(float(amount) * caster->GetTotalAuraMultiplier(
-                                                        SPELL_AURA_MOD_HEALING_DONE_PERCENT)), SelfHealPct(caster));
-                pool->ChangeAmount(int32(Earth::Overflow(pool->GetAmount(), add, cap)));
-                return;
-            }
+            // the shell made empty (its own percent cast as 0: a fixed value has no die, Spell.dbc), then filled;
+            // triggered, so Stone Shell's cooldown does not start
+            int32 none = 0;
+            caster->CastCustomSpell(caster, shellId, &none, nullptr, nullptr, true);
+            shell = caster->GetAura(shellId, caster->GetGUID());
         }
-        caster->CastCustomSpell(caster, heal->TriggerSpell, &amount, nullptr, nullptr, true);
+        AuraEffect* pool = shell ? shell->GetEffect(EFFECT_0) : nullptr;
+        if (!pool)
+            return;
+        int64 const cap = int64(caster->CountPctFromMaxHealth(shellInfo->Effects[EFFECT_1].CalcValue(caster)));
+        pool->ChangeAmount(int32(Earth::ShieldGain(std::max(0, pool->GetAmount()), add, cap)));
     }
 
-    // Mountain's Renewal's stacks go with the strike, landed or not (the miss rules, alpha1 feedback #143); a channel cut
-    // short never casts the strike and keeps them
-    void SpendHealStacks(Unit* caster)
+    // Mountain's Momentum goes with the strike, landed or not (the miss rules, alpha1 feedback #143); a channel cut short
+    // never casts the strike and keeps it
+    void SpendStacks(Unit* caster)
     {
-        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_heal_stacks", GetSpellInfo()->Id))
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_shield_stacks", GetSpellInfo()->Id))
             if (Aura* stacks = eff->GetBase(); stacks && !stacks->IsPassive() && !stacks->IsRemoved())
                 stacks->Remove();
     }
 
-    // the heal comes with the strike, landed or not (feedback #286, an exception to the miss rules like the Marksman's
-    // Beads: the heal is the blow, not the hit); a missed strike heals here, before it spends the stacks it read
+    // a missed strike adds nothing to the shell (the rework: "every successful Mountainbreaker hit"; it replaces feedback
+    // #286's heal on a miss) but spends Mountain's Momentum
     void Finish()
     {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-        if (!_healed && caster->IsAlive())
-            Heal(caster);
-        _healed = true;
-        SpendHealStacks(caster);
+        if (Unit* caster = GetCaster())
+            SpendStacks(caster);
     }
-
-    bool _healed = false;
 
     void Register() override
     {
@@ -500,6 +483,41 @@ class spell_ef_kit_absorb_reflect : public AuraScript
     void Register() override
     {
         AfterEffectAbsorb += AuraEffectAbsorbFn(spell_ef_kit_absorb_reflect::AfterAbsorb, EFFECT_0);
+    }
+};
+
+// ---- Stone Shell's out-of-combat trim -----------------------------------------------------------------------------------
+
+class spell_ef_kit_absorb_trim : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_absorb_trim);
+
+    int64 _outMs = 0;   // how long the owner has been out of combat (combat sets it back to 0)
+
+    void Tick(AuraEffect const* aurEff)
+    {
+        Unit* owner = GetUnitOwner();
+        if (!owner)
+            return;
+        if (owner->IsInCombat())
+        {
+            _outMs = 0;
+            return;
+        }
+        _outMs += aurEff->GetAmplitude();
+        AuraEffect* pool = GetEffect(EFFECT_0);
+        if (!pool || pool->GetAuraType() != SPELL_AURA_SCHOOL_ABSORB)
+            return;
+        int64 const cap = int64(owner->CountPctFromMaxHealth(aurEff->GetAmount()));
+        int64 const afterMs = int64(std::max(0, GetSpellInfo()->Effects[aurEff->GetEffIndex()].MiscValueB)) * 1000;
+        int64 const keep = Earth::Trimmed(pool->GetAmount(), cap, _outMs, afterMs);
+        if (keep != pool->GetAmount())
+            pool->ChangeAmount(int32(keep));
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_ef_kit_absorb_trim::Tick, EFFECT_ALL, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
@@ -695,7 +713,7 @@ class spell_ef_kit_roll_aura : public AuraScript
         _x = owner->GetPositionX();
         _y = owner->GetPositionY();
         // the server hears a player's position only with its movement heartbeats (half a second apart), so at the roll's
-        // top speed (220 %, 15 yd a second) the reach ran 7 yd long: while the roller moves the distance is its speed
+        // top speed (220 % before 2026-11-02, 15 yd a second; 270 % now) the reach ran 7 yd long: while the roller moves the distance is its speed
         // times the tick, the positions only when it does not (pushed, pulled)
         if (owner->isMoving())
             _travelled += owner->GetSpeed(MOVE_RUN) * float(aurEff->GetAmplitude()) / 1000.0f;
@@ -775,37 +793,19 @@ class spell_ef_kit_earth_rule : public AuraScript
     void Register() override { }
 };
 
-// Earthen Regeneration's self-heal rule (the unit hook ModifyHealReceived). Mountain's Vengeance's damage hook went with
-// the talent (ankarna's defensive rebalancing, 2026-10-29: Mountain's Renewal in its place).
-class EmberfallEarthUnitScript : public UnitScript
-{
-public:
-    EmberfallEarthUnitScript() : UnitScript("EmberfallEarthUnitScript", true, { UNITHOOK_MODIFY_HEAL_RECEIVED }) { }
-
-    // Earthen Regeneration: the owner's heals on itself (the core passes the healer first: Unit::HealBySpell) are raised
-    // by its self-heal rules; a heal from anyone else, or the owner's on an ally, is not
-    void ModifyHealReceived(Unit* healer, Unit* target, uint32& heal, SpellInfo const* /*spellInfo*/) override
-    {
-        if (!healer || healer != target || !heal || !healer->IsPlayer())
-            return;
-        if (int32 const pct = SelfHealPct(healer); pct > 0)
-            heal = uint32(Earth::SelfHealed(int64(heal), pct));
-    }
-};
-
 void AddEmberfallClassKitEarthScripts()
 {
     RegisterSpellAndAuraScriptPair(spell_ef_kit_form, spell_ef_kit_form_aura);
     RegisterSpellScript(spell_ef_kit_strike_channel);
     RegisterSpellScript(spell_ef_kit_strike);
     RegisterSpellScript(spell_ef_kit_absorb_reflect);
+    RegisterSpellScript(spell_ef_kit_absorb_trim);
     RegisterSpellScript(spell_ef_kit_drop_field);
     RegisterSpellScript(spell_ef_kit_field_pull);
     RegisterSpellAndAuraScriptPair(spell_ef_kit_roll, spell_ef_kit_roll_aura);
-    for (char const* name : { "spell_ef_kit_rule_heal_low", "spell_ef_kit_rule_heal_during", "spell_ef_kit_rule_overflow",
-                              "spell_ef_kit_rule_heal_stacks", "spell_ef_kit_rule_quake_during", "spell_ef_kit_rule_every_nth",
+    for (char const* name : { "spell_ef_kit_rule_shield_low", "spell_ef_kit_rule_shield_during",
+                              "spell_ef_kit_rule_shield_stacks", "spell_ef_kit_rule_quake_during", "spell_ef_kit_rule_every_nth",
                               "spell_ef_kit_rule_reflect", "spell_ef_kit_rule_momentum", "spell_ef_kit_rule_end_wave",
-                              "spell_ef_kit_rule_self_heal", "spell_ef_kit_rule_form_look" })
+                              "spell_ef_kit_rule_form_look" })
         RegisterSpellScriptWithArgs(spell_ef_kit_earth_rule, name);
-    new EmberfallEarthUnitScript();
 }
