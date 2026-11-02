@@ -36,6 +36,12 @@
 //   spell_ef_kit_pet_strike         the hunter sends the companion (Set On, Pin Down): refused without a living companion
 //                                   or with it farther than effect 1's value in yards from the target; on the hit the
 //                                   companion turns to the target and casts effect 1's trigger at it (its leap and bite)
+//   spell_ef_kit_leap               a leap onto the target (the companion's Set On and Pin Down bites, feedback #318): the
+//                                   engine's JUMP (effect 1) lands in the target's centre at the caster's run speed; this
+//                                   one jumps to the target's near side (its contact point) at the spell's own speed (the
+//                                   hit waits for it: the bite lands as the leaper does), in an arc misc / misc B tenths of
+//                                   a yard high at the least / most (Logic::LeapSpeedZ), facing the target. A parabolic
+//                                   spline: our client arcs it and plays the model's jump
 //   spell_ef_kit_gentling           taming (Gentling): the checks of a tame (a tameable beast of the hunter's level or
 //                                   below, no companion out, none waiting); when the channel's aura runs its full time
 //                                   the hunter casts effect 1's trigger at the beast (TAME_CREATURE, the class quest's
@@ -72,6 +78,8 @@
 #include "ObjectAccessor.h"
 #include "CreatureAI.h"
 #include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "MovementTypedefs.h"
 #include "Pet.h"
 #include "PetDefines.h"
 #include "Player.h"
@@ -279,6 +287,36 @@ class spell_ef_kit_pet_strike : public SpellScript
     {
         OnCheckCast += SpellCheckCastFn(spell_ef_kit_pet_strike::Check);
         OnEffectHitTarget += SpellEffectFn(spell_ef_kit_pet_strike::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+class spell_ef_kit_leap : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_leap);
+
+    void HandleJump(SpellEffIndex effIndex)
+    {
+        PreventHitDefaultEffect(effIndex);
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target || caster == target || caster->IsInFlight() || caster->GetVehicle())
+            return;
+        SpellInfo const* info = GetSpellInfo();
+        float x, y, z;
+        target->GetContactPoint(caster, x, y, z);
+        float const speedXY = info->Speed > 0.0f ? info->Speed : 30.0f;
+        int32 const low = info->Effects[effIndex].MiscValue;
+        int32 const high = info->Effects[effIndex].MiscValueB;
+        float const speedZ = Emberfall::ClassKit::Logic::LeapSpeedZ(caster->GetExactDist2d(x, y), speedXY,
+            (low > 0 ? low : 5) / 10.0f, (high > 0 ? high : 30) / 10.0f, float(Movement::gravity));
+        if (speedZ <= 0.0f)
+            return;
+        caster->GetMotionMaster()->MoveJump(x, y, z, speedXY, speedZ, 0, target);
+    }
+
+    void Register() override
+    {
+        OnEffectLaunchTarget += SpellEffectFn(spell_ef_kit_leap::HandleJump, EFFECT_0, SPELL_EFFECT_JUMP);
     }
 };
 
@@ -533,6 +571,7 @@ void AddEmberfallClassKitHuntScripts()
     RegisterSpellScript(spell_ef_kit_spend_self_stacks);
     RegisterSpellScript(spell_ef_kit_pet_strike);
     RegisterSpellScript(spell_ef_kit_dash);
+    RegisterSpellScript(spell_ef_kit_leap);
     RegisterSpellAndAuraScriptPair(spell_ef_kit_gentling, spell_ef_kit_gentling_aura);
     RegisterSpellScript(spell_ef_pet_owner_scaling);
     RegisterSpellScript(spell_ef_kit_feint);

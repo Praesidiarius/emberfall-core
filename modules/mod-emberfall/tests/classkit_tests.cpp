@@ -64,6 +64,13 @@ int main()
           "diagonals: between");
     check(DashAngle(true, true, true, true) == 0.0f, "keys that cancel: ahead");
 
+    // a leap's arc (Set On, Pin Down: feedback #318): 1-3 yd high under the engine's gravity (19.29 yd/s^2)
+    auto top = [](float vz) { return vz * vz / (2.0f * 19.29110527f); };
+    check(near(top(LeapSpeedZ(3.0f, 30.0f, 1.0f, 3.0f, 19.29110527f)), 1.0f), "a short leap: the lowest arc");
+    check(near(top(LeapSpeedZ(60.0f, 30.0f, 1.0f, 3.0f, 19.29110527f)), 3.0f), "a long leap: the highest arc");
+    check(near(top(LeapSpeedZ(24.0f, 30.0f, 1.0f, 3.0f, 19.29110527f)), 19.29110527f * 0.64f / 8.0f), "between: g t^2 / 8");
+    check(LeapSpeedZ(10.0f, 0.0f, 1.0f, 3.0f, 19.29110527f) == 0.0f, "no speed: no leap");
+
     // builders
     check(BuilderGain(1, 0, 1, true) == 1, "Sacred Brand: +1");
     check(BuilderGain(1, 0, 0, true) == 0, "a dodged Sacred Brand raises nothing");
