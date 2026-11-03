@@ -17,11 +17,11 @@
 
 // The Infusionist's arithmetic that needs no core (Emberfall docs/design/classes/mage-infusionist.md §3): the prepared
 // potions (a counted resource of vials that recharge on their own, several at once, the rest in a queue, a faster rate
-// while Rapid Synthesis holds, restores, Perfect Formula's free fifth potion), the EFP message body, the independent
+// while Rapid Synthesis holds, restores, Perfect Formula's free fifth potion), the EFPOT message body, the independent
 // applications of a damage over time and the chain heal's percents. src/emberfall_classkit_infuse.cpp uses it;
 // tests/classkit_infuse_tests.cpp (tests/run_tests.sh) checks it.
 //
-// The EFP message (an addon whisper from the player to themselves, prefix "EFP\t"; EmberfallUI SpecResource.lua):
+// The EFPOT message (an addon whisper from the player to themselves, prefix "EFPOT\t"; EmberfallUI SpecResource.lua):
 //   1;<ready>;<vials>;<queued>;<pf>;<pfEvery>;<left>/<total>,<left>/<total>,...
 // ready the vials at hand, vials the most (0: the potion system is off: the spec changed), queued the spent vials waiting
 // for a free recharge, pf Perfect Formula's count (potions spent since the last free one) and pfEvery its period (0: no
@@ -38,7 +38,7 @@
 
 namespace Emberfall::ClassKit::Infuse
 {
-    constexpr std::string_view kPrefix = "EFP\t";
+    constexpr std::string_view kPrefix = "EFPOT\t";
     constexpr std::uint32_t kVersion = 1;
 
     // One vial recharging: the ms left and the whole recharge at the rate it runs at now.
@@ -226,7 +226,7 @@ namespace Emberfall::ClassKit::Infuse
         return std::min<std::uint32_t>(every - 1, pf + restored);
     }
 
-    // The EFP body.
+    // The EFPOT body.
     inline std::string Message(Potions const& p, std::uint32_t every)
     {
         std::string out = std::to_string(kVersion) + ";" + std::to_string(p.ready) + ";" + std::to_string(p.vials) + ";"

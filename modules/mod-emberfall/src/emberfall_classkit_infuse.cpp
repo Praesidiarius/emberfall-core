@@ -25,7 +25,7 @@
 //                                 aura kept while no potion can be spent (a spell_ef_kit_cast_override helper: Restorative
 //                                 Flask's button is Arcane Restoration). The player's potions live in the module (full at
 //                                 the rule's arrival, gone with it); every player tick runs the recharges, out of combat
-//                                 the vials are full at once. The client is told in EFP messages (EfInfuseLogic.h): at
+//                                 the vials are full at once. The client is told in EFPOT messages (EfInfuseLogic.h): at
 //                                 every change and every 5 s
 //   spell_ef_kit_potion_cost      a spender: a dummy on the caster with misc = the potion rule, value = the potions. Refused
 //                                 (SPELL_FAILED_NO_POWER) when they are not ready, taken when the cast goes (a triggered cast
