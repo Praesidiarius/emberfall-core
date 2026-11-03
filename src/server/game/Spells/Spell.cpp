@@ -4597,6 +4597,16 @@ void Spell::update(uint32 difftime)
         return;
     }
 
+    // EMBERFALL: own data (PATCHES.md #38; alpha1 feedback #320): a cast whose unit target dies while it is cast stops at
+    // once, not at its end with "target dead" (stock casts on to the end; CheckCast refuses it there)
+    if (Emberfall::OwnData() && m_spellState == SPELL_STATE_PREPARING && m_timer > 0 && !IsTriggered() && !IsAutoRepeat()
+            && !IsNextMeleeSwingSpell() && !m_spellInfo->IsAllowingDeadTarget())
+        if (Unit* target = m_targets.GetUnitTarget(); target && target != m_caster && !target->IsAlive())
+        {
+            cancel();
+            return;
+        }
+
     // check if the player caster has moved before the spell finished
     // xinef: added preparing state (real cast, skip channels as they have other flags for this)
     if ((unitCaster && unitCaster->IsPlayer() && m_timer != 0) &&
