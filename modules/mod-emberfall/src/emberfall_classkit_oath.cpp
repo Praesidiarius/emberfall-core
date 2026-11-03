@@ -50,8 +50,8 @@
 //                                  Currents, Emberfall feedback #212)
 //   spell_ef_kit_absorb_burst      a school absorb (effect 1) whose absorbed blows cast effect 2's trigger at the owner, at
 //                                  most once in effect 2's value in ms (Solenne's Aegis's bursts)
-//   spell_ef_kit_stack_refill      a passive's periodic dummy: after misc B seconds out of combat the owner's self stacks of
-//                                  misc are filled to their cap (Shield Oath: Bastion's Resolve's charges)
+//   spell_ef_kit_stack_refill      a passive's periodic dummy: every misc B seconds out of combat one of the owner's self stacks of
+//                                  misc comes back, up to their cap (Shield Oath: Bastion's Resolve's charges, one per 20 s, #331)
 //
 // ankarna's update of 2026-11-01 (Emberfall paladin-oathkeeper.md §20):
 //
@@ -337,7 +337,8 @@ class spell_ef_kit_absorb_burst : public AuraScript
     }
 };
 
-// Shield Oath: out of combat for misc B seconds, the owner's self stacks of misc are filled to their cap.
+// Shield Oath: out of combat, one of the owner's self stacks of misc back every misc B seconds, up to their cap
+// (Emberfall alpha1 feedback #331: slowly, one charge every 20 s, not all at once after 10 s).
 class spell_ef_kit_stack_refill : public AuraScript
 {
     PrepareAuraScript(spell_ef_kit_stack_refill);
@@ -353,16 +354,21 @@ class spell_ef_kit_stack_refill : public AuraScript
             return;
         }
         uint32 const stacks = uint32(aurEff->GetMiscValue());
-        int32 const afterMs = GetSpellInfo()->Effects[aurEff->GetEffIndex()].MiscValueB * IN_MILLISECONDS;
-        _outMs += aurEff->GetAmplitude();
-        if (!stacks || int32(_outMs) < afterMs)
+        int32 const everyMs = GetSpellInfo()->Effects[aurEff->GetEffIndex()].MiscValueB * IN_MILLISECONDS;
+        if (!stacks || everyMs <= 0)
             return;
-        // already full: nothing (no refresh every second)
+        // already full: nothing, and the next charge's time starts only once one is spent
         if (Aura const* held = owner->GetAura(stacks, owner->GetGUID()))
             if (AuraEffect const* cap = held->GetEffect(EFFECT_0); cap && int32(held->GetStackAmount()) >= cap->GetAmount())
+            {
+                _outMs = 0;
                 return;
-        // the cap is the stack aura's own (effect 1, spell mods in): ask for more than it holds
-        Emberfall::ClassKit::AddSelfStacks(owner, stacks, 255);
+            }
+        _outMs += aurEff->GetAmplitude();
+        if (int32(_outMs) < everyMs)
+            return;
+        _outMs = 0;
+        Emberfall::ClassKit::AddSelfStacks(owner, stacks, 1);   // one more, the stack aura's own cap holds
     }
 
     void Register() override
