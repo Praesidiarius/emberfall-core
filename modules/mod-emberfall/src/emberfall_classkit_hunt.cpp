@@ -23,8 +23,10 @@
 //   spell_ef_kit_spend_self_stacks  a spender of the caster's own stacks (Full Draw): effect 2 (dummy on the caster):
 //                                   misc = the self aura, value = percent more damage for each stack (spell mods in:
 //                                   Patient Kill); the cast takes every stack and effect 1's damage grows by them; effect
-//                                   3 (dummy on the caster): with the aura's full stacks (its cap) spent, its value (spell
-//                                   mods in: Killing Draw) in points of the caster's power back. Spend bonuses: the caster's
+//                                   3 (dummy on the caster): with the aura's full stacks (its cap) spent and its value
+//                                   (spell mods in: Killing Draw) above 0, its trigger cast on the caster (Killing Draw's
+//                                   buff, feedback #347), or without a trigger that value in points of the caster's power
+//                                   back. Spend bonuses: the caster's
 //                                   passive dummy auras with misc = this spell and misc B > 0 act when at least misc B
 //                                   stacks were spent: with a trigger it is cast at the first enemy with its value in
 //                                   percent of the damage dealt there (Second Arrow; an area trigger round the target:
@@ -33,9 +35,11 @@
 //                                   it up (Arrowfall's cleave on the next Full Draw, feedback #249; EfClassKitLogic.h
 //                                   SpendBonusActs). The hit
 //                                   bonuses for this spell run on every enemy struck (EfClassKit.h HitBonuses: Broadhead)
-//   spell_ef_kit_pet_strike         the hunter sends the companion (Set On, Pin Down): refused without a living companion
-//                                   or with it farther than effect 1's value in yards from the target; on the hit the
-//                                   companion turns to the target and casts effect 1's trigger at it (its leap and bite)
+//   spell_ef_kit_pet_strike         the hunter sends the companion (Set On): refused without a living companion, with it
+//                                   farther than effect 1's value in yards from the target, rooted, stunned, confused or
+//                                   fleeing, or without sight of the target (its bite would fail silently: feedback
+//                                   #348); on the hit the companion turns to the target and casts effect 1's trigger at
+//                                   it (its leap and bite)
 //   spell_ef_kit_leap               a leap onto the target (the companion's Set On and Pin Down bites, feedback #318): the
 //                                   engine's JUMP (effect 1) lands in the target's centre at the caster's run speed; this
 //                                   one jumps to the target's near side (its contact point) at the spell's own speed (the
@@ -205,12 +209,19 @@ class spell_ef_kit_spend_self_stacks : public SpellScript
             return;
         SpellInfo const* stackInfo = sSpellMgr->GetSpellInfo(StackSpell());
         uint32 const cap = stackInfo ? uint32(std::max(1, stackInfo->Effects[EFFECT_0].CalcValue(caster))) : 0;
-        // effect 3: with the full stacks spent, power back (Killing Draw)
+        // effect 3: with the full stacks spent and its value above 0 (spell mods in: Killing Draw), its trigger on the
+        // caster (Killing Draw's buff, feedback #347: the next Focus cost cut), or without one that much power back
         if (cap && _spent >= cap)
         {
-            int32 const back = GetSpellInfo()->Effects[EFFECT_2].CalcValue(caster);
-            if (back > 0 && GetSpellInfo()->Effects[EFFECT_2].Effect == SPELL_EFFECT_DUMMY)
-                caster->EnergizeBySpell(caster, GetSpellInfo()->Id, uint32(back), caster->getPowerType());
+            SpellEffectInfo const& third = GetSpellInfo()->Effects[EFFECT_2];
+            int32 const back = third.CalcValue(caster);
+            if (back > 0 && third.Effect == SPELL_EFFECT_DUMMY)
+            {
+                if (third.TriggerSpell)
+                    caster->CastSpell(caster, third.TriggerSpell, true);
+                else
+                    caster->EnergizeBySpell(caster, GetSpellInfo()->Id, uint32(back), caster->getPowerType());
+            }
         }
         if (!_spent)
             return;
@@ -267,8 +278,13 @@ class spell_ef_kit_pet_strike : public SpellScript
         float const reach = float(std::max(5, GetSpellInfo()->Effects[EFFECT_0].CalcValue(caster)));
         if (target && !pet->IsWithinDistInMap(target, reach))
             return SPELL_FAILED_OUT_OF_RANGE;
-        if (pet->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING))
+        // the companion's bite is a triggered cast of its own: a root stops its leap (Spell::CheckCast, the jump) and a
+        // wall between it and the target drops the target (the engine's sight, as for its bite), both silently after the
+        // hunter paid; refused here instead (feedback #348)
+        if (pet->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING | UNIT_STATE_ROOT))
             return SPELL_FAILED_CASTER_AURASTATE;
+        if (target && !pet->IsWithinLOSInMap(target, VMAP::ModelIgnoreFlags::M2))
+            return SPELL_FAILED_LINE_OF_SIGHT;
         return SPELL_CAST_OK;
     }
 
