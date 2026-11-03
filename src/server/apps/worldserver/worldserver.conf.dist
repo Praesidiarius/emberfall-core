@@ -2035,15 +2035,15 @@ CharactersPerAccount = 50
 #
 #    CharactersPerRealm
 #        Description: Limit number of characters per account on this realm.
-#        Range:       1-10
-#        Default:     10 - (Client limitation)
+#        Range:       1-20 (Emberfall: its own client lists up to 20; the stock 3.3.5a client stops at 10)
+#        Default:     10 - (stock client limitation)
 
 CharactersPerRealm = 10
 
 #
 #    HeroicCharactersPerRealm
 #        Description: Limit number of heroic class characters per account on this realm.
-#        Range:       1-10
+#        Range:       0-20 (Emberfall)
 #        Default:     1
 
 HeroicCharactersPerRealm = 1
