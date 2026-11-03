@@ -67,16 +67,6 @@ namespace Emberfall::ClassKit::Infuse
         return p;
     }
 
-    // Every vial ready again (out of combat), Perfect Formula's count kept.
-    inline void Fill(Potions& p)
-    {
-        p.ready = p.vials;
-        p.recharging.clear();
-        p.queued = 0;
-    }
-
-    inline bool IsFull(Potions const& p) { return p.ready >= p.vials; }
-
     // Of `cost` potions, how many are taken from the vials: with Perfect Formula (every `every`-th spent is free,
     // `every` 0: off) the free one is counted in order, so a 2-potion cast takes one vial when either of its potions is
     // the free one.

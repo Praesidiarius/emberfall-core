@@ -24,8 +24,8 @@
 //                                 at once; effect 2 value = ms a vial recharges (never haste); effect 3 misc = the marker
 //                                 aura kept while no potion can be spent (a spell_ef_kit_cast_override helper: Restorative
 //                                 Flask's button is Arcane Restoration). The player's potions live in the module (full at
-//                                 the rule's arrival, gone with it); every player tick runs the recharges, out of combat
-//                                 the vials are full at once. The client is told in EFPOT messages (EfInfuseLogic.h): at
+//                                 the rule's arrival, gone with it); every player tick runs the recharges, in and out
+//                                 of combat alike (feedback #338). The client is told in EFPOT messages (EfInfuseLogic.h): at
 //                                 every change and every 5 s
 //   spell_ef_kit_potion_cost      a spender: a dummy on the caster with misc = the potion rule, value = the potions. Refused
 //                                 (SPELL_FAILED_NO_POWER) when they are not ready, taken when the cast goes (a triggered cast
@@ -193,17 +193,10 @@ namespace
         if (!st)
             return;
         st->sinceSentMs += diff;
-        if (!player->IsInCombat())
-        {
-            if (!IL::IsFull(st->potions))
-                IL::Fill(st->potions);   // out of combat the vials are full at once [proposal]
-        }
-        else
-        {
-            Retime(player, *st);
-            auto const [rate, limit] = RateAndLimit(player);
-            IL::Advance(st->potions, int32(diff), limit, rate);
-        }
+        // In and out of combat alike the vials only recharge (feedback #338: no refill at once out of combat).
+        Retime(player, *st);
+        auto const [rate, limit] = RateAndLimit(player);
+        IL::Advance(st->potions, int32(diff), limit, rate);
         Sync(player, *st);
     }
 
@@ -759,7 +752,7 @@ class spell_ef_kit_infuse_rule : public AuraScript
     void Register() override { }
 };
 
-// Every player tick: the recharges run, out of combat the vials fill, the client is told.
+// Every player tick: the recharges run (in and out of combat alike), the client is told.
 class emberfall_classkit_infuse_player : public PlayerScript
 {
 public:
