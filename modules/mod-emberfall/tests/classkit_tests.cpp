@@ -549,9 +549,13 @@ int main()
         check(CopyCapped(24000, 0) == 24000, "no cap without the capstone");
         // Blood Harvest: every 5th tick
         check(!EveryNth(4, 5) && EveryNth(5, 5) && EveryNth(10, 5) && !EveryNth(0, 5) && !EveryNth(5, 0), "every 5th");
-        // Crimson Flow: 3 %, then 6, 9 ... until it hits; at most 100
-        check(RampChance(0, 3) == 3 && RampChance(1, 3) == 6 && RampChance(9, 3) == 30 && RampChance(40, 3) == 100,
+        // Crimson Flow: a start, then a step more after each miss, until it hits; at most 100
+        check(RampChance(0, 3, 5) == 3 && RampChance(1, 3, 5) == 8 && RampChance(2, 5, 5) == 15 && RampChance(40, 3, 5) == 100,
               "the growing chance");
+        check(RampChance(-1, 3, 5) == 3 && RampChance(3, 0, 0) == 0, "no misses below 0, no chance without a start");
+        // Curse Empowerment: a percent for each curse on the target
+        check(PerCurseBonus(2, 10) == 20 && PerCurseBonus(1, 5) == 5 && PerCurseBonus(0, 10) == 0 && PerCurseBonus(2, -5) == 0,
+              "per curse");
         // Lingering Ruin: 30 % of the detonation over 8 ticks
         check(EchoTick(8000, 30, 8) == 300 && EchoTick(10, 30, 8) == 1 && EchoTick(0, 30, 8) == 0 && EchoTick(100, 30, 0) == 0,
               "30 % over 8 ticks, at least 1");
