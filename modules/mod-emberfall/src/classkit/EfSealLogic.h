@@ -189,10 +189,20 @@ namespace Emberfall::ClassKit::Seal
         return every > 0 && tick > 0 && tick % uint32_t(every) == 0;
     }
 
-    // Crimson Flow's chance in percent after `fails` unsuccessful ticks: `step` more for each (3, 6, 9 ...), at most 100.
-    constexpr int32_t RampChance(int32_t fails, int32_t step)
+    // Crimson Flow's chance in percent after `fails` unsuccessful ticks: `start`, then `step` more for each, at most 100
+    // (2026-11-04, ankarna: 3 %, 8, 13 ...; Enhanced Crimson Flow starts at 5: 5, 10, 15 ...; 3, 6, 9 before).
+    constexpr int32_t RampChance(int32_t fails, int32_t start, int32_t step)
     {
-        return int32_t(std::min<int64_t>(100, int64_t(std::max<int32_t>(0, fails) + 1) * std::max<int32_t>(0, step)));
+        int64_t const pct = int64_t(std::max<int32_t>(0, start))
+            + int64_t(std::max<int32_t>(0, fails)) * std::max<int32_t>(0, step);
+        return int32_t(std::min<int64_t>(100, pct));
+    }
+
+    // Sanguine Lance's Curse Empowerment: `pctPerCurse` percent more for each of the caster's curses on the target
+    // (5 / 10 a curse; Drowning Vow and Bloodbinding: at most 20).
+    constexpr int32_t PerCurseBonus(int32_t curses, int32_t pctPerCurse)
+    {
+        return std::max<int32_t>(0, curses) * std::max<int32_t>(0, pctPerCurse);
     }
 
     // Lingering Ruin: `pct` percent of the damage a detonation dealt, over `ticks` ticks: one tick's amount (at least 1

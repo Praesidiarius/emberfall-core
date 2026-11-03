@@ -39,9 +39,11 @@
 //                                trigger, misc B 1: the trigger cast on the caster with their value in percent of the tick;
 //                                trigger, misc B 2: every value-th tick of the curse casts the trigger on the caster
 //                                  (Blood Harvest: a Blood Seal);
-//                                trigger, misc B 3: each tick a chance of value percent, value more after each tick that
-//                                  missed, kept per caster (through recasts) until it hits: the trigger on the caster
-//                                  (Crimson Flow);
+//                                trigger, misc B 3: each tick a chance of value percent, after each tick that missed
+//                                  the talent's effect 2 value more (its own value without one: 3 / +5 since 2026-11-04),
+//                                  kept per caster (through recasts) until it hits: the trigger on the caster (Crimson
+//                                  Flow); the caster's dummy auras naming that talent with misc B 3 and no trigger add
+//                                  their value to the start (Enhanced Crimson Flow: 3 -> 5);
 //                                trigger, misc B 4: the trigger at the enemy while the curse holds there (Binding Grasp);
 //                                trigger, misc B 5: the trigger on the caster when the enemy dies with the curse on it
 //                                  (Final Offering: an instant Bloodcurrent).
@@ -66,6 +68,12 @@
 //                              channel, so neither a resisted dummy nor that enemy's death ends it. A lengthened curse's
 //                              max duration grows by what it has run too (feedback #239: Seal::ExtendedMaxDuration), or the
 //                              core stops its ticks where its base duration would have ended.
+//   spell_ef_kit_curse_strike  a direct hit at an enemy that reads the caster's curses there (Sanguine Lance, 2026-11-04,
+//                              ankarna): the caster's dummy auras naming it without a trigger, misc B 0: their value in
+//                              percent more damage for each of the caster's curses on the target (Curse Empowerment); misc
+//                              B 1: after a hit each of those curses ticks once more, its own tick as a Torrent's flare
+//                              (Ritual Agony: the counters and chances count it, the curse's time is not touched). No
+//                              curse is removed.
 //   spell_ef_kit_seal_execute       an execute at an enemy (Crimson Collapse since 2026-10-31, ankarna; the detonation of the
 //                              curses before, spell_ef_kit_collapse, retired): effect 1 its damage; effect 3 a dummy on the
 //                              caster, misc = the health percent at or below which the target must be (30; refused above
@@ -206,6 +214,42 @@ namespace
         for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
             if (uint32(eff->GetMiscValue()) == spell && eff->GetMiscValueB() == kind && HasTrigger(eff))
                 out.push_back({ TriggerOf(eff), eff->GetAmount() });
+        return out;
+    }
+
+    // Crimson Flow's growing chances on `curse`: the caster's dummy auras naming it with misc B 3 and a trigger; the
+    // chance starts at their value plus the value of the caster's dummy auras naming that talent (misc B 3, no trigger:
+    // Enhanced Crimson Flow) and grows by the talent's effect 2 value after each miss (its own value without one).
+    struct Ramp
+    {
+        uint32 trigger;
+        int32 start;
+        int32 step;
+    };
+
+    std::vector<Ramp> RampsOf(Unit* caster, uint32 curse)
+    {
+        std::vector<Ramp> out;
+        if (!caster)
+            return out;
+        std::vector<std::pair<uint32, std::size_t>> talents;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+        {
+            if (uint32(eff->GetMiscValue()) != curse || eff->GetMiscValueB() != 3 || !HasTrigger(eff))
+                continue;
+            int32 step = eff->GetAmount();
+            if (eff->GetEffIndex() == EFFECT_0)
+                if (AuraEffect const* second = eff->GetBase()->GetEffect(EFFECT_1);
+                    second && second->GetAuraType() == SPELL_AURA_DUMMY && second->GetAmount() > 0)
+                    step = second->GetAmount();
+            talents.push_back({ eff->GetId(), out.size() });
+            out.push_back({ TriggerOf(eff), eff->GetAmount(), step });
+        }
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (eff->GetMiscValueB() == 3 && !HasTrigger(eff))
+                for (auto const& [talent, i] : talents)
+                    if (uint32(eff->GetMiscValue()) == talent)
+                        out[i].start += eff->GetAmount();
         return out;
     }
 
@@ -367,13 +411,13 @@ class aura_ef_kit_seal_dot : public AuraScript
             if (Seal::EveryNth(_ticks, every))
                 caster->CastSpell(caster, trigger, true);
         // Crimson Flow (misc B 3): a chance that grows with every tick that missed, per caster, until it hits
-        for (auto const& [trigger, step] : Named(caster, GetId(), 3))
+        for (Ramp const& ramp : RampsOf(caster, GetId()))
         {
-            int32& fails = caster->CustomData.GetDefault<Ramps>(kRampKey)->fails[trigger];
-            if (roll_chance_i(Seal::RampChance(fails, step)))
+            int32& fails = caster->CustomData.GetDefault<Ramps>(kRampKey)->fails[ramp.trigger];
+            if (roll_chance_i(Seal::RampChance(fails, ramp.start, ramp.step)))
             {
                 fails = 0;
-                caster->CastSpell(caster, trigger, true);
+                caster->CastSpell(caster, ramp.trigger, true);
             }
             else
                 ++fails;
@@ -767,6 +811,73 @@ class spell_ef_kit_spread_dots : public SpellScript
     }
 };
 
+// ---- Sanguine Lance -------------------------------------------------------------------------------------------------
+
+class spell_ef_kit_curse_strike : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_curse_strike);
+
+    // the caster's curses (spell_ef_kit_seal_dot) on the enemy, in a fixed order
+    std::vector<uint32> CursesOn(Unit* caster, Unit* target)
+    {
+        std::vector<uint32> out;
+        for (uint32 spell : s_curses)
+            if (target->HasAura(spell, caster->GetGUID()))
+                out.push_back(spell);
+        return out;
+    }
+
+    // the sum of the caster's dummy auras naming this spell without a trigger, with misc B `kind`
+    int32 Talents(Unit* caster, int32 kind)
+    {
+        int32 sum = 0;
+        for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (uint32(eff->GetMiscValue()) == GetSpellInfo()->Id && eff->GetMiscValueB() == kind && !HasTrigger(eff))
+                sum += eff->GetAmount();
+        return sum;
+    }
+
+    // Curse Empowerment (misc B 0): their value in percent more for each of the caster's curses on the enemy
+    void Hit()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        int32 const damage = GetHitDamage();
+        if (!caster || !target || target == caster || damage <= 0)
+            return;
+        int32 const pct = Seal::PerCurseBonus(int32(CursesOn(caster, target).size()), Talents(caster, 0));
+        if (pct)
+            SetHitDamage(int32(std::min<int64>(Seal::WithBonus(damage, pct), 0x7FFFFFFF)));
+    }
+
+    // Ritual Agony (misc B 1): after a hit each of the caster's curses on the enemy ticks once more (their own tick, as a
+    // Torrent's flare: the bonuses, Blood Harvest's count and Crimson Flow's roll; no time taken off them)
+    void AfterHitTarget()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target || target == caster || !target->IsAlive() || Talents(caster, 1) <= 0)
+            return;
+        ObjectGuid const guid = target->GetGUID();
+        for (uint32 spell : CursesOn(caster, target))
+        {
+            Unit* unit = ObjectAccessor::GetUnit(*caster, guid);   // a tick may kill it
+            if (!unit || !unit->IsAlive())
+                return;
+            AuraApplication* app = unit->GetAuraApplication(spell, caster->GetGUID());
+            AuraEffect* eff = app ? app->GetBase()->GetEffect(EFFECT_0) : nullptr;
+            if (eff && eff->GetAuraType() == SPELL_AURA_PERIODIC_DAMAGE)
+                eff->PeriodicTick(app, caster);
+        }
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_ef_kit_curse_strike::Hit);
+        AfterHit += SpellHitFn(spell_ef_kit_curse_strike::AfterHitTarget);
+    }
+};
+
 // ---- Marked for the Deep --------------------------------------------------------------------------------------------
 
 class spell_ef_kit_marked_bonus : public SpellScript
@@ -839,6 +950,7 @@ void AddEmberfallClassKitSealScripts()
     RegisterSpellAndAuraScriptPair(spell_ef_kit_torrent, aura_ef_kit_torrent);
     RegisterSpellScript(spell_ef_kit_seal_execute);
     RegisterSpellScript(spell_ef_kit_spread_dots);
+    RegisterSpellScript(spell_ef_kit_curse_strike);
     RegisterSpellScript(spell_ef_kit_marked_bonus);
     RegisterSpellScript(spell_ef_kit_damage_echo);
     new EmberfallSealUnitScript();
