@@ -23,15 +23,24 @@
 // the place where an ability is tuned. Contracts (Emberfall's classkit/model.py SCRIPTS checks the effects):
 //
 //   spell_ef_kit_add_stacks          every `dummy` effect with a trigger spell adds its value in stacks of that aura to
-//                                    the targets it hits (the mage's Frost Stacks, the Executioner's Openings; EfClassKit.h
-//                                    AddStacks), then the hit bonuses (those on the caster once a cast)
+//                                    the targets it hits (the mage's Frost Stacks; EfClassKit.h AddStacks), then the hit
+//                                    bonuses (those on the caster once a cast). An extra effect (ankarna's Frostguard
+//                                    rework of 2026-11-03) names a talent in misc: only with it known, no hit bonuses of
+//                                    its own; misc B 1: only the primary enemy (the cast's target, else the caster's
+//                                    selected enemy or victim: Lingering Frost), misc B 2: only on the first tick of the
+//                                    aura that cast this spell (Bitter Cold on Hoarstorm's tick). A dummy on the caster
+//                                    whose trigger is the stacked shell gives value shell stacks once the cast is done,
+//                                    hit or miss, for this spell's duration (spell mods in), with its misc talent known
+//                                    (Crystalline Recovery on Glacial Spear; EfClassKit.h AddShellStacks, under the cap)
 //   spell_ef_kit_shatter             effect 1 damages the enemies around that carry the stacks; effect 2 (dummy): value =
 //                                    stacks shattered per enemy (0: all), misc = the stacking aura, misc B 1 = damage per
 //                                    stack; effect 3 (dummy): value = shell stacks per unit, misc B = stacks shattered per
 //                                    unit (summed over every enemy, rounded down), trigger = the stacked shell aura
-//                                    (EfClassKit.h AddShellStacks; its duration: this spell's, with spell mods). Every
+//                                    (EfClassKit.h AddShellStacks; its duration: this spell's, with spell mods), misc = at
+//                                    most that many shell stacks a cast (0: no cap; Icebreak 4 since 2026-11-03). Every
 //                                    stack shattered refunds 1 % of max mana and runs the stack-cooldown passives
-//                                    (Icebreak, Glacial Rupture)
+//                                    (Icebreak, Glacial Rupture). A single-target shatter (effect 1 at the target, no area:
+//                                    Focused Shatter's Icebreak) needs a target that carries the stacks
 //   spell_ef_kit_shell               the stacked shell aura (effect 1 school absorb; effect 2 dummy: percent of max health
 //                                    per stack; StackAmount: the most stacks): its stacks follow the pool as blows wear it
 //                                    down (EfClassKit.h FollowShell; Frost Shell)
@@ -105,6 +114,7 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
+#include "Spell.h"
 #include "SpellAuraEffects.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
@@ -217,27 +227,78 @@ namespace
     };
 }
 
-// Every dummy effect with a trigger spell adds its value in stacks of that aura to each target it hits.
+// Every dummy effect with a trigger spell adds its value in stacks of that aura to each target it hits; a talent's
+// extra effect only with the talent (the primary enemy only, the first tick only); a shell dummy on the caster gives
+// shell stacks once the cast is done.
 class spell_ef_kit_add_stacks : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_add_stacks);
 
     bool _selfDone = false;
 
+    // the primary enemy: the cast's own target, else (a cone or an area round the caster: Frigid Pulse) the caster's
+    // selected enemy, else its victim
+    bool IsPrimary(Unit* caster, Unit* target)
+    {
+        if (Unit* explicitTarget = GetExplTargetUnit(); explicitTarget && explicitTarget != caster)
+            return explicitTarget == target;
+        Player* player = caster->ToPlayer();
+        Unit* chosen = player ? player->GetSelectedUnit() : nullptr;
+        if (!chosen || chosen == caster)
+            chosen = caster->GetVictim();
+        return chosen == target;
+    }
+
     void HandleDummy(SpellEffIndex effIndex)
     {
         SpellEffectInfo const& eff = GetSpellInfo()->Effects[effIndex];
-        if (!eff.TriggerSpell || !GetHitUnit())
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!eff.TriggerSpell || !caster || !target)
             return;
-        uint32 const stacks = Emberfall::ClassKit::AddStacks(GetCaster(), GetHitUnit(), eff.TriggerSpell, std::max(1, GetEffectValue()));
+        // the shell on the caster comes once the cast is done (Finish)
+        if (Emberfall::ClassKit::IsShellSpell(eff.TriggerSpell))
+            return;
+        bool const extra = eff.MiscValue != 0;
+        if (extra && !caster->HasAura(uint32(eff.MiscValue)))
+            return;
+        if (eff.MiscValueB == 1 && !IsPrimary(caster, target))
+            return;
+        if (eff.MiscValueB == 2 && GetSpell()->GetTriggeredByAuraTickNumber() != 1)
+            return;
+        uint32 const stacks = Emberfall::ClassKit::AddStacks(caster, target, eff.TriggerSpell, std::max(1, GetEffectValue()));
+        // a talent's extra stacks bring no hit bonuses of their own: they run once a target, with the ability's own
+        if (extra)
+            return;
         // the bonuses on the caster once a cast, with the first enemy (an area spell rolls Perfect Execution once)
-        Emberfall::ClassKit::HitBonuses(GetCaster(), GetHitUnit(), GetSpellInfo()->Id, stacks, !_selfDone);
+        Emberfall::ClassKit::HitBonuses(caster, target, GetSpellInfo()->Id, stacks, !_selfDone);
         _selfDone = true;
+    }
+
+    // a shell dummy on the caster: its value in shell stacks, hit or miss (Crystalline Recovery on Glacial Spear)
+    void Finish()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+        for (SpellEffectInfo const& eff : GetSpellInfo()->Effects)
+        {
+            if (eff.Effect != SPELL_EFFECT_DUMMY || !eff.TriggerSpell || eff.TargetA.GetTarget() != TARGET_UNIT_CASTER
+                || !Emberfall::ClassKit::IsShellSpell(eff.TriggerSpell))
+                continue;
+            if (eff.MiscValue && !caster->HasAura(uint32(eff.MiscValue)))
+                continue;
+            int32 duration = GetSpellInfo()->GetDuration();
+            if (Player* player = caster->ToPlayer())
+                player->ApplySpellMod(GetSpellInfo()->Id, SPELLMOD_DURATION, duration);
+            Emberfall::ClassKit::AddShellStacks(caster, eff.TriggerSpell, std::max(1, eff.CalcValue(caster)), duration);
+        }
     }
 
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_ef_kit_add_stacks::HandleDummy, EFFECT_ALL, SPELL_EFFECT_DUMMY);
+        AfterCast += SpellCastFn(spell_ef_kit_add_stacks::Finish);
     }
 };
 
@@ -256,6 +317,15 @@ class spell_ef_kit_shatter : public SpellScript
 
     uint32 StackSpell() { return uint32(GetSpellInfo()->Effects[EFFECT_1].MiscValue); }
     int32 PerEnemy() { return GetSpellInfo()->Effects[EFFECT_1].CalcValue(GetCaster()); }
+
+    // a single-target shatter (Focused Shatter's Icebreak): the target must carry the stacks
+    SpellCastResult CheckCast()
+    {
+        Unit* target = GetExplTargetUnit();
+        if (GetSpellInfo()->Effects[EFFECT_0].TargetA.GetTarget() != TARGET_UNIT_TARGET_ENEMY || !target)
+            return SPELL_CAST_OK;
+        return target->GetAura(StackSpell(), GetCaster()->GetGUID()) ? SPELL_CAST_OK : SPELL_FAILED_BAD_TARGETS;
+    }
 
     // Only enemies that carry enough stacks (at least the stacks shattered per enemy, or one).
     void FilterTargets(std::list<WorldObject*>& targets)
@@ -307,7 +377,8 @@ class spell_ef_kit_shatter : public SpellScript
         Emberfall::ClassKit::CooldownByStacks(caster, StackSpell(), _shattered);
         // the shell: value stacks per misc B stacks shattered, summed over every enemy
         SpellEffectInfo const& shell = GetSpellInfo()->Effects[EFFECT_2];
-        int32 const gain = Emberfall::ClassKit::Logic::ShellGain(_shattered, std::max(1, shell.MiscValueB), shell.CalcValue(caster));
+        int32 const gain = Emberfall::ClassKit::Logic::ShellGain(_shattered, std::max(1, shell.MiscValueB), shell.CalcValue(caster),
+                                                                 shell.MiscValue);
         if (gain <= 0)
             return;
         int32 duration = GetSpellInfo()->GetDuration();
@@ -318,8 +389,14 @@ class spell_ef_kit_shatter : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_shatter::FilterTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ENEMY);
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_shatter::FilterTargets, EFFECT_1, TARGET_UNIT_SRC_AREA_ENEMY);
+        // the area filter only on an area shatter (a single-target one has no area: the core would log the hook)
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(m_scriptSpellId);
+        if (!info || info->Effects[EFFECT_0].TargetB.GetTarget() == TARGET_UNIT_SRC_AREA_ENEMY)
+        {
+            OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_shatter::FilterTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ENEMY);
+            OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_shatter::FilterTargets, EFFECT_1, TARGET_UNIT_SRC_AREA_ENEMY);
+        }
+        OnCheckCast += SpellCheckCastFn(spell_ef_kit_shatter::CheckCast);
         OnHit += SpellHitFn(spell_ef_kit_shatter::HandleHit);
         AfterHit += SpellHitFn(spell_ef_kit_shatter::AfterHitTarget);
         AfterCast += SpellCastFn(spell_ef_kit_shatter::Finish);
@@ -989,6 +1066,7 @@ void AddEmberfallClassKitLustScripts();
 void AddEmberfallClassKitEarthScripts();
 void AddEmberfallClassKitSpiritScripts();
 void AddEmberfallClassKitInfuseScripts();
+void AddEmberfallClassKitFrostScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -1031,4 +1109,5 @@ void AddEmberfallClassKitScripts()
     AddEmberfallClassKitEarthScripts(); // the Druid's Earthwarden: src/emberfall_classkit_earth.cpp
     AddEmberfallClassKitSpiritScripts(); // the Hunter's Spirit Caller v2.0: src/emberfall_classkit_spirit.cpp
     AddEmberfallClassKitInfuseScripts(); // the Mage's Infusionist: src/emberfall_classkit_infuse.cpp
+    AddEmberfallClassKitFrostScripts();  // the Mage Frostguard rework's (2026-11-03): src/emberfall_classkit_frost.cpp
 }

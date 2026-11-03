@@ -110,12 +110,14 @@ namespace Emberfall::ClassKit::Logic
     }
 
     // The shell stacks a shatter gives: one per `stacksPerShell` stacks shattered, summed over every enemy and rounded
-    // down, times `shellsPerUnit` (Icebreak and Glacial Rupture: 1 per 2 Frost Stacks).
-    constexpr int32_t ShellGain(uint32_t shattered, int32_t stacksPerShell, int32_t shellsPerUnit)
+    // down, times `shellsPerUnit` (Icebreak and Glacial Rupture: 1 per 2 Frost Stacks), at most `cap` a cast (0: no cap;
+    // ankarna's Frostguard rework of 2026-11-03: Icebreak 4, Focused Shatter's Icebreak 3, Glacial Rupture uncapped).
+    constexpr int32_t ShellGain(uint32_t shattered, int32_t stacksPerShell, int32_t shellsPerUnit, int32_t cap = 0)
     {
         if (stacksPerShell <= 0 || shellsPerUnit <= 0)
             return 0;
-        return int32_t(shattered / uint32_t(stacksPerShell)) * shellsPerUnit;
+        int32_t const gain = int32_t(shattered / uint32_t(stacksPerShell)) * shellsPerUnit;
+        return cap > 0 ? std::min(gain, cap) : gain;
     }
 
     // A cooldown shortened by stacks consumed (Winter's Embrace on Hoarstorm): `consumed` x `msPerStack`, but at most
