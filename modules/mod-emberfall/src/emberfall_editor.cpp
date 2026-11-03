@@ -16,8 +16,8 @@
  */
 
 // Emberfall's world editor (Emberfall docs/design/world-editor.md): the hooks and the operator commands of
-// src/editor/EfEditor.h. Inert unless Emberfall.Editor.Enable = 1 with Emberfall.Editor.Database set (alpha1 and the
-// build realm, or a maintainer's local server); off, it never answers an EFE message.
+// src/editor/EfEditor.h. Inert unless Emberfall.Editor.Enable = 1 with Emberfall.Editor.Database set (alpha1, the only
+// editor realm since the build realm was retired on 2026-11-03, or a maintainer's local server); off, it never answers an EFE message.
 //
 // And the editor role's guard (§19): GM level 1 is the editor's contributor and runs no GM command. The command table
 // lifts every level-1 command to 2 (data/sql/db-world, tests/command_security_check.py checks it); should one slip

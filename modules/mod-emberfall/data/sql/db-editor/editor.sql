@@ -1,5 +1,5 @@
 -- mod-emberfall: the world editor's own database (Emberfall docs/design/world-editor.md §5.4), `<realm>_editor`
--- (alpha1_editor, build_editor; `Emberfall.Editor.Database`). Not a dbimport database: tools/gameserver/realms.sh (and
+-- (alpha1_editor; `Emberfall.Editor.Database`). Not a dbimport database: tools/gameserver/realms.sh (and
 -- tools/server/ef_server.sh editor, locally) creates it and applies this file, which is idempotent. `load-world` never
 -- touches it. The module writes every table; the account site reads them and writes only the review columns of
 -- ef_changeset (`state`, `mr_*`, `merge_sha`, `thread_id`), ef_op.final_id and ef_audit rows of its own.

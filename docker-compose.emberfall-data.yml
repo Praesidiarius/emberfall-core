@@ -153,7 +153,7 @@ services:
       AC_EMBERFALL_DEV_VENDOR_ENABLE: "${EF_DEV_VENDOR_ENABLE:-0}"
       # mod-emberfall's world editor (src/editor; Emberfall docs/design/world-editor.md): off unless EF_EDITOR_ENABLE=1
       # and its database exists (Emberfall's ef_server.sh editor creates it). EF_EDITOR_MODE local (§15): every
-      # account is a maintainer and Submit accepts at once (make editor-pull writes the YAML); realm: a test build realm.
+      # account is a maintainer and Submit accepts at once (make editor-pull writes the YAML); realm: alpha1's realm mode, to try it locally.
       AC_EMBERFALL_EDITOR_ENABLE: "${EF_EDITOR_ENABLE:-0}"
       AC_EMBERFALL_EDITOR_DATABASE: "${EF_EDITOR_DATABASE:-}"
       AC_EMBERFALL_EDITOR_MODE: "${EF_EDITOR_MODE:-local}"

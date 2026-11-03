@@ -24,8 +24,8 @@
 // client sends is only a wish: the stored Z is the map's ground.
 //
 // On the normal realm (§19): the role is the account's GM level (account_access, this realm or -1): 1 contributor, 2
-// and up maintainer. A maintainer's set is `live`: its ops change the world for everyone at once (as on the build
-// realm). A contributor's open set is a draft: what it adds, and a copy of every release spawn it moves or changes,
+// and up maintainer. A maintainer's set is `live`: its ops change the world for everyone at once (as on the retired
+// build realm). A contributor's open set is a draft: what it adds, and a copy of every release spawn it moves or changes,
 // stand in the editor phase (kDraftPhase), seen only by editors with the editor open (VIEW on), and a spawn it removes
 // is hidden from those editors only (EmberfallVisibility.h); everyone else sees the release world. Accepted (the site's
 // review state), the set applies for everyone; rejected or withdrawn, the drafts go.

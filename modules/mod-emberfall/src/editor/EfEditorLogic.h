@@ -86,7 +86,7 @@ namespace ef::editor
     // until it is accepted (a contributor's).
     inline bool appliesLive(Level level) { return level == Level::Maintainer; }
 
-    // The change set states (§5.2), as stored in build_editor.ef_changeset.state.
+    // The change set states (§5.2), as stored in <realm>_editor.ef_changeset.state.
     namespace state
     {
         constexpr std::string_view Draft = "draft", Submitted = "submitted", InReview = "in_review",
@@ -635,7 +635,7 @@ namespace ef::editor
 
     // ------------------------------------------------------------------------------------------ flat JSON
 
-    // The ops' from/to (build_editor.ef_op.from_json, to_json): a flat object of numbers, null and short strings,
+    // The ops' from/to (<realm>_editor.ef_op.from_json, to_json): a flat object of numbers, null and short strings,
     // which the site and the bot read as JSON. Keys sorted; numbers as given (the caller rounds).
     struct Value
     {
@@ -1018,7 +1018,7 @@ namespace ef::editor
 
     // ------------------------------------------------------------------------------------------ ops
 
-    // One stored operation (build_editor.ef_op). `target` is the stable id (a release spawn's GUID, an NPC's id) or the
+    // One stored operation (<realm>_editor.ef_op). `target` is the stable id (a release spawn's GUID, an NPC's id) or the
     // temporary id of an add.
     struct Op
     {

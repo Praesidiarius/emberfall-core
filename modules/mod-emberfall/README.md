@@ -422,7 +422,7 @@ skipped instead of crashing the boot). No table, no config.
 
 ## World editor (Emberfall `docs/design/world-editor.md`, phase A minimal)
 
-Contributors with the editor role edit Elderwood's creature spawns and turn and move its people live on the build realm,
+Contributors with the editor role edit Elderwood's creature spawns and turn and move its people live on alpha1 (the build realm, its first realm, was retired on 2026-11-03),
 in change sets kept as operations in the editor's own database and applied in memory, live and again at every start. The
 world database is never written. Off unless `Emberfall.Editor.Enable = 1` (`AC_EMBERFALL_EDITOR_ENABLE`) with
 `Emberfall.Editor.Database` set and its tables present; off, no EFE message is ever answered.
