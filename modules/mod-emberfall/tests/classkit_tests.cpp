@@ -188,6 +188,10 @@ int main()
     check(ShellGain(5 + 6, 2, 1) == 5, "Glacial Rupture 5 + 6 stacks: 11 / 2 = 5 (summed, rounded down)");
     check(ShellGain(1, 2, 1) == 0, "one stack gives no shell");
     check(ShellGain(4, 0, 1) == 0, "no stacks per shell: nothing");
+    check(ShellGain(12, 2, 1, 4) == 4, "Icebreak on six enemies: at most 4 shells a cast");
+    check(ShellGain(6, 2, 1, 4) == 3, "below the cap: as before");
+    check(ShellGain(6, 2, 1, 3) == 3, "Focused Shatter: 6 stacks, 3 shells");
+    check(ShellGain(30, 2, 1, 0) == 15, "Glacial Rupture: no cap");
 
     // a cut per stack consumed, at most a total per cooldown, never more than is left
     check(StackCooldownCut(6, 1000, 0, 90000, 170000) == 6000, "rank 2, 6 stacks: 6 s");

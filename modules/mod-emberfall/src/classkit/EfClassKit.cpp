@@ -714,7 +714,10 @@ namespace Emberfall::ClassKit
         }
         for (auto const& [aura, eff] : storms)
         {
-            int32 const base = aura->GetSpellInfo()->GetMaxDuration();
+            // the storm's duration as cast, with the caster's spell mods (Endless Winter lengthens base and maximum alike)
+            int32 base = aura->GetSpellInfo()->GetMaxDuration();
+            if (Player* player = caster->ToPlayer())
+                player->ApplySpellMod(aura->GetId(), SPELLMOD_DURATION, base);
             int32 const room = eff->GetMiscValueB() * IN_MILLISECONDS - std::max(0, aura->GetMaxDuration() - base);
             int32 const add = std::min(room, int32(consumed) * std::max(0, eff->GetAmount()));
             if (add <= 0)

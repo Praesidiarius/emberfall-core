@@ -167,7 +167,8 @@ namespace Emberfall::ClassKit
     bool ConsumeOne(Unit* caster, uint32 auraSpell);
     // `consumed` stacks of `stackSpell` were shattered: every non-passive caster aura with a dummy effect whose misc value
     // is `stackSpell`, whose misc B (seconds) is above 0 and that has no trigger spell lasts the effect's amount in ms
-    // longer per stack, until it has run misc B seconds beyond its spell's duration (Hoarstorm).
+    // longer per stack, until it has run misc B seconds beyond its spell's duration with the caster's spell mods
+    // (Hoarstorm; Endless Winter's +2 / +4 s raise its maximum too: 14 s, at most 24 s).
     void ExtendByStacks(Unit* caster, uint32 stackSpell, uint32 consumed);
     // `consumed` stacks of `stackSpell` were shattered: every caster aura of a stack-cooldown passive
     // (spell_ef_kit_stack_cooldown, found by Load) whose effect 1 misc is `stackSpell` takes effect 1's amount in ms per
