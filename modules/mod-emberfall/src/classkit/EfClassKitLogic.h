@@ -762,11 +762,28 @@ namespace Emberfall::ClassKit::Logic
         return int32_t(std::min<int64_t>(int64_t(maxMana) * tenths / 1000, INT32_MAX));
     }
 
-    // Verdant Ancient's store (spell_ef_kit_stored_heal): `pct` percent (30; Ancient Reservoir 35/40) of a raw heal,
-    // overhealing included, added to what it holds (kept in hundredths so small ticks still count).
-    constexpr uint64_t StoreHundredths(uint32_t heal, int32_t pct)
+    // Verdant Ancient's store (spell_ef_kit_stored_heal): `tenths` tenths of a percent (300: 30 %; Ancient Reservoir
+    // 325 / 350 since ankarna's handoff of 2026-11-03) of a raw heal, overhealing included, added to what it holds (kept
+    // in hundredths of a point so small ticks still count).
+    constexpr uint64_t StoreHundredths(uint32_t heal, int32_t tenths)
     {
-        return pct > 0 ? uint64_t(heal) * uint64_t(pct) : 0;
+        return tenths > 0 ? uint64_t(heal) * uint64_t(tenths) / 10 : 0;
+    }
+
+    // Nature's Intervention (the Bloomtender's capstone, 2026-11-03): whether a blow of `damage` leaves an ally of
+    // `health` / `maxHealth` alive and below `belowPct` percent (a killing blow does not count: nothing is left to save).
+    constexpr bool LowAfterBlow(uint32_t health, uint32_t damage, uint32_t maxHealth, int32_t belowPct)
+    {
+        if (belowPct <= 0 || maxHealth == 0 || damage >= health)
+            return false;
+        return uint64_t(health - damage) * 100 < uint64_t(maxHealth) * uint64_t(belowPct);
+    }
+
+    // A lockout per bearer (Nature's Intervention's 45 s per ally): whether `nowMs` is at or past `lastMs` + `gapMs`
+    // (`lastMs` 0: never fired).
+    constexpr bool LockoutOver(uint64_t lastMs, uint64_t gapMs, uint64_t nowMs)
+    {
+        return lastMs == 0 || nowMs >= lastMs + gapMs;
     }
 
     // The release: `pool` shared out over the injured allies in the order given (lowest health percent first): each takes
