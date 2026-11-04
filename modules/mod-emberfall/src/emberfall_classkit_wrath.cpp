@@ -44,6 +44,11 @@
 //                                trigger and value 0 casts the trigger at the unit it hits instead: Oathbound Rush's blow on
 //                                arrival (a melee helper with the normal hit rules; the charge itself has damage class none
 //                                and always lands, as the stock Warrior Charge does)
+//   spell_ef_kit_lone_strike     a ground strike at the spot of the enemy spell_ef_kit_delayed_strike followed strikes that
+//                                enemy alone: the area of effect 1 keeps only the enemy nearest the spot, within a yard of
+//                                it (nobody when the enemy died or left and the strike fell on its last spot), unless the
+//                                caster knows the talent of effect 1's misc (Heavenfall's strike and Wide Heavens, Emberfall
+//                                feedback #384: with the talent every enemy within the radius, as before)
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
@@ -246,6 +251,38 @@ class spell_ef_kit_cooldown_cut : public SpellScript
     }
 };
 
+// Heavenfall's strike (feedback #384): the enemy at the spot alone, unless the caster knows Wide Heavens (effect 1's misc).
+class spell_ef_kit_lone_strike : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_lone_strike);
+
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        int32 const talent = GetSpellInfo()->Effects[EFFECT_0].MiscValue;
+        if (player && talent > 0 && player->HasSpell(uint32(talent)))
+            return;
+        WorldLocation const* spot = GetExplTargetDest();
+        WorldObject* lone = nullptr;
+        float best = 1.0f;   // the strike is cast where the followed enemy stands: it is at the spot itself
+        if (spot)
+            for (WorldObject* object : targets)
+                if (float const d = object->GetExactDist(spot); d <= best)
+                {
+                    best = d;
+                    lone = object;
+                }
+        targets.clear();
+        if (lone)
+            targets.push_back(lone);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_lone_strike::FilterTargets, EFFECT_0, TARGET_UNIT_DEST_AREA_ENEMY);
+    }
+};
+
 void AddEmberfallClassKitWrathScripts()
 {
     RegisterSpellScript(spell_ef_kit_splash);
@@ -254,4 +291,5 @@ void AddEmberfallClassKitWrathScripts()
     RegisterSpellScript(spell_ef_kit_empower);
     RegisterSpellScript(spell_ef_kit_execute);
     RegisterSpellScript(spell_ef_kit_cooldown_cut);
+    RegisterSpellScript(spell_ef_kit_lone_strike);
 }
