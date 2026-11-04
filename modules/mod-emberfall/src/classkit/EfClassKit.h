@@ -153,13 +153,17 @@ namespace Emberfall::ClassKit
     // core's half: src/server/game/Spells/EmberfallMissRules.h, PATCHES.md #26) ----
     // A miss, dodge, parry, evade or immunity is the player's loss: a spender pays in full (the core), a proc or stacks an
     // ability spends are spent (ConsumeOne, the spenders' own scripts), and a builder builds only for an enemy it struck
-    // (Logic::Builds with StrikesOthers and Struck: Flow's marks, self stacks, spec power, the core's caster energize).
+    // (Logic::Builds with StrikesOthers and Struck: self stacks, spec power, the core's caster energize; Flow's marks since
+    // feedback #387 for an enemy reached, struck or not: Logic::FlowBuilds with Reached).
     // Whether a spell strikes others: an effect aimed at anyone but its caster (its builders need a hit; a self spell
     // with no other target, a cooldown that gives power, always builds).
     bool StrikesOthers(SpellInfo const* info);
     // The units other than the caster the cast struck (SPELL_MISS_NONE: no miss, dodge, parry, evade or immunity); the
     // hit rolls come with the target list, so this holds from the launch on (before a missile lands).
     uint32 Struck(Spell* spell, Unit const* caster);
+    // The units other than the caster the cast reached, struck or not (a miss, dodge, parry, block, resist or immunity
+    // counts; an evading unit does not): Flow's builders (Logic::FlowBuilds, feedback #387).
+    uint32 Reached(Spell* spell, Unit const* caster);
     // Whether the cast struck `target` (SPELL_MISS_NONE).
     bool StruckUnit(Spell* spell, Unit const* target);
     // One charge (or one stack, the last one removes it) of the caster's aura `auraSpell`: the proc an ability spends,

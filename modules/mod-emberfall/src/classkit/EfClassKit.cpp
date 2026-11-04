@@ -543,6 +543,17 @@ namespace Emberfall::ClassKit
         return n;
     }
 
+    uint32 Reached(Spell* spell, Unit const* caster)
+    {
+        if (!spell)
+            return 0;
+        uint32 n = 0;
+        for (TargetInfo const& info : *spell->GetUniqueTargetInfo())
+            if ((!caster || info.targetGUID != caster->GetGUID()) && info.missCondition != SPELL_MISS_EVADE)
+                ++n;
+        return n;
+    }
+
     bool StruckUnit(Spell* spell, Unit const* target)
     {
         if (!spell || !target)
