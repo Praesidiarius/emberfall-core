@@ -471,14 +471,14 @@ namespace Emberfall::ClassKit::Logic
         return lastMs == 0 || gapMs <= 0 || nowMs >= lastMs + uint64_t(gapMs);
     }
 
-    // Solenne's Mercy (spell_ef_kit_max_mana_cost, ankarna's Oathkeeper update of 2026-11-01): the mana a cast takes,
-    // `pct` % of the caster's maximum mana (50; Efficient Mercy 40), or `favorPct` % (20) with a charge of Solenne's
-    // Favor when that is less; rounded down, never below 0.
-    constexpr int32_t MaxManaCost(int32_t maxMana, int32_t pct, bool favor, int32_t favorPct)
+    // Solenne's Mercy (spell_ef_kit_max_mana_cost, ankarna's Oathkeeper update of 2026-11-01; feedback #369): the mana a
+    // cast takes, `pct` % of the caster's maximum mana (40; Efficient Mercy 30), `favorCut` points less (10) with a charge
+    // of Solenne's Favor; rounded down, never below 0.
+    constexpr int32_t MaxManaCost(int32_t maxMana, int32_t pct, bool favor, int32_t favorCut)
     {
         int32_t p = std::max<int32_t>(0, pct);
         if (favor)
-            p = std::min<int32_t>(p, std::max<int32_t>(0, favorPct));
+            p = std::max<int32_t>(0, p - std::max<int32_t>(0, favorCut));
         return int32_t(int64_t(std::max<int32_t>(0, maxMana)) * p / 100);
     }
 

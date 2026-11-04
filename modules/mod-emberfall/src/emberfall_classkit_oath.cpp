@@ -63,8 +63,8 @@
 //                                  button (Echo Ready: the button of Solenne's Retribution casts Judgment's Echo; the
 //                                  MiscScript emberfall_classkit_cast_override, the core's ValidateSpellAtCastSpell hook)
 //   spell_ef_kit_max_mana_cost     the cost is effect 2's value in percent of the caster's MAXIMUM mana (spell mods in:
-//                                  Efficient Mercy), effect 3's value with an aura of effect 3's misc on the caster (one of
-//                                  its charges goes with the cast: Solenne's Favor); refused without the mana; nothing for
+//                                  Efficient Mercy), effect 3's value in points less with an aura of effect 3's misc on the
+//                                  caster (one of its charges goes with the cast: Solenne's Favor); refused without the mana; nothing for
 //                                  a triggered cast (Divine Intervention). Spell.dbc's own cost stays 0 (Solenne's Mercy)
 //   spell_ef_kit_low_health_proc   a proc_trigger_spell aura (the taken-damage procs; the spell_proc row's cooldown as its
 //                                  internal cooldown) that procs only when the blow leaves its owner alive at or below its
@@ -464,7 +464,7 @@ class spell_ef_kit_max_mana_cost : public SpellScript
                              ? uint32(cheap.MiscValue) : 0;
         int32 const cost = Emberfall::ClassKit::Logic::MaxManaCost(int32(caster->GetMaxPower(POWER_MANA)),
                                                                    share.CalcValue(caster), favor != 0,
-                                                                   cheap.Effect ? cheap.CalcValue(caster) : 100);
+                                                                   cheap.Effect ? cheap.CalcValue(caster) : 0);
         return { cost, favor };
     }
 
