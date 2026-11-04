@@ -476,14 +476,23 @@ int main()
     // a growth chain on one clock, heal shares, mana back, a stored heal and its release
     check(GrowthLeft(18000, 9000) == 9000, "a Seed's natural end leaves a 9 s Sprout");
     check(GrowthLeft(18000, 2000) == 16000, "a Seed pushed at 2 s leaves a 16 s Sprout (the clock is not reset)");
-    check(GrowthLeft(21000, 9000) == 12000, "Lasting Renewal's 3 s go to the Sprout");
+    check(GrowthLeft(18000, 7000) == 11000, "Rapid Germination: a 7 s Seed leaves an 11 s Sprout, the cycle 18 s");
     check(GrowthLeft(9000, 12000) == 0, "never below 0");
     check(StageMs(16000, 9000, true) == 16000, "the last stage runs what is left");
     check(StageMs(16000, 9000, false) == 9000, "a stage between keeps its own duration");
-    check(PctOf(600, 18) == 108, "Deep Restoration 3: +18 %");
+    check(PctOf(600, 10) == 60, "Abundant Renewal 2: +10 % on a Bloom of Seeds of Renewal");
     check(PctOf(0, 40) == 0 && PctOf(300, 0) == 0, "nothing of nothing");
     check(ManaBack(4820, 20) == 96, "Rising Sap: 2 % of 4,820");
-    check(StoreHundredths(300, 30) == 9000, "30 % of a 300 Bloom: 90.00");
+    check(StoreHundredths(300, 300) == 9000, "30 % of a 300 Bloom: 90.00");
+    check(StoreHundredths(1000, 325) == 32500, "Ancient Reservoir 1: 32.5 % of 1,000");
+    check(StoreHundredths(7, 350) == 245, "small ticks still count: 35 % of 7 is 2.45");
+    check(StoreHundredths(500, 0) == 0, "nothing stored without a share");
+    check(LowAfterBlow(5000, 3600, 5000, 30), "Nature's Intervention: 1,400 of 5,000 left is below 30 %");
+    check(!LowAfterBlow(5000, 3400, 5000, 30), "1,600 of 5,000 is not");
+    check(!LowAfterBlow(1000, 1000, 5000, 30) && !LowAfterBlow(1000, 1200, 5000, 30), "a killing blow saves nothing");
+    check(LowAfterBlow(1000, 10, 5000, 30), "a blow below 30 % already counts too (the lockout keeps it to one)");
+    check(LockoutOver(0, 45000, 100) && !LockoutOver(1000, 45000, 45999) && LockoutOver(1000, 45000, 46000),
+          "45 s per ally between two Interventions");
     {
         uint32_t missing[3] = {500, 300, 900};
         uint32_t out[3] = {};
