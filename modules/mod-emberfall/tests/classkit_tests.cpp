@@ -71,6 +71,22 @@ int main()
     check(near(top(LeapSpeedZ(24.0f, 30.0f, 1.0f, 3.0f, 19.29110527f)), 19.29110527f * 0.64f / 8.0f), "between: g t^2 / 8");
     check(LeapSpeedZ(10.0f, 0.0f, 1.0f, 3.0f, 19.29110527f) == 0.0f, "no speed: no leap");
 
+    // a shadowstep's spots (Set On, feedback #370): behind, the back diagonals, the flanks; the stepper's side first
+    {
+        float const pi = 3.14159265f;
+        auto const left = StepAngles(pi / 3.0f);   // the companion on the target's left, ahead of it
+        check(near(left[0], pi) && near(left[1], 0.75f * pi) && near(left[2], 1.25f * pi), "left: behind, then the left back diagonal");
+        check(near(left[3], pi / 2.0f) && near(left[4], -pi / 2.0f), "left: the left flank before the right");
+        auto const right = StepAngles(-pi / 3.0f);  // on its right (a negative turn)
+        check(near(right[1], 1.25f * pi) && near(right[3], -pi / 2.0f), "right: the right back diagonal and flank first");
+        check(near(StepAngles(2.0f * pi + pi / 3.0f)[1], 0.75f * pi), "a full turn more: the same side");
+        check(StepSpotOk(3.0f, 3.0f, 0.5f, 3.0f), "the whole way, level: a spot");
+        check(StepSpotOk(2.3f, 3.0f, -2.9f, 3.0f), "most of the way, a little below: a spot");
+        check(!StepSpotOk(1.0f, 3.0f, 0.0f, 3.0f), "stopped short at a wall: none");
+        check(!StepSpotOk(3.0f, 3.0f, 4.0f, 3.0f) && !StepSpotOk(3.0f, 3.0f, -4.0f, 3.0f), "a ledge above or a drop below: none");
+        check(!StepSpotOk(0.0f, 0.0f, 0.0f, 3.0f), "no distance wanted: none");
+    }
+
     // builders
     check(BuilderGain(1, 0, 1, true) == 1, "Sacred Brand: +1");
     check(BuilderGain(1, 0, 0, true) == 0, "a dodged Sacred Brand raises nothing");

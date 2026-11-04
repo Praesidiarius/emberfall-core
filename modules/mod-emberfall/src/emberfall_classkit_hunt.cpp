@@ -36,11 +36,20 @@
 //                                   SpendBonusActs). The hit
 //                                   bonuses for this spell run on every enemy struck (EfClassKit.h HitBonuses: Broadhead)
 //   spell_ef_kit_pet_strike         the hunter sends the companion (Set On): refused without a living companion, with it
-//                                   farther than effect 1's value in yards from the target, rooted, stunned, confused or
-//                                   fleeing, or without sight of the target (its bite would fail silently: feedback
-//                                   #348); on the hit the companion turns to the target and casts effect 1's trigger at
-//                                   it (its leap and bite)
-//   spell_ef_kit_leap               a leap onto the target (the companion's Set On and Pin Down bites, feedback #318): the
+//                                   farther than effect 1's value in yards from the target, or stunned, confused or
+//                                   fleeing (feedback #348; rooted or without sight too until #370: the leap failed
+//                                   then, the step does not); on the hit the companion turns to the target and casts
+//                                   effect 1's trigger at it (its step and bite)
+//   spell_ef_kit_shadowstep         a step to the target (Set On's bite, feedback #370: "my pet shadowsteps to the target
+//                                   and instantly does dmg"): at the cast, before the hit, the caster is put beside its
+//                                   explicit target, behind it if there is room, else a back diagonal or a flank
+//                                   (Logic::StepAngles), at touching distance, facing it; each spot is the navmesh's ray
+//                                   out from the target (Map::CheckCollisionAndGetValidCoords: stopped at the first wall
+//                                   or object, never inside one), at most 3 yd above or below it and in its sight
+//                                   (Logic::StepSpotOk). With no spot the caster stays and the spell still hits. A near
+//                                   teleport (MSG_MOVE_TELEPORT): our client snaps the unit there
+//   spell_ef_kit_leap               a leap onto the target (Set On's and Pin Down's bites from feedback #318 until #370 /
+//                                   #327; no spell uses it now): the
 //                                   engine's JUMP (effect 1) lands in the target's centre at the caster's run speed; this
 //                                   one jumps to the target's near side (its contact point) at the spell's own speed (the
 //                                   hit waits for it: the bite lands as the leaper does), in an arc misc / misc B tenths of
@@ -82,6 +91,7 @@
 #include "ObjectAccessor.h"
 #include "CreatureAI.h"
 #include "InstanceScript.h"
+#include "Map.h"
 #include "MotionMaster.h"
 #include "MovementTypedefs.h"
 #include "Pet.h"
@@ -98,6 +108,7 @@
 #include "Unit.h"
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace
@@ -278,13 +289,11 @@ class spell_ef_kit_pet_strike : public SpellScript
         float const reach = float(std::max(5, GetSpellInfo()->Effects[EFFECT_0].CalcValue(caster)));
         if (target && !pet->IsWithinDistInMap(target, reach))
             return SPELL_FAILED_OUT_OF_RANGE;
-        // the companion's bite is a triggered cast of its own: a root stops its leap (Spell::CheckCast, the jump) and a
-        // wall between it and the target drops the target (the engine's sight, as for its bite), both silently after the
-        // hunter paid; refused here instead (feedback #348)
-        if (pet->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING | UNIT_STATE_ROOT))
+        // a companion that cannot act (stunned, confused, fleeing) is refused before the hunter pays (feedback #348). Since
+        // #370 the bite steps to the target (spell_ef_kit_shadowstep) and ignores sight, so a rooted companion or one
+        // behind a wall still bites and is no longer refused (#348 refused both: the leap failed silently then)
+        if (pet->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING))
             return SPELL_FAILED_CASTER_AURASTATE;
-        if (target && !pet->IsWithinLOSInMap(target, VMAP::ModelIgnoreFlags::M2))
-            return SPELL_FAILED_LINE_OF_SIGHT;
         return SPELL_CAST_OK;
     }
 
@@ -333,6 +342,44 @@ class spell_ef_kit_leap : public SpellScript
     void Register() override
     {
         OnEffectLaunchTarget += SpellEffectFn(spell_ef_kit_leap::HandleJump, EFFECT_0, SPELL_EFFECT_JUMP);
+    }
+};
+
+class spell_ef_kit_shadowstep : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_shadowstep);
+
+    static constexpr float MaxRise = 3.0f; // yards above or below the target a spot may lie
+
+    void Step()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !target || caster == target || !caster->IsInMap(target) || caster->IsInFlight()
+            || caster->GetVehicle() || target->GetVehicle() || target->IsInFlight())
+            return;
+        float const wanted = std::max(1.5f, target->GetCombatReach() + caster->GetCombatReach());
+        float const tx = target->GetPositionX(), ty = target->GetPositionY(), tz = target->GetPositionZ();
+        for (float const angle : Emberfall::ClassKit::Logic::StepAngles(target->GetRelativeAngle(caster)))
+        {
+            float const turn = target->GetOrientation() + angle;
+            float x = tx + wanted * std::cos(turn);
+            float y = ty + wanted * std::sin(turn);
+            float z = tz;
+            if (!caster->GetMap()->CheckCollisionAndGetValidCoords(caster, tx, ty, tz, x, y, z, false))
+                continue;
+            if (!Emberfall::ClassKit::Logic::StepSpotOk(target->GetExactDist2d(x, y), wanted, z - tz, MaxRise))
+                continue;
+            if (!target->IsWithinLOS(x, y, z, VMAP::ModelIgnoreFlags::M2))
+                continue;
+            caster->NearTeleportTo(x, y, z, Position(x, y, z).GetAbsoluteAngle(tx, ty));
+            return;
+        }
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_ef_kit_shadowstep::Step);
     }
 };
 
@@ -588,6 +635,7 @@ void AddEmberfallClassKitHuntScripts()
     RegisterSpellScript(spell_ef_kit_pet_strike);
     RegisterSpellScript(spell_ef_kit_dash);
     RegisterSpellScript(spell_ef_kit_leap);
+    RegisterSpellScript(spell_ef_kit_shadowstep);
     RegisterSpellAndAuraScriptPair(spell_ef_kit_gentling, spell_ef_kit_gentling_aura);
     RegisterSpellScript(spell_ef_pet_owner_scaling);
     RegisterSpellScript(spell_ef_kit_feint);

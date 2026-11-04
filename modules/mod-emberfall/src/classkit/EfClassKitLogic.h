@@ -23,6 +23,7 @@
 // the spell scripts (src/emberfall_classkit*.cpp) use it.
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -572,7 +573,29 @@ namespace Emberfall::ClassKit::Logic
         return side * (ahead > 0 ? quarter / 2.0f : quarter * 1.5f);
     }
 
-    // A leap's vertical take-off speed (spell_ef_kit_leap, feedback #318: the companion's Set On and Pin Down): the arc of
+    // A shadowstep's spots round its target (spell_ef_kit_shadowstep, feedback #370: Set On's companion): the angles from
+    // the target's facing, tried in turn: behind first, then the two back diagonals and the two flanks, of each pair the
+    // one on the stepper's own side first. `relAngle` is the stepper's angle seen from the target, from its facing (any
+    // turn; counter-clockwise, so 0 to pi is the target's left).
+    inline std::array<float, 5> StepAngles(float relAngle)
+    {
+        float const pi = 3.14159265f;
+        float a = std::fmod(relAngle, 2.0f * pi);
+        if (a < 0.0f)
+            a += 2.0f * pi;
+        float const side = a < pi ? 1.0f : -1.0f;
+        return {pi, pi - side * pi / 4.0f, pi + side * pi / 4.0f, side * pi / 2.0f, -side * pi / 2.0f};
+    }
+
+    // Whether a shadowstep's spot will do: the ground's ray from the target (the navmesh, stopped at the first wall or
+    // object) reached at least three quarters of the `wanted` yards, and the spot lies within `maxRise` yards above or
+    // below the target (no ledge above it, no drop below).
+    constexpr bool StepSpotOk(float reached, float wanted, float rise, float maxRise)
+    {
+        return wanted > 0.0f && reached >= wanted * 0.75f && rise <= maxRise && rise >= -maxRise;
+    }
+
+    // A leap's vertical take-off speed (spell_ef_kit_leap, feedback #318; Set On's until #370, Pin Down's until #327): the arc of
     // a jump over `dist` yards at `speedXY` yards a second under `gravity`, its top a quarter of the flight's ballistic
     // height (g t^2 / 8, Spell::CalculateJumpSpeeds' rule) kept between `minHeight` and `maxHeight` yards; 0 for no flight.
     inline float LeapSpeedZ(float dist, float speedXY, float minHeight, float maxHeight, float gravity)
