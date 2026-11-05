@@ -49,6 +49,14 @@ namespace Emberfall::ClassKit::Logic
         return !strikesOthers || struck > 0;
     }
 
+    // Flow's exception to the builder rule (Emberfall feedback #387, ankarna): a Corsair builder lays its mark when its
+    // strike reached an enemy, struck or not (`reached`: the enemies in its target list, a miss, dodge or parry
+    // included, an evading one not); a strike that reached nobody (empty air) builds nothing; a self spell always does.
+    constexpr bool FlowBuilds(bool strikesOthers, uint32_t reached)
+    {
+        return Builds(strikesOthers, reached);
+    }
+
     // The stacks a builder raises. `value` is its stack effect's value (spell mods in: Crown of Blades +1, Marked by
     // Heaven +1, Dawn's Return +1/+2); `perEnemyMax` its misc B: above 0 one stack per enemy struck, at most that many,
     // plus value - 1 (Sunwheel: 1 per enemy, at most 3; under Crown one more). A builder whose enemy effects struck

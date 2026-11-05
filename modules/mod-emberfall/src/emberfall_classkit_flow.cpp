@@ -23,8 +23,8 @@
 //   spell_ef_kit_flow           a builder: a dummy on the caster with trigger = the builder's mark (a self aura). The mark's
 //                               effect 1 misc is the gate (an aura of the caster's: a finisher is prepared), its effects 2-3
 //                               name a partner's mark (misc) and the ready aura the pair prepares (trigger). After a cast
-//                               that struck an enemy (the miss rules, alpha1 feedback #146: a miss, dodge, parry, nobody
-//                               in reach or empty air changes nothing): with the gate up nothing changes; while an aura of the caster's has a dummy
+//                               that reached an enemy, struck or not (feedback #387: a miss, dodge or parry builds too;
+//                               nobody in reach or empty air changes nothing): with the gate up nothing changes; while an aura of the caster's has a dummy
 //                               effect naming this mark (misc) with a trigger (No Quarter), that ready aura and the gate are
 //                               cast; holding a partner's mark, every mark goes and the pair's ready aura and the gate are
 //                               cast; else the mark is laid (refreshed).
@@ -161,9 +161,10 @@ class spell_ef_kit_flow : public SpellScript
         SpellInfo const* mark = own ? sSpellMgr->GetSpellInfo(own->TriggerSpell) : nullptr;
         if (!caster || !mark)
             return;
-        // the miss rules (#146): a builder builds Flow only on an enemy it struck
-        if (!Emberfall::ClassKit::Logic::Builds(Emberfall::ClassKit::StrikesOthers(GetSpellInfo()),
-                                                Emberfall::ClassKit::Struck(GetSpell(), caster)))
+        // Flow's exception to the miss rules (#387, was #146): a builder builds Flow on an enemy it reached, struck or not
+        // (a miss, dodge or parry builds too); empty air builds nothing
+        if (!Emberfall::ClassKit::Logic::FlowBuilds(Emberfall::ClassKit::StrikesOthers(GetSpellInfo()),
+                                                    Emberfall::ClassKit::Reached(GetSpell(), caster)))
             return;
         uint32 const gate = uint32(mark->Effects[EFFECT_0].MiscValue);
         // No Quarter: a non-passive aura of the caster's naming this mark with a ready aura (not a partner's mark, whose
