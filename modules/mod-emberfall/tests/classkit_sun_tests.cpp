@@ -63,6 +63,14 @@ int main()
     check(RechargingAfterRestore(2, 1) == 1, "Solar Reckoning: one back, the recharge runs on");
     check(RechargingAfterRestore(1, 1) == 0, "the last one back: full");
     check(RechargingAfterRestore(0, 1) == 0, "at full: lost");
+    // v2.2: Salvation brings Solenne's Grace UP TO 3 at hand; Eternal Embrace's fourth is never taken away
+    check(RechargingAfterRestoreUpTo(3, 3, 3) == 0, "3 of 3 recharging: all back");
+    check(RechargingAfterRestoreUpTo(4, 4, 3) == 1, "4 charges, none at hand: 3 at hand, one recharging on");
+    check(RechargingAfterRestoreUpTo(1, 4, 3) == 1, "4 charges, 3 at hand already: unchanged");
+    check(RechargingAfterRestoreUpTo(0, 4, 3) == 0, "4 at hand: never fewer");
+    check(RechargingAfterRestoreUpTo(2, 4, 3) == 1, "2 at hand of 4: 3 at hand");
+    check(RechargingAfterRestoreUpTo(2, 3, 5) == 0, "more than the charges: all back");
+    check(CircleBurstNow(1, true) && !CircleBurstNow(2, true) && !CircleBurstNow(1, false), "the burst first: tick 1 only");
 
     // a counter: fires every N, starting again after each
     CountStep s = Count(0, 3);
@@ -79,6 +87,10 @@ int main()
     check(ManaOnHit(2000, 15, false, true) == 300, "15 % of 2000");
     check(ManaOnHit(2000, 15, true, true) == 600, "a crit doubles");
     check(ManaOnHit(2000, 15, true, false) == 300, "no doubling without misc B");
+    check(ManaOnHitTenths(2000, 100, false, true) == 200, "v2.2: 10.0 % of max mana");
+    check(ManaOnHitTenths(2000, 125, true, true) == 500, "Mana Infusion 1: 12.5 %, 25 % on a crit");
+    check(ManaOnHitTenths(2000, 150, true, false) == 300, "15 %, no doubling without the bit");
+    check(ManaOnHitTenths(2000, 0, true, true) == 0, "nothing");
     // playtest #67: of base mana (misc 1), whatever gear adds to the pool; max mana without it
     check(ManaPool(2400, 770, true) == 770, "misc 1: base mana");
     check(ManaPool(2400, 770, false) == 2400, "no misc: max mana");
