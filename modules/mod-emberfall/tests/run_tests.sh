@@ -24,7 +24,10 @@
 # and the kit weapon tests (tests/kitweapon_tests.cpp: the core's src/server/game/Spells/EmberfallKitWeapon.h)
 # and the leash tests (tests/leash_tests.cpp: src/leash/EfLeashLogic.h, which landed hit renews a mob's leash)
 # and the extra action tests (tests/extraaction_tests.cpp: src/extraaction/EfExtraActionLogic.h, which marker grants which spell)
-# and the quest log tests (tests/questlog_tests.cpp: the core's EmberfallQuestLog.h and src/questlog/EfQuestLogLogic.h, EFQL).
+# and the quest log tests (tests/questlog_tests.cpp: the core's EmberfallQuestLog.h and src/questlog/EfQuestLogLogic.h, EFQL)
+# and the encounter tests (tests/encounter_tests.cpp: src/encounters/EfEncounterWire.h and EfEncounterLogic.h, EFN, the book)
+# and the fishing tests (tests/fishing_tests.cpp: src/fishing/EfFishRules.h, EfFishFight.h, EfFishWire.h (the client's
+# verbatim copies, the golden vectors) and EfFishLogic.h, the bite roll).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -87,7 +90,9 @@ missrules ../../../src/server/game/Spells missrules_tests.cpp
 kitweapon ../../../src/server/game/Spells kitweapon_tests.cpp
 leash ../src/leash leash_tests.cpp
 extraaction ../src/extraaction extraaction_tests.cpp
-questlog ../src/questlog:../../../src/server/game/Entities/Player questlog_tests.cpp"
+questlog ../src/questlog:../../../src/server/game/Entities/Player questlog_tests.cpp
+encounters ../src/encounters encounter_tests.cpp
+fishing ../src/fishing:../src/encounters fishing_tests.cpp"
 
 if ! printf '%s\n' "$TESTS" | xargs -P "$JOBS" -n 3 sh "$HERE/run_tests.sh" --compile; then
     echo "run_tests.sh: a test program did not compile" >&2
