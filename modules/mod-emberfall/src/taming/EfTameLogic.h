@@ -39,10 +39,10 @@ namespace Emberfall::Taming
     struct Rule
     {
         std::uint32_t drowseBase = 20, drowsePerLevel = 4;
-        std::uint32_t trustBase = 100, trustPerLevel = 0;
+        std::uint32_t trustBase = 100, trustPerLevel = 2;
         std::uint32_t drowseElite = 2500, drowseRare = 4000, drowseRareElite = 6000;
-        std::uint32_t trustElite = 2000, trustRare = 3000, trustRareElite = 4000;
-        std::uint32_t outColdMs = 60000, eatEveryMs = 4000;
+        std::uint32_t trustElite = 1500, trustRare = 2000, trustRareElite = 2500;
+        std::uint32_t outColdMs = 60000, eatEveryMs = 12000;
         std::uint32_t decayAfterMs = 6000, decayPermil = 20;
         std::uint32_t draughtUnderMs = 15000, sleepCapMs = 120000;
         std::uint32_t aboveLevelPermil = 250, bandStepPermil = 500;
@@ -82,7 +82,8 @@ namespace Emberfall::Taming
         return std::uint32_t(base * mul / 1000);
     }
 
-    // A normal beast's Trust bar of this level, x1000: the likes' shares are of this one.
+    // A normal beast's Trust bar of this level, x1000: trust_base + trust_per_level x level, so an older beast takes more
+    // feeding (feedback #415: a level-10 tutorial beast about 1.5 min, a level-60 one about 3).
     inline std::uint32_t TrustNormal(Rule const& r, std::uint32_t level) { return (r.trustBase + r.trustPerLevel * level) * 1000; }
 
     inline std::uint32_t TrustMax(Rule const& r, std::uint32_t level, Rank rank)
@@ -205,11 +206,11 @@ namespace Emberfall::Taming
         std::map<std::uint32_t, Family> m_families;
     };
 
-    // The Trust an item gives this beast, x1000 (§5): its share of a normal beast's bar of the beast's level, halved
-    // (band_step) for each band the item is below the beast's.
+    // The Trust an item gives this beast, x1000 (§5): its share of trust_base (the same points at every level, while the
+    // bar grows with it), halved (band_step) for each band the item is below the beast's.
     inline std::uint32_t FoodTrust(Rule const& r, Taste const& t, std::uint32_t beastLevel)
     {
-        std::uint64_t v = std::uint64_t(TrustNormal(r, beastLevel)) * t.permil / 1000;
+        std::uint64_t v = std::uint64_t(r.trustBase) * 1000 * t.permil / 1000;
         std::uint8_t const beastBand = BandOfLevel(beastLevel);
         if (t.band)
             for (std::uint8_t b = t.band; b < beastBand; ++b)
@@ -217,17 +218,18 @@ namespace Emberfall::Taming
         return std::uint32_t(v);
     }
 
-    // The EAT taste letter (EfTameWire.h) of a share: C a cake (500 and up), F favourite (250), L liked (100), P plain
-    // (anything more than 0), R refused.
+    // The EAT taste letter (EfTameWire.h) of a share: C a cake (160 and up), F favourite (120), L liked (60), P plain
+    // (anything more than 0), R refused. families.yaml's shares (cake 0.18, favourite 0.14, liked 0.07, plain 0.035)
+    // sit just above these steps (hunter-taming.md §5).
     inline char TasteLetter(std::uint32_t permil)
     {
         if (permil == 0)
             return 'R';
-        if (permil >= 500)
+        if (permil >= 160)
             return 'C';
-        if (permil >= 250)
+        if (permil >= 120)
             return 'F';
-        if (permil >= 100)
+        if (permil >= 60)
             return 'L';
         return 'P';
     }
