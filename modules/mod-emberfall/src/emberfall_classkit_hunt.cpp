@@ -16,7 +16,8 @@
  */
 
 // Emberfall class kits, the Hunter's (Emberfall docs/design/classes/hunter-marksman.md): the Marksman's Beads and Full
-// Draw, the companion sent by the hunter's buttons, Gentling (taming) and the companion's share of the hunter's power.
+// Draw, the companion sent by the hunter's buttons and the companion's share of the hunter's power. (Taming is
+// emberfall_taming.cpp since 2026-11-05: Gentling, spell_ef_kit_gentling, is retired.)
 // Generic like the scripts of src/emberfall_classkit.cpp: each reads its numbers from the spell's own effects (Emberfall's
 // classkit/model.py SCRIPTS checks the contracts):
 //
@@ -55,10 +56,6 @@
 //                                   hit waits for it: the bite lands as the leaper does), in an arc misc / misc B tenths of
 //                                   a yard high at the least / most (Logic::LeapSpeedZ), facing the target. A parabolic
 //                                   spline: our client arcs it and plays the model's jump
-//   spell_ef_kit_gentling           taming (Gentling): the checks of a tame (a tameable beast of the hunter's level or
-//                                   below, no companion out, none waiting); when the channel's aura runs its full time
-//                                   the hunter casts effect 1's trigger at the beast (TAME_CREATURE, the class quest's
-//                                   credit)
 //   spell_ef_kit_dash               a dash ahead along the caster's facing (Verdant Dash): the engine's CHARGE_DEST to
 //                                   TARGET_DEST_CASTER_FRONT_LEAP (the blink's destination, stepped along the ground and
 //                                   stopped short of walls and solid terrain; MoveCharge at its own speed, so slows change
@@ -423,93 +420,6 @@ class spell_ef_kit_dash : public SpellScript
     }
 };
 
-class spell_ef_kit_gentling : public SpellScript
-{
-    PrepareSpellScript(spell_ef_kit_gentling);
-
-    SpellCastResult Check()
-    {
-        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        if (!player)
-            return SPELL_FAILED_DONT_REPORT;
-        Creature* target = GetExplTargetUnit() ? GetExplTargetUnit()->ToCreature() : nullptr;
-        if (!target || target->IsPet())
-        {
-            player->SendTameFailure(PET_TAME_INVALID_CREATURE);
-            return SPELL_FAILED_DONT_REPORT;
-        }
-        if (target->GetLevel() > player->GetLevel())
-        {
-            player->SendTameFailure(PET_TAME_TOO_HIGHLEVEL);
-            return SPELL_FAILED_DONT_REPORT;
-        }
-        if (!target->GetCreatureTemplate()->IsTameable(player->CanTameExoticPets()))
-        {
-            player->SendTameFailure(PET_TAME_NOT_TAMEABLE);
-            return SPELL_FAILED_DONT_REPORT;
-        }
-        if (PetStable const* stable = player->GetPetStable())
-        {
-            if (stable->CurrentPet)
-                return SPELL_FAILED_ALREADY_HAVE_SUMMON;
-            if (stable->GetUnslottedHunterPet())
-            {
-                player->SendTameFailure(PET_TAME_TOO_MANY);
-                return SPELL_FAILED_DONT_REPORT;
-            }
-        }
-        if (player->GetPetGUID() || player->GetCharmGUID())
-        {
-            player->SendTameFailure(PET_TAME_ANOTHER_SUMMON_ACTIVE);
-            return SPELL_FAILED_DONT_REPORT;
-        }
-        if (target->GetOwnerGUID())
-        {
-            player->SendTameFailure(PET_TAME_CREATURE_ALREADY_OWNED);
-            return SPELL_FAILED_DONT_REPORT;
-        }
-        return SPELL_CAST_OK;
-    }
-
-    void Register() override
-    {
-        OnCheckCast += SpellCheckCastFn(spell_ef_kit_gentling::Check);
-    }
-};
-
-class spell_ef_kit_gentling_aura : public AuraScript
-{
-    PrepareAuraScript(spell_ef_kit_gentling_aura);
-
-    void HandleRemove(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
-    {
-        // only a channel held to its end: moving or an interrupt cancels it
-        if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_EXPIRE)
-            return;
-        Unit* caster = GetCaster();
-        Unit* target = GetTarget();
-        uint32 const trigger = GetSpellInfo()->Effects[aurEff->GetEffIndex()].TriggerSpell;
-        if (!caster || !target || !target->IsAlive() || !trigger)
-            return;
-        caster->CastSpell(target, trigger, true);
-        // a new companion starts Defensive (it joins what its hunter attacks; the core leaves a tamed pet passive), the
-        // pet bar told
-        if (Player* player = caster->ToPlayer())
-            if (Pet* pet = player->GetPet(); pet && pet->getPetType() == HUNTER_PET)
-            {
-                pet->SetReactState(REACT_DEFENSIVE);
-                pet->SavePetToDB(PET_SAVE_AS_CURRENT);
-                player->PetSpellInitialize();
-            }
-    }
-
-    void Register() override
-    {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_ef_kit_gentling_aura::HandleRemove, EFFECT_0, SPELL_AURA_DUMMY,
-                                                AURA_EFFECT_HANDLE_REAL);
-    }
-};
-
 class spell_ef_pet_owner_scaling : public AuraScript
 {
     PrepareAuraScript(spell_ef_pet_owner_scaling);
@@ -636,7 +546,6 @@ void AddEmberfallClassKitHuntScripts()
     RegisterSpellScript(spell_ef_kit_dash);
     RegisterSpellScript(spell_ef_kit_leap);
     RegisterSpellScript(spell_ef_kit_shadowstep);
-    RegisterSpellAndAuraScriptPair(spell_ef_kit_gentling, spell_ef_kit_gentling_aura);
     RegisterSpellScript(spell_ef_pet_owner_scaling);
     RegisterSpellScript(spell_ef_kit_feint);
     new emberfall_classkit_hunt_pet();

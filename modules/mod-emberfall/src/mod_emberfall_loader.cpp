@@ -45,6 +45,7 @@ void AddEmberfallExtraActionScripts();
 void AddEmberfallQuestLogScripts();
 void AddEmberfallEncountersScripts();
 void AddEmberfallFishingScripts();
+void AddEmberfallTamingScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -75,4 +76,5 @@ void Addmod_emberfallScripts()
     AddEmberfallQuestLogScripts();
     AddEmberfallEncountersScripts();
     AddEmberfallFishingScripts();
+    AddEmberfallTamingScripts();
 }
