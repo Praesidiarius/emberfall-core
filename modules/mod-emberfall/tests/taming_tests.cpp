@@ -138,7 +138,10 @@ namespace
         check(DrowseMax(r, 60, Rank::Rare) == 1040000, "a rare x4");
         check(DrowseMax(r, 60, Rank::RareElite) == 1560000, "a rare elite x6");
         check(DrowseMax(r, 10, Rank::Elite) == 150000, "an elite x2.5");
-        check(TrustMax(r, 30, Rank::Normal) == 100000 && TrustMax(r, 30, Rank::Rare) == 300000, "Trust 100, a rare x3");
+        check(TrustMax(r, 10, Rank::Normal) == 120000 && TrustMax(r, 30, Rank::Normal) == 160000, "Trust 100 + 2 a level");
+        check(TrustMax(r, 30, Rank::Elite) == 240000 && TrustMax(r, 30, Rank::Rare) == 320000 &&
+                  TrustMax(r, 30, Rank::RareElite) == 400000,
+              "an elite x1.5, a rare x2, a rare elite x2.5");
         check(RankOf(0) == Rank::Normal && RankOf(1) == Rank::Elite && RankOf(2) == Rank::RareElite && RankOf(4) == Rank::Rare &&
                   RankOf(3) == Rank::Elite,
               "creature ranks");
@@ -238,8 +241,10 @@ namespace
         check(FoodTrust(r, t.Resolve(7, 5, g), 25) == 60000, "a cake of the beast's band: 60");
         check(FoodTrust(r, t.Resolve(7, 2, g), 15) == 5000, "food above the beast's band: full");
         check(FoodTrust(r, t.Resolve(5, 99, g), 50) == 5000, "other food has no band");
-        check(TasteLetter(600) == 'C' && TasteLetter(250) == 'F' && TasteLetter(100) == 'L' && TasteLetter(50) == 'P' &&
-                  TasteLetter(0) == 'R',
+        check(FoodTrust(r, t.Resolve(7, 5, g), 31) == 60000 && TrustMax(r, 31, Rank::Normal) > TrustMax(r, 21, Rank::Normal),
+              "a share is of trust_base at every level; the bar grows");
+        check(TasteLetter(180) == 'C' && TasteLetter(140) == 'F' && TasteLetter(70) == 'L' && TasteLetter(35) == 'P' &&
+                  TasteLetter(600) == 'C' && TasteLetter(0) == 'R',
               "the taste letters");
 
         // the eating order: the best Trust first, draughts and refused food left alone
@@ -268,6 +273,37 @@ namespace
         AddTrust(s, 99000);
         check(TrustFull(s) && s.trust == s.trustMax, "Trust caps at full");
     }
+
+    // The pace (feedback #415, hunter-taming.md §6.3): with the defaults, a level-20 beast fed three cakes (0.18) and
+    // then favourites (0.14), one item every 12 s, is tamed at the tenth bite, two minutes after it dropped; the sleep
+    // (60 s) needs two draughts (40 s each, drunk under 15 s left) to last.
+    void TestPace()
+    {
+        Rule r;
+        State s = Begin(r, 1, 5, 20, Rank::Normal, 0);
+        StartOutCold(r, s, 0);
+        std::uint64_t now = 0;
+        std::uint32_t bites = 0, draughts = 0;
+        while (!TrustFull(s) && now < 600000)
+        {
+            now += 500;
+            if (SleepLeft(s, now) < r.draughtUnderMs && draughts < 5)
+            {
+                AddSleep(r, s, 40000, now);
+                ++draughts;
+            }
+            if (SleepLeft(s, now) == 0)
+                break;
+            if (now >= s.nextEatMs)
+            {
+                s.nextEatMs = now + r.eatEveryMs;
+                AddTrust(s, (bites < 3 ? 180 : 140) * r.trustBase);
+                ++bites;
+            }
+        }
+        check(TrustFull(s) && bites == 10 && now == 120000, "a level-20 beast: ten bites, tamed at 2:00");
+        check(draughts == 2, "two draughts keep it under");
+    }
 }
 
 int main()
@@ -277,6 +313,7 @@ int main()
     TestArrows();
     TestDrowseAndClaim();
     TestFood();
+    TestPace();
     std::cout << "taming tests: " << g_checks - g_failed << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }
