@@ -570,3 +570,27 @@ later. The legendary's once-a-day and the stats are kept in memory (a restart fo
 `ef_enc_item_group` (Emberfall's compiler writes the rows); `data/sql/db-characters/mod_emberfall_2026_11_05_00_fishing.sql`:
 `ef_character_fish`. Tests: `tests/fishing_tests.cpp` (the golden vectors the client's tests share, the bounds, the
 messages, the roll) and `tests/encounter_tests.cpp`.
+
+## Hunter taming: Beastcraft, Drowse and Trust (Emberfall `docs/design/hunter-taming.md`, §14 the build contract)
+
+`Emberfall.Taming.Enable` (1). The mini-encounters' first server-driven kind (`T`): the module keeps every beast's
+state in memory (`src/taming/EfTameLogic.h`, pure and tested), ticks it, and sends `BARS` and `SLOTS`
+(`EfEncounterWire.h`) and kind `T`'s `OPEN`, `EAT`, `RESULT`, `CLOSE` (`src/taming/EfTameWire.h`, a verbatim copy of
+the client's). Gentling (93120) is retired; its checks moved to Drowse Shot; `gentling_tame` (93121) is the tame's
+helper (TAME_CREATURE and the class quests' credit).
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_taming_player` | `PlayerScript` | login, level-up and every Beastcraft skill-up: a hunter of 10 or more learns Beastcraft (99520) and Drowse Shot (99524), the ranks by level and skill (Journeyman 20 / 50, Craftsman 30 / 125, Master 40 / 200), the recipes by skill (`learnSkillRewardedSpells`); Gentling leaves the action bars. Each update: a due tame of the player's (an out companion stabled first, else `BARS` phase 3; the hunter dead or past 40 yd: phase 4). Death while drowsing drops the beast's Drowse |
+| `spell_ef_drowse_shot` | `SpellScript` on 99524 | the checks (level, tameable, not owned, a free stall when a companion is out; someone else's quarry `ERR;CLAIM;TAPPED`; no arrow `ERR;BOUNDS;ARROWS`); the hit: the strongest drowse arrow (`ef_tame_arrow`) the beast's level allows (else the strongest, a quarter), the tag, the leash timer, Drowse (none while another crowd control holds the beast), `BARS` (id 0) to the claimant's group; full: Out Cold |
+| `spell_ef_out_cold` | `AuraScript` on 99525 | stands up a beast whose state the module no longer has (the aura's own duration is the safety net) |
+| `emberfall_taming_creature` | `AllCreatureScript::OnAllCreatureUpdate` | every 500 ms for a beast with a state: drowsing, the decay (after 6 s, or at once while held), evade or out of combat forgets it; asleep, a draught under 15 s (the aura renewed), one item eaten every 4 s (`EAT`; refused food sniffed once, `EAT R`), the frame closed past 5 yd (`CLOSE;RANGE`), `SLOTS`, `BARS`; the sleep out: wakes (`RESULT W`), uneaten items back within 40 yd, attacks the claimant within 30 yd or evades |
+| `emberfall_taming_unit` | `UnitScript::OnUnitDeath` | a beast with a state dies: `RESULT D`, the bars dropped |
+| `TamingKind` (kind `T`) | EFN | `OPEN <beast>` (the claimant, alive, within 5 yd: `OPEN`, `SLOTS`, `BARS`; else `ERR;CLAIM`, `ERR;RANGE`, `ERR;NOENC;AWAKE`/`BUSY`), `PUT` (the item at the Lua bag position, in `tame_food`, fits the slot: taken from the bags), `TAKE` (back into the bags, else `ERR;BOUNDS;FULL`), `CLOSE` |
+| `emberfall_taming_world` | `WorldScript` | the config; the `ef_tame_*` tables (boot line `>> Emberfall taming: on (N families, M arrows, D draughts)`); a sweep every 10 s drops states no creature ticked for 30 s |
+| `emberfall_taming_commands` | `CommandScript` (GM) | `.eftame state` (the targeted beast), `.eftame force` (drowsing: Out Cold; asleep: Trust full), `.eftame reload` |
+
+`data/sql/db-world/mod_emberfall_2026_11_05_01_taming.sql`: `ef_tame_rule`, `ef_tame_family`, `ef_tame_like`,
+`ef_tame_arrow`, `ef_tame_draught` (Emberfall's compiler writes the rows from `content/data/taming/families.yaml`).
+Tests: `tests/taming_tests.cpp` (the messages' round trips and fuzz, the bars, arrows, decay, claim, sleep cap, food by
+family and band, the eating order, the slots).
