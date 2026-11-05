@@ -60,6 +60,16 @@ namespace Emberfall::ClassKit::SunLogic
         return recharging - restore;
     }
 
+    // A restore UP TO a number of charges at hand (ankarna's Sunwarden v2.2: Solenne's Salvation brings Solenne's Grace
+    // to 3 at hand, and with Eternal Embrace's fourth charge never takes one away): `recharging` of `max` are recharging;
+    // returns how many still recharge after, so that at least `atHand` are at hand (all of them when `atHand` >= `max`).
+    // More at hand already: unchanged.
+    constexpr uint32_t RechargingAfterRestoreUpTo(uint32_t recharging, uint32_t max, uint32_t atHand)
+    {
+        uint32_t const most = atHand >= max ? 0 : max - atHand;   // the most that may still recharge
+        return recharging > most ? most : recharging;
+    }
+
     // A counter of casts (Dawn's Renewal): `count` before this one, `need` for the trigger. Returns the count after and
     // whether the trigger fires (the count starts again then, whatever the trigger does).
     struct CountStep
@@ -81,6 +91,22 @@ namespace Emberfall::ClassKit::SunLogic
     constexpr int32_t ManaOnHit(uint32_t pool, int32_t pct, bool crit, bool doubleOnCrit)
     {
         return Pct(int64_t(pool), crit && doubleOnCrit ? pct * 2 : pct);
+    }
+
+    // The same with the share in tenths of a percent (misc B bit 2: the Sunwarden v2.2's 10 % of max mana, Mana Infusion
+    // 12.5 / 15 %).
+    constexpr int32_t ManaOnHitTenths(uint32_t pool, int32_t tenths, bool crit, bool doubleOnCrit)
+    {
+        if (tenths <= 0)
+            return 0;
+        return int32_t(int64_t(pool) * (crit && doubleOnCrit ? tenths * 2 : tenths) / 1000);
+    }
+
+    // A healing circle whose burst comes first (misc B 1 on its dummy, Solenne's Embrace v2.2: the burst as it is placed,
+    // then the ticks): whether tick `tick` (1-based) casts the burst instead of the tick heal.
+    constexpr bool CircleBurstNow(uint32_t tick, bool burstFirst)
+    {
+        return burstFirst && tick == 1;
     }
 
     // The pool a mana return is a percentage of: base mana (misc 1: the costs' own base, so gear's larger pool lasts

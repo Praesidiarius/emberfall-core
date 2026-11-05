@@ -16,7 +16,7 @@
  */
 
 // Emberfall class kits: the Paladin's Sunwarden (Emberfall docs/design/classes/paladin-sunwarden.md, ankarna's and
-// sonaetiger's developer handoff v1.0). Generic scripts, their numbers in the spells' own effects (Emberfall's
+// sonaetiger's developer handoff v1.0, ankarna's v2.2 of 2026-11-04). Generic scripts, their numbers in the spells' own effects (Emberfall's
 // classkit/scripts_sun.py checks the contracts); the arithmetic is classkit/EfClassKitSunLogic.h
 // (tests/classkit_sun_tests.cpp).
 //
@@ -26,13 +26,19 @@
 //                                at full charges nothing). misc B 1: only once, when the spell first strikes an enemy
 //                                (Solar Reckoning's shockwave), else when the dummy lands on the caster (Solenne's
 //                                Salvation, Dawn's Renewal's charge). After the cast the caster's hit bonuses for the
-//                                spell on the caster (a self trigger: Solenne's Favor after Salvation)
+//                                spell on the caster (a self trigger: Immediate Blessing after Salvation). misc B 2:
+//                                value = the charges AT HAND it brings the spell up to, never fewer (ankarna's v2.2:
+//                                Salvation brings Solenne's Grace to 3; with Eternal Embrace's fourth charge at hand it
+//                                takes none away; EfClassKitSunLogic.h RechargingAfterRestoreUpTo)
 //   spell_ef_kit_heal_circle     an aura script on a persistent_area_aura (a periodic dummy on allies): its allies are
 //                                the caster, the caster's group (a raid: the whole raid) and what they control (pets,
 //                                guardians: the .efparty companions); each tick the trigger of the spell's dummy effect
 //                                whose trigger heals (the tick heal) is cast at every one of them, in a raid at most the
 //                                effect's value, the most injured first (Q5: 6); after the last tick its misc (the final
-//                                burst) at the same ones (Solenne's Embrace)
+//                                burst) at the same ones. misc B 1 on that dummy: the burst comes FIRST, as the first
+//                                tick (the spell's periodic dummy with SPELL_ATTR5_EXTRA_INITIAL_PERIOD ticks as it is
+//                                placed), the tick heal on every later tick (Solenne's Embrace v2.2: the burst on
+//                                placement, then 3 ticks 3 sec apart)
 //   spell_ef_kit_heal_riders     on a heal (effect 1): a dummy beside it with a trigger that is a school absorb turns
 //                                its value in percent of the overheal into that shield (Embrace's tick and burst: 75 %,
 //                                Overflowing Light by its effect 2 mod); the caster's dummy auras then add:
@@ -42,7 +48,9 @@
 //                                    trigger's base points, spread over its ticks when it is periodic (Lingering
 //                                    Radiance); misc B bit 1: crits only, bit 2: at the most injured other group member
 //                                    within the trigger's range instead of the target (Shared Radiance); a trigger that
-//                                    is a charge aura: -value ms off its next charge (Boundless Mercy)
+//                                    is a charge aura: -value ms off its next charge (Divine Momentum); a trigger whose
+//                                    effect 1 targets its caster (a self buff): cast on the caster, once a cast, value a
+//                                    chance in percent (Graceful Radiance and Swift Benediction after Solenne's Grace)
 //                                  misc = a stacking aura, a class mask covering this heal, a trigger: a counter, each
 //                                    heal one stack, at value stacks (spell mods in: Renewed Devotion) they go and the
 //                                    trigger is cast on the caster (Dawn's Renewal)
@@ -61,14 +69,16 @@
 //                                at the enemy with a trigger casts that at every enemy struck (Radiant Blow's holy part)
 //   spell_ef_kit_mana_on_hit     a dummy on the caster: value = % of max mana back when the spell strikes an enemy
 //                                (into an absorb too; an immune enemy is no hit), misc B 1: double on a crit, misc 1: % of
-//                                base mana instead of max (Sunbreaker since playtest #67; Restoring Strike by its effect 2
-//                                mod)
+//                                base mana instead of max (Sunbreaker from playtest #67 until v2.2), misc B bit 2: value in
+//                                tenths of a percent (ankarna's v2.2: Sunbreaker 10 % of max mana, Mana Infusion 12.5 /
+//                                15 % by its effect 2 mod)
 
 #include "EfClassKit.h"
 #include "EfClassKitSunLogic.h"
 
 #include "Group.h"
 #include "Player.h"
+#include "Random.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
 #include "SpellAuraEffects.h"
@@ -227,12 +237,41 @@ class spell_ef_kit_restore_charge : public SpellScript
             uint32(std::max(0, eff.CalcValue(player))));
     }
 
+    // misc B 2: up to the dummy's value of charges at hand (Solenne's Salvation, v2.2)
+    void RestoreUpTo(SpellEffectInfo const& eff)
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        uint32 const spell = uint32(eff.MiscValue);
+        Aura* aura = player ? player->GetAura(eff.TriggerSpell, player->GetGUID()) : nullptr;
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spell);
+        if (!aura || !info)
+            return;   // every charge at hand
+        // the spell's charges now (its charge effect with the caster's mods: Eternal Embrace)
+        uint32 max = 0;
+        for (SpellEffectInfo const& charge : info->Effects)
+            if (charge.Effect == SPELL_EFFECT_DUMMY && charge.TriggerSpell == eff.TriggerSpell)
+                max = uint32(std::max(0, charge.CalcValue(player)));
+        uint32 const recharging = aura->GetStackAmount();
+        uint32 const after = SL::RechargingAfterRestoreUpTo(recharging, std::max(max, recharging),
+            uint32(std::max(0, eff.CalcValue(player))));
+        if (after == recharging)
+            return;
+        if (!after)
+            aura->Remove(AURA_REMOVE_BY_CANCEL);   // not an expiry: no charge back on top (ChargeBack)
+        else
+            aura->SetStackAmount(uint8(after));    // the running recharge runs on
+        player->RemoveSpellCooldown(spell, true);
+    }
+
     void HandleDummy(SpellEffIndex effIndex)
     {
         SpellEffectInfo const& eff = GetSpellInfo()->Effects[effIndex];
         if (GetHitUnit() != GetCaster() || !eff.MiscValue || !eff.TriggerSpell || eff.MiscValueB == 1)
             return;
-        Restore(eff);
+        if (eff.MiscValueB == 2)
+            RestoreUpTo(eff);
+        else
+            Restore(eff);
     }
 
     void AfterHitTarget()
@@ -311,8 +350,15 @@ class spell_ef_kit_heal_circle : public AuraScript
             Pick(caster, tick, circle->CalcValue(caster));
         if (std::find(_picked.begin(), _picked.end(), target->GetGUID()) == _picked.end())
             return;
+        bool const burstFirst = circle->MiscValueB == 1;
+        if (SL::CircleBurstNow(tick, burstFirst))
+        {
+            if (circle->MiscValue > 0)
+                caster->CastSpell(target, uint32(circle->MiscValue), true);
+            return;
+        }
         caster->CastSpell(target, circle->TriggerSpell, true);
-        if (int32(tick) >= aurEff->GetTotalTicks() && circle->MiscValue > 0)
+        if (!burstFirst && int32(tick) >= aurEff->GetTotalTicks() && circle->MiscValue > 0)
             caster->CastSpell(target, uint32(circle->MiscValue), true);
     }
 
@@ -328,6 +374,7 @@ class spell_ef_kit_heal_riders : public SpellScript
     PrepareSpellScript(spell_ef_kit_heal_riders);
 
     int32 _heal = 0;
+    std::vector<uint32> _selfDone;   // the self buffs cast this cast (once a cast, however many it heals)
 
     // Guiding Light: a low-health bonus before the crit
     void OnHitTarget()
@@ -358,6 +405,16 @@ class spell_ef_kit_heal_riders : public SpellScript
             // Boundless Mercy: the charged spell's next charge sooner
             if (eff->GetAmount() < 0)
                 Emberfall::ClassKit::ShortenCharge(caster->ToPlayer(), charged, trigger, -eff->GetAmount());
+            return;
+        }
+        // a self buff (Graceful Radiance, Swift Benediction): on the caster, once a cast; the value a chance
+        if (info->Effects[EFFECT_0].TargetA.GetTarget() == TARGET_UNIT_CASTER)
+        {
+            if (std::find(_selfDone.begin(), _selfDone.end(), trigger) != _selfDone.end())
+                return;
+            _selfDone.push_back(trigger);
+            if (eff->GetAmount() <= 0 || eff->GetAmount() >= 100 || roll_chance_i(eff->GetAmount()))
+                caster->CastSpell(caster, trigger, true);
             return;
         }
         int32 amount = SL::Pct(full, eff->GetAmount());
@@ -590,8 +647,10 @@ class spell_ef_kit_mana_on_hit : public SpellScript
             if (eff.Effect == SPELL_EFFECT_DUMMY && eff.TargetA.GetTarget() == TARGET_UNIT_CASTER && !eff.TriggerSpell)
             {
                 uint32 const pool = SL::ManaPool(caster->GetMaxPower(POWER_MANA), caster->GetCreateMana(), eff.MiscValue == 1);
-                int32 const mana = SL::ManaOnHit(pool, eff.CalcValue(caster),
-                    HitCrit(GetSpell(), target), eff.MiscValueB == 1);
+                bool const crit = HitCrit(GetSpell(), target);
+                bool const doubled = (eff.MiscValueB & 1) != 0;
+                int32 const mana = (eff.MiscValueB & 2) ? SL::ManaOnHitTenths(pool, eff.CalcValue(caster), crit, doubled)
+                                                        : SL::ManaOnHit(pool, eff.CalcValue(caster), crit, doubled);
                 if (mana > 0)
                     caster->EnergizeBySpell(caster, GetSpellInfo()->Id, uint32(mana), POWER_MANA);
                 return;
