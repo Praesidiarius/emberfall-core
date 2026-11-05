@@ -43,6 +43,8 @@ void AddEmberfallSkillLevelsScripts();
 void AddEmberfallAuraScalingScripts();
 void AddEmberfallExtraActionScripts();
 void AddEmberfallQuestLogScripts();
+void AddEmberfallEncountersScripts();
+void AddEmberfallFishingScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -71,4 +73,6 @@ void Addmod_emberfallScripts()
     AddEmberfallAuraScalingScripts();
     AddEmberfallExtraActionScripts();
     AddEmberfallQuestLogScripts();
+    AddEmberfallEncountersScripts();
+    AddEmberfallFishingScripts();
 }

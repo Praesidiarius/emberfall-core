@@ -529,3 +529,44 @@ granting that spell, and then runs with its own checks. Nothing else: granting a
 |---|---|
 | `src/extraaction/EfExtraActionLogic.h` | pure: the marker number, which aura effect grants which spell (`tests/extraaction_tests.cpp`) |
 | `src/emberfall_extra_action.cpp` | sets the core's `Emberfall::ExtraAction` check (`EmberfallExtraAction.h`): the player's `SPELL_AURA_DUMMY` effects, a marker's trigger spell |
+
+## Mini-encounters (Emberfall `docs/design/mini-encounters.md`)
+
+The framework for short encounters with one thing in the world: fishing's fight on the line now (kind `F`), hunter
+taming later (kind `T`). `Emberfall.Encounters.Enable` (1). One protocol, **EFN** (addon whispers to oneself,
+`EFN\t<ver>;<seq>;<kind>;<cmd>;<fields>`, at most 255 bytes: `src/encounters/EfEncounterWire.h`, a verbatim copy of the
+client's `client/src/data/EfEncounterWire.h`), one open encounter per player (`EfEncounterLogic.h`'s book), the item
+groups (`ef_enc_item_group`), and a handler per kind (`EfEncounterMgr.h`: `RegisterKind`, `Begin`, `Finish`, `Send`,
+`SendErr`; a kind implements `Enabled`, `OnMessage`, `OnFree`).
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_encounters_player` | `PlayerScript` | `OnPlayerCanUseChat`: every `EFN\t` addon whisper is consumed, the player's own (to itself) handled: over 20 a second dropped, undecodable `ERR;DECODE`, an unknown or switched-off kind `ERR;NOENC;OFF`, else the kind's handler. Logout, map change and death free the player's open encounter (the kind's `OnFree`) |
+| `emberfall_encounters_world` | `WorldScript` | the config; `ef_enc_item_group` (boot line `>> Emberfall encounters: on (N groups, M items)`) |
+| `emberfall_encounters_commands` | `CommandScript` | `.efenc dump [player]` (GM): the open encounter and the last ten EFN messages both ways; `.efenc reload`: the item groups |
+
+## Fishing: the living waters (Emberfall `docs/design/fishing.md`, §11 the build contract)
+
+`Emberfall.Fishing.LivingWaters` (1). A bobber (game object 90190, `ScriptName` `go_ef_fishing_bobber` from Emberfall's
+compiler) whose position lies in no `ef_fish_cell` (8-yd cells, `floor(x / 8)`, `floor(y / 8)` per map; only zones
+with a habitat file have rows), or the switch at 0, fishes exactly as the core does: the script returns false.
+
+| Script | Hook | What |
+|---|---|---|
+| `go_ef_fishing_bobber` | `GameObjectScript::OnGossipHello` (the top of `GameObject::Use`) | the hook click in a cell: the roll (`src/fishing/EfFishLogic.h` over the shared `EfFishRules.h`: junk as the core rolls it, a fishing pool skips junk, counts a use and triples its own fish; the candidates by water, habitat bits, the server's local hour (dawn 05-08, day 08-18, dusk 18-21, night 21-05), the zone's weather and "after rain" (30 min), the bait aura (`ef_fish_bait`, likes in `ef_fish_species_bait`; no bait halves uncommons and refuses rares), the skill gates (base + 45, base + 95); the legendary: its `gate_quest` in the log means one bite in three when everything holds (ground-bait within 30 yd if `needs_groundbait`), its chain done a weight-2 candidate once a day per character), the size; the skill-up as the core (`OnPlayerUpdateFishingSkill`, `UpdateFishingSkill`). Junk: the core's junk loot. A common: the fish in the bobber's loot, the loot window. Uncommon and better: the bobber's spell id cleared and its loot state set to activated (the core's own way to keep a bobber with an open loot window: the channel's end leaves it, its escape timer stops), the fishing channel finished, Reeling (99264) cast with the bobber as `UNIT_FIELD_CHANNEL_OBJECT`, `OPEN` sent. A click on the bobber during its fight does nothing |
+| `emberfall_fishing_player` | `PlayerScript` | each update during a fight: the bobber gone `CLOSE;GONE`, the angler dead `DIED`, mounted or over 30 yd from the bobber `MOVED`, the Reeling channel lost `MOVED` (moved) or `CHANNEL`, past the fight's maximum + 10 s `TIMEOUT`; the bobber goes. Login loads the character's best sizes |
+| `FishingKind` (kind `F` of the framework) | EFN | `HELLO <hash>`: `OK` or `ERR;DATA;<server hash>` (`ef_fish_meta`). `END`: only the open fight's id, first END only (else `RESULT;<id>;REJ;NOENC`); `effish::CheckEnd` against the server's own clock from OPEN (the fastest landing any input could give less 0.5 s, the maximum + 10 s, the peak under the break and not under the fish's pull, time over 900, inputs for a rare or the legendary, the legendary's phases) and the angler (alive, unmounted, channelling Reeling, within 30 yd). Landed and fine: the fish in the bobber's loot, the loot window, `RESULT;<id>;OK;<item>;<size mm>;<grams>;<best>`; an accepted loss `RESULT;<id>;OK;0;<size>;<grams>;0`; anything else `RESULT;<id>;REJ;<FAST/SLOW/BREAK/PULL/OVER900/INPUTS/PHASES/OUTCOME/RANGE>`, logged with the numbers (logger `module`). More than 150 fights an hour is logged once |
+| `at_ef_fish_watch` | `AreaTriggerScript` (`areatrigger_scripts` from Emberfall's compiler) | `ef_fish_event` kind 1 rows of the trigger: the quest (in the log) is done (`AreaExploredOrEventHappens`) when the species' time and weather conditions hold now. Kind 2 rows: landing the species does it |
+| `spell_ef_fish_groundbait` | `SpellScript` on 99265 (`spell_script_names` from Emberfall's compiler) | where the ground-bait went in (8 yd before the angler), for 5 minutes |
+| `emberfall_fishing_weather` | `ALEScript::OnWeatherChange` (the global weather hook) | each zone's weather and when its rain ended |
+| `emberfall_fishing_world` | `WorldScript` | the config; loads every `ef_fish_*` table and the fishing pools' own fish (`gameobject_template` type 25's loot); boot line `>> Emberfall fishing: N waters, M cells, S species (...)` |
+| `emberfall_fishing_commands` | `CommandScript` (GM) | `.effish cell`: the cell under your bobber (within 40 yd) or you: water, habitats, depth, time and weather bits, skill and base, bait, and each species living there now with its activity and weight; `.effish force <species>`: your next bite in a cell of its water is that species; `.effish stats [player]`: fights, landed, rejected, mean landing time since the server started, this hour's fights; `.effish reload` |
+
+Every bite writes `ef_character_fish` (characters: caught, landed, lost, best size, first caught); the journal reads it
+later. The legendary's once-a-day and the stats are kept in memory (a restart forgets them).
+
+`data/sql/db-world/mod_emberfall_2026_11_05_00_fishing.sql`: the schemas of `ef_fish_meta`, `ef_fish_water`,
+`ef_fish_cell`, `ef_fish_style`, `ef_fish_species`, `ef_fish_species_bait`, `ef_fish_bait`, `ef_fish_event`,
+`ef_enc_item_group` (Emberfall's compiler writes the rows); `data/sql/db-characters/mod_emberfall_2026_11_05_00_fishing.sql`:
+`ef_character_fish`. Tests: `tests/fishing_tests.cpp` (the golden vectors the client's tests share, the bounds, the
+messages, the roll) and `tests/encounter_tests.cpp`.
