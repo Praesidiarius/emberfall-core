@@ -628,7 +628,10 @@ bool IsPrimaryProfessionSkill(uint32 skill);
 
 inline bool IsProfessionSkill(uint32 skill)
 {
-    return  IsPrimaryProfessionSkill(skill) || skill == SKILL_FISHING || skill == SKILL_COOKING || skill == SKILL_FIRST_AID;
+    // EMBERFALL (PATCHES.md #39): the gathering lines stay professions when their SkillLine is a secondary one
+    // (category 9, Emberfall's one main profession), as they were while stock data made them primaries (category 11)
+    return  IsPrimaryProfessionSkill(skill) || skill == SKILL_FISHING || skill == SKILL_COOKING || skill == SKILL_FIRST_AID
+        || skill == SKILL_MINING || skill == SKILL_HERBALISM || skill == SKILL_SKINNING;
 }
 
 inline bool IsProfessionOrRidingSkill(uint32 skill)
