@@ -68,6 +68,7 @@
 #include "encounters/EfEncounterMgr.h"
 #include "fishing/EfFishLogic.h"
 #include "fishing/EfFishWire.h"
+#include <algorithm>
 #include <cmath>
 #include <list>
 #include <mutex>
@@ -129,7 +130,8 @@ namespace
         uint64 untilSec = 0;
     };
     std::unordered_map<uint64, GroundBait> s_groundBait;
-    std::unordered_map<uint64, std::unordered_map<uint32, uint32>> s_best;     // angler -> species -> best size mm
+    // angler -> species -> the record (ef_character_fish, loaded at login): the best flag and the journal's BOOK
+    std::unordered_map<uint64, std::unordered_map<uint32, effish::wire::BookEntry>> s_book;
     std::unordered_map<uint64, std::unordered_map<uint32, uint64>> s_legendDay; // angler -> species -> day landed
     std::unordered_map<uint64, uint32> s_forced;
     std::unordered_map<uint64, F::Stats> s_stats;
@@ -203,7 +205,6 @@ namespace
         if (QueryResult r = WorldDatabase.Query(
                 "SELECT `id`, `name`, `item`, `rarity`, `style`, `speed`, `size_typ_mm`, `size_max_mm`, `weight_k`, `clue`, "
                 "`time_mask`, `weather_mask`, `h_shallows`, `h_deep`, `h_inlet`, `h_reeds`, `h_rocks`, `h_ruins`, "
-                "`water1`, `water2`, `water3`, `water4`, "
                 "`boost1_time`, `boost1_weather`, `boost1_permil`, `boost2_time`, `boost2_weather`, `boost2_permil`, "
                 "`boost3_time`, `boost3_weather`, `boost3_permil`, "
                 "`phase1_style`, `phase1_until`, `phase2_style`, `phase2_until`, `phase3_style`, `phase3_until`, "
@@ -226,15 +227,22 @@ namespace
                 s.weatherMask = f[11].Get<uint8>();
                 for (std::size_t i = 0; i < 6; ++i)
                     s.habitatPermil[i] = f[12 + i].Get<uint16>();
-                for (std::size_t i = 0; i < 4; ++i)
-                    s.waters[i] = f[18 + i].Get<uint16>();
                 for (std::size_t i = 0; i < 3; ++i)
-                    s.boosts[i] = effish::Boost{f[22 + 3 * i].Get<uint8>(), f[23 + 3 * i].Get<uint8>(), f[24 + 3 * i].Get<uint16>()};
+                    s.boosts[i] = effish::Boost{f[18 + 3 * i].Get<uint8>(), f[19 + 3 * i].Get<uint8>(), f[20 + 3 * i].Get<uint16>()};
                 for (std::size_t i = 0; i < 3; ++i)
-                    s.phases[i] = effish::Phase{f[31 + 2 * i].Get<uint32>(), f[32 + 2 * i].Get<uint32>()};
-                s.gateQuest = f[37].Get<uint32>();
-                s.needsGroundBait = f[38].Get<uint8>() != 0;
+                    s.phases[i] = effish::Phase{f[27 + 2 * i].Get<uint32>(), f[28 + 2 * i].Get<uint32>()};
+                s.gateQuest = f[33].Get<uint32>();
+                s.needsGroundBait = f[34].Get<uint8>() != 0;
                 d.species.push_back(s);
+            } while (r->NextRow());
+        if (QueryResult r = WorldDatabase.Query("SELECT `species`, `water` FROM `ef_fish_species_water` ORDER BY `species`, `water`"))
+            do
+            {
+                Field* f = r->Fetch();
+                uint32 const id = f[0].Get<uint32>();
+                for (effish::Species& s : d.species)
+                    if (s.id == id)
+                        s.waters.push_back(f[1].Get<uint16>());
             } while (r->NextRow());
         if (QueryResult r = WorldDatabase.Query("SELECT `species`, `item`, `permil` FROM `ef_fish_species_bait`"))
             do
@@ -288,6 +296,17 @@ namespace
     // ---- the angler's record ----------------------------------------------------------------------------------------
     void Record(Player* player, uint32 species, bool landed, bool lost, uint32 bestMm)
     {
+        {
+            std::lock_guard<std::mutex> guard(s_lock);
+            effish::wire::BookEntry& e = s_book[Key(player)][species];
+            e.species = species;
+            ++e.caught;
+            e.landed += landed ? 1 : 0;
+            e.lost += lost ? 1 : 0;
+            e.bestMm = std::max(e.bestMm, bestMm);
+            if (!e.first)
+                e.first = uint32(NowSec());
+        }
         CharacterDatabase.Execute(
             "INSERT INTO `ef_character_fish` (`guid`, `species`, `caught`, `landed`, `lost`, `best_mm`, `first_caught`) "
             "VALUES ({}, {}, 1, {}, {}, {}, {}) ON DUPLICATE KEY UPDATE `caught` = `caught` + VALUES(`caught`), "
@@ -299,10 +318,11 @@ namespace
     // A landed fish's best flag (under s_lock): true when it beats the angler's best of the species.
     bool UpdateBest(Player* player, uint32 species, uint32 sizeMm)
     {
-        uint32& best = s_best[Key(player)][species];
-        bool const isBest = sizeMm > best;
+        effish::wire::BookEntry& e = s_book[Key(player)][species];
+        e.species = species;
+        bool const isBest = sizeMm > e.bestMm;
         if (isBest)
-            best = sizeMm;
+            e.bestMm = sizeMm;
         return isBest;
     }
 
@@ -488,6 +508,27 @@ namespace
                 HandleEnd(player, msg);
                 return;
             }
+            if (msg.cmd == "BOOK")
+            {
+                // the fishing journal (fishing.md §13): every species this character has hooked, in id order
+                std::vector<effish::wire::BookEntry> entries;
+                {
+                    std::lock_guard<std::mutex> guard(s_lock);
+                    auto it = s_book.find(Key(player));
+                    if (it != s_book.end())
+                        for (auto const& [id, e] : it->second)
+                            if (e.caught || e.landed)
+                                entries.push_back(e);
+                }
+                std::sort(entries.begin(), entries.end(), [](auto const& a, auto const& b) { return a.species < b.species; });
+                uint32 const parts = uint32(entries.empty() ? 1 : (entries.size() + effish::wire::kBookPerPart - 1) / effish::wire::kBookPerPart);
+                uint32 const first = E::NextSeq(player);
+                for (uint32 k = 1; k < parts; ++k)
+                    E::NextSeq(player);
+                for (std::string const& body : effish::wire::EncodeBook(first, entries))
+                    E::Send(player, body);
+                return;
+            }
             E::SendErr(player, msg.seq, efenc::kFishing, efenc::kErrDecode, msg.cmd);
         }
 
@@ -628,11 +669,14 @@ namespace
             go->SetLootState(GO_ACTIVATED, player);
             player->SendLoot(go->GetGUID(), LOOT_FISHING);
             player->FinishSpell(CURRENT_CHANNELED_SPELL, true);
+            bool best = false;
             {
                 std::lock_guard<std::mutex> guard(s_lock);
-                UpdateBest(player, species.id, roll.sizeMm);
+                best = UpdateBest(player, species.id, roll.sizeMm);
             }
             Record(player, species.id, true, false, roll.sizeMm);
+            if (E::Enabled())
+                E::Send(player, effish::wire::EncodeCatch(E::NextSeq(player), {species.id, roll.sizeMm, grams, best}));
             LandEvents(player, species.id);
             return true;
         }
@@ -768,21 +812,24 @@ namespace
 
         void OnPlayerLogin(Player* player) override
         {
-            std::unordered_map<uint32, uint32> best;
-            if (QueryResult r = CharacterDatabase.Query("SELECT `species`, `best_mm` FROM `ef_character_fish` WHERE `guid` = {}",
-                                                        player->GetGUID().GetCounter()))
+            std::unordered_map<uint32, effish::wire::BookEntry> book;
+            if (QueryResult r = CharacterDatabase.Query("SELECT `species`, `caught`, `landed`, `lost`, `best_mm`, `first_caught` "
+                                                        "FROM `ef_character_fish` WHERE `guid` = {}", player->GetGUID().GetCounter()))
                 do
                 {
-                    best[r->Fetch()[0].Get<uint32>()] = r->Fetch()[1].Get<uint32>();
+                    Field* f = r->Fetch();
+                    effish::wire::BookEntry e{f[0].Get<uint32>(), f[1].Get<uint32>(), f[2].Get<uint32>(), f[3].Get<uint32>(),
+                                              f[4].Get<uint32>(), f[5].Get<uint32>()};
+                    book[e.species] = e;
                 } while (r->NextRow());
             std::lock_guard<std::mutex> guard(s_lock);
-            s_best[Key(player)] = std::move(best);
+            s_book[Key(player)] = std::move(book);
         }
 
         void OnPlayerLogout(Player* player) override
         {
             std::lock_guard<std::mutex> guard(s_lock);
-            s_best.erase(Key(player));
+            s_book.erase(Key(player));
             s_groundBait.erase(Key(player));
             s_forced.erase(Key(player));
         }

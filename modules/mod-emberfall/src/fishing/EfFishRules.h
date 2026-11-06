@@ -16,6 +16,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace effish
 {
@@ -81,7 +82,7 @@ namespace effish
         std::uint8_t timeMask = kAnyTime;
         std::uint8_t weatherMask = kAnyWeather;
         std::array<std::uint16_t, kHabitatCount> habitatPermil{};   // by habitat bit index (shallows first)
-        std::array<std::uint16_t, 4> waters{};                      // ef_fish_water ids; 0 = unused
+        std::vector<std::uint16_t> waters;                          // ef_fish_water ids (ef_fish_species_water)
         std::array<Boost, 3> boosts{};
         std::array<Phase, 3> phases{};      // the legendary; empty: one phase of `style`
         std::uint32_t gateQuest = 0;        // the legendary: bites only while this quest is in the log or done
@@ -134,7 +135,7 @@ namespace effish
     inline bool InWater(Species const& s, std::uint32_t water)
     {
         for (std::uint16_t w : s.waters)
-            if (w != 0 && w == water)
+            if (w == water)
                 return true;
         return false;
     }
