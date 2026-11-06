@@ -123,6 +123,10 @@ services:
       # Emberfall stops at level 60 (talents.md §8, Decision 2: the talent point schedule ends there): the stock
       # MaxPlayerLevel setting (worldserver.conf.dist, default 80), for every stack of this file. Config only.
       AC_MAX_PLAYER_LEVEL: "${EF_MAX_PLAYER_LEVEL:-60}"
+      # One main profession (Emberfall docs/design/professions.md §25, 2026-11-06): the stock MaxPrimaryTradeSkill
+      # (worldserver.conf.dist, default 2) counts the category-11 lines, which on our data are the crafts only (Mining,
+      # Herbalism and Skinning are secondary). Emberfall's ef_server.sh keeps 2 for its stock-test profile.
+      AC_MAX_PRIMARY_TRADE_SKILL: "${EF_MAX_PRIMARY_TRADE_SKILL:-1}"
       # engine-ids.md §10/§11.
       AC_UPDATES_ENABLE_DATABASES: "0"
       AC_DBC_LOCALE: "0"

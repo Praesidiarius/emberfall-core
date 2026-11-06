@@ -19,6 +19,7 @@
 # and the meter tests (tests/meter_tests.cpp: src/meter/EfMeterLogic.h, the damage meter's fights, attribution, maths, EFM)
 # and the account friend tests (tests/accountfriends_tests.cpp: src/accountfriends/EfAccountFriendsLogic.h, EFF, ADD, limits)
 # and the profession XP tests (tests/professionxp_tests.cpp: src/professions/EfProfessionXp.h, colours and XP)
+# and the one profession tests (tests/oneprofession_tests.cpp: src/professions/EfOneProfession.h, which craft stays, the mail)
 # and the periodic crit tests (tests/periodiccrit_tests.cpp: the core's src/server/game/Spells/Auras/EmberfallPeriodicCrit.h)
 # and the miss rules tests (tests/missrules_tests.cpp: the core's src/server/game/Spells/EmberfallMissRules.h)
 # and the kit weapon tests (tests/kitweapon_tests.cpp: the core's src/server/game/Spells/EmberfallKitWeapon.h)
@@ -87,6 +88,7 @@ testzone ../src/testzone testzone_tests.cpp
 meter ../src/meter meter_tests.cpp
 accountfriends ../src/accountfriends accountfriends_tests.cpp
 professionxp ../src/professions professionxp_tests.cpp
+oneprofession ../src/professions oneprofession_tests.cpp
 periodiccrit ../../../src/server/game/Spells/Auras periodiccrit_tests.cpp
 missrules ../../../src/server/game/Spells missrules_tests.cpp
 kitweapon ../../../src/server/game/Spells kitweapon_tests.cpp
