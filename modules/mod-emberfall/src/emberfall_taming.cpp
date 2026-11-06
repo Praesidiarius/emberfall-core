@@ -27,6 +27,10 @@
 //     a companion is out), someone else's quarry refused; the hit uses the strongest drowse arrow the bags hold that
 //     the beast's level allows, adds Drowse, renews the beast's leash timer and sends BARS (id 0) to the group.
 //   - Out Cold (99525, spell_ef_out_cold): Drowse full; the beast's combat stops, it lies down, immune, for 60 s.
+//     While it sleeps it lies as dead (UNIT_STAND_STATE_DEAD: the client holds its Death pose, feedback #435) and is
+//     passive; every update ends any combat it is in (its own, with each side: the hunter keeps his combat with other
+//     mobs) and stops the auto shots and pets still at it (feedback #436), since a hostile hit on it (the Drowse Shot
+//     that put it under, an immune hit) stands it up and engages it after the effect.
 //     The claimant's client asks to open it (EFN OPEN); PUT and TAKE move food and draughts between the bags and its
 //     six slots; it eats every 4 s, drinks a draught under 15 s of sleep; Trust full: the tame.
 //   - The tame (from the claimant's own update, never inside the beast's): an out companion is stabled first, Out Cold
@@ -64,6 +68,7 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
+#include "Spell.h"
 #include "SpellAuras.h"
 #include "SpellMgr.h"
 #include "SpellScript.h"
@@ -124,6 +129,8 @@ namespace
         bool slotsDirty = false;
         bool tameDue = false;
         uint64 openFor = 0;        // the claimant's open frame: its encounter id (0: none)
+        ReactStates react = REACT_AGGRESSIVE;   // the beast's own react state, kept while it sleeps passive
+        bool reactKept = false;
     };
 
     bool s_enable = true;
@@ -447,12 +454,49 @@ namespace
 
     // ---- the beast's side -------------------------------------------------------------------------------------------
 
-    void LieDown(Creature* beast, Entry& e, uint64 now)
+    // Ends the sleeping beast's combat (feedback #436): its threat, its combat with everyone (each reference ends on both
+    // sides; a hunter in combat with other mobs stays in it), the attacks on it (RemoveAllAttackers), and the auto shots
+    // still aimed at it, which would engage it again with every immune hit.
+    void MakePeace(Creature* beast)
     {
-        T::StartOutCold(s_rule, e.s, now);
+        std::vector<Player*> shooters;
+        auto shooter = [&](Unit* u) {
+            if (Player* p = u ? u->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr)
+                shooters.push_back(p);
+        };
+        for (auto const& [guid, ref] : beast->GetCombatManager().GetPvECombatRefs())
+            shooter(ref->GetOther(beast));
+        for (Unit* attacker : beast->getAttackers())
+            shooter(attacker);
         beast->CombatStop(true);
         beast->GetThreatMgr().ClearAllThreat();
         beast->AttackStop();
+        for (Player* p : shooters)
+            if (Spell* shot = p->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL); shot && shot->m_targets.GetUnitTargetGUID() == beast->GetGUID())
+                p->InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
+    }
+
+    // Asleep: lying as dead, passive, out of combat. Every update of the beast and after each hit on it: a hostile
+    // spell's hit stands it up and engages it after its effects (Spell::DoSpellHitOnUnit), threat comes at the cast's end.
+    void HoldAsleep(Creature* beast)
+    {
+        if (beast->getStandState() != UNIT_STAND_STATE_DEAD)
+            beast->SetStandState(UNIT_STAND_STATE_DEAD);
+        if (!beast->HasReactState(REACT_PASSIVE))
+            beast->SetReactState(REACT_PASSIVE);
+        if (beast->IsInCombat() || beast->GetVictim() || !beast->getAttackers().empty() || !beast->GetThreatMgr().IsThreatListEmpty(true))
+            MakePeace(beast);
+    }
+
+    void LieDown(Creature* beast, Entry& e, uint64 now)
+    {
+        T::StartOutCold(s_rule, e.s, now);
+        if (!e.reactKept)
+        {
+            e.react = beast->GetReactState();
+            e.reactKept = true;
+        }
+        MakePeace(beast);
         beast->GetMotionMaster()->Clear();
         beast->GetMotionMaster()->MoveIdle();
         beast->StopMoving();
@@ -461,7 +505,7 @@ namespace
             aura->SetMaxDuration(int32(s_rule.outColdMs));
             aura->SetDuration(int32(s_rule.outColdMs));
         }
-        beast->SetStandState(UNIT_STAND_STATE_SLEEP);
+        HoldAsleep(beast);
         LOG_DEBUG("module", "Emberfall taming: {} ({}) out cold, claimed by {}", beast->GetName(), beast->GetEntry(),
                   ObjectGuid(e.s.claimant).ToString());
     }
@@ -477,10 +521,13 @@ namespace
         }
     }
 
-    void StandUp(Creature* beast)
+    void StandUp(Creature* beast, Entry& e)
     {
         beast->RemoveAurasDueToSpell(kSpellOutCold);
         beast->SetStandState(UNIT_STAND_STATE_STAND);
+        if (e.reactKept)
+            beast->SetReactState(e.react);
+        e.reactKept = false;
     }
 
     // Uneaten items back to the claimant (within 40 yd, room in the bags), else lost.
@@ -504,7 +551,7 @@ namespace
     void Wake(Creature* beast, Entry& e, uint64 now)
     {
         Player* claimant = ObjectAccessor::GetPlayer(*beast, ObjectGuid(e.s.claimant));
-        StandUp(beast);
+        StandUp(beast, e);
         uint32 const lost = ReturnItems(claimant, beast, e);
         SendResult(claimant, e, W::kWoke);
         SendBars(beast, e, now, true);
@@ -594,6 +641,8 @@ namespace
         if (it == s_states.end())
             return;
         Entry& e = it->second;
+        if (T::Asleep(e.s) && beast->IsAlive() && beast->HasAura(kSpellOutCold))
+            HoldAsleep(beast);
         uint64 const now = NowMs();
         if (now < e.lastTickMs + kTickMs)
             return;
@@ -671,7 +720,7 @@ namespace
                 continue;
             }
             uint32 const entry = beast->GetEntry();
-            StandUp(beast);
+            StandUp(beast, e);
             ReturnItems(player, beast, e);
             player->CastSpell(beast, kSpellGentlingTame, true);
             Pet* pet = player->GetPet();
@@ -1211,10 +1260,19 @@ class spell_ef_drowse_shot : public SpellScript
         SendBars(beast, e, now);
     }
 
+    // The shot that put it under stood it up and engaged it again after its effect: down and out of combat at once.
+    void HandleAfterHit()
+    {
+        Creature* beast = GetHitUnit() ? GetHitUnit()->ToCreature() : nullptr;
+        if (beast && beast->IsAlive() && beast->HasAura(kSpellOutCold))
+            HoldAsleep(beast);
+    }
+
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_ef_drowse_shot::Check);
         OnEffectHitTarget += SpellEffectFn(spell_ef_drowse_shot::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+        AfterHit += SpellHitFn(spell_ef_drowse_shot::HandleAfterHit);
     }
 };
 
@@ -1235,6 +1293,8 @@ class spell_ef_out_cold : public AuraScript
                 return;   // the module's tick wakes it
         }
         target->SetStandState(UNIT_STAND_STATE_STAND);
+        if (Creature* beast = target->ToCreature())
+            beast->InitializeReactState();   // passive while it slept
     }
 
     void Register() override
