@@ -1405,7 +1405,9 @@ struct MapEntry
 
     [[nodiscard]] bool IsContinent() const
     {
-        return MapID == MAP_EASTERN_KINGDOMS || MapID == MAP_KALIMDOR || MapID == MAP_OUTLAND || MapID == MAP_NORTHREND;
+        // EMBERFALL: map 754, the Kindred's south half (a world map; stock 3.3.5a has no map 754) (PATCHES.md #39)
+        return MapID == MAP_EASTERN_KINGDOMS || MapID == MAP_KALIMDOR || MapID == MAP_OUTLAND || MapID == MAP_NORTHREND
+            || MapID == 754;
     }
 
     [[nodiscard]] bool IsDynamicDifficultyMap() const { return Flags & MAP_FLAG_DYNAMIC_DIFFICULTY; }

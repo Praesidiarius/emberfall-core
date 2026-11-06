@@ -30,7 +30,8 @@
 # and the fishing tests (tests/fishing_tests.cpp: src/fishing/EfFishRules.h, EfFishFight.h, EfFishWire.h (the client's
 # verbatim copies, the golden vectors) and EfFishLogic.h, the bite roll)
 # and the taming tests (tests/taming_tests.cpp: src/taming/EfTameWire.h and EfEncounterWire.h's BARS/SLOTS/PUT/TAKE, the
-# client's verbatim copies, and EfTameLogic.h: the bars, the arrows, Drowse, the claim, the sleep, the food, the slots).
+# client's verbatim copies, and EfTameLogic.h: the bars, the arrows, Drowse, the claim, the sleep, the food, the slots)
+# and the seam guard tests (tests/seam_tests.cpp: src/seam/EfSeamLogic.h, which area is beyond the seam, back or home).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -97,7 +98,8 @@ extraaction ../src/extraaction extraaction_tests.cpp
 questlog ../src/questlog:../../../src/server/game/Entities/Player questlog_tests.cpp
 encounters ../src/encounters encounter_tests.cpp
 fishing ../src/fishing:../src/encounters fishing_tests.cpp
-taming ../src/taming:../src/encounters taming_tests.cpp"
+taming ../src/taming:../src/encounters taming_tests.cpp
+seam ../src/seam seam_tests.cpp"
 
 if ! printf '%s\n' "$TESTS" | xargs -P "$JOBS" -n 3 sh "$HERE/run_tests.sh" --compile; then
     echo "run_tests.sh: a test program did not compile" >&2

@@ -594,3 +594,22 @@ helper (TAME_CREATURE and the class quests' credit).
 `ef_tame_arrow`, `ef_tame_draught` (Emberfall's compiler writes the rows from `content/data/taming/families.yaml`).
 Tests: `tests/taming_tests.cpp` (the messages' round trips and fuzz, the bars, arrows, decay, claim, sleep cap, food by
 family and band, the eating order, the slots).
+
+## The seam guard (Emberfall `docs/design/kindred-map-split.md` §3.4 item 4)
+
+The Kindred is two maps, 1 north and 754 south. Each draws a one-tile margin of the other half, purely visual, whose
+terrain has a "beyond the seam" area (`ef_seam_area`: area id and the map whose margin it is; Emberfall's compiler
+writes the rows). A player who stands in such an area (zone or subarea) is put back on the last spot on their own side
+(`NearTeleportTo`), told "The ground ends here. Take a ship." (deDE "Hier endet das Land. Nimm ein Schiff.", frFR "La
+terre s'arrête ici. Prenez un navire."; the session's locale, else English); with no spot on this map (a login there)
+to their hearth. GMs in GM mode, flight paths, ships and vehicles are left alone; a spot in the air is not remembered.
+No rows: nothing happens. Each turn-back is logged: `Emberfall seam guard: <name> (guid N) in area A (zone Z) of map M
+at (x, y, z) sent back to (x, y, z)` (or `... home to map M`).
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_seam_player` | `PlayerScript` (`OnPlayerUpdate`, once a second; `OnPlayerLogin`: the first look after 3 s) | the look: zone and area of the position, the last own spot in `Player::CustomData` (`ef_seam`) |
+| `emberfall_seam_world` | `WorldScript::OnLoadCustomDatabaseTable` | loads `ef_seam_area`; boot line `>> Emberfall seam guard: N area(s) beyond the seam` |
+
+`data/sql/db-world/mod_emberfall_2026_11_06_01_seam_area.sql`: `ef_seam_area`. The rules: `src/seam/EfSeamLogic.h`;
+tests: `tests/seam_tests.cpp`. The core lists map 754 as a continent (`PATCHES.md` #39).
