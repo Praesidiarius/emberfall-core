@@ -315,12 +315,39 @@ namespace
         check(c && c->reason == "MOVED", "CLOSE round trip");
         check(efenc::Decode(wire::EncodeHello(1, 0xdeadbeefcafef00dull))->fields[0] == "deadbeefcafef00d", "HELLO");
 
+        // the journal: CATCH and BOOK round trip; the record splits into parts that each fit the 255 bytes
+        auto ca = wire::DecodeCatch(*efenc::Decode(wire::EncodeCatch(2, {12, 345, 678, true})));
+        check(ca && ca->species == 12 && ca->sizeMm == 345 && ca->grams == 678 && ca->best, "CATCH round trip");
+        std::vector<wire::BookEntry> book;
+        for (std::uint32_t s = 1; s <= 50; ++s)
+            book.push_back({s, 4000000000u, 4000000000u, 4000000000u, 4000000000u, 4000000000u});
+        auto parts = wire::EncodeBook(10, book);
+        std::size_t got = 0;
+        bool fits = true, last = false;
+        for (std::size_t k = 0; k < parts.size(); ++k)
+        {
+            fits = fits && !parts[k].empty();
+            auto d = efenc::Decode(parts[k]);
+            auto b = d ? wire::DecodeBook(*d) : std::nullopt;
+            fits = fits && b && b->part == k;
+            if (b)
+            {
+                got += b->entries.size();
+                last = b->last;
+            }
+        }
+        check(fits && got == book.size() && last, "BOOK: the longest record in parts that fit, all entries back");
+        auto empty = wire::EncodeBook(1, {});
+        auto eb = wire::DecodeBook(*efenc::Decode(empty.at(0)));
+        check(empty.size() == 1 && eb && eb->last && eb->entries.empty(), "BOOK: nothing caught is one empty last part");
+        check(!wire::DecodeBook(*efenc::Decode("1;3;F;BOOK;0;1;7:1:1:0:220")), "BOOK: a short entry is refused");
+
         // fuzz: mutated OPEN and END bodies never crash
         std::mt19937 rng(77);
-        std::string const seeds[2] = {body, wire::EncodeEnd(13, e)};
+        std::string const seeds[3] = {body, wire::EncodeEnd(13, e), wire::EncodeBook(4, {{3, 10, 9, 1, 420, 1762400000}, {5, 2, 2, 0, 310, 1762400100}}).at(0)};
         for (int i = 0; i < 20000; ++i)
         {
-            std::string s = seeds[i % 2];
+            std::string s = seeds[i % 3];
             int const edits = 1 + int(rng() % 4);
             for (int k = 0; k < edits && !s.empty(); ++k)
             {
@@ -338,6 +365,8 @@ namespace
                 (void)wire::DecodeEnd(*d);
                 (void)wire::DecodeResult(*d);
                 (void)wire::DecodeClose(*d);
+                (void)wire::DecodeBook(*d);
+                (void)wire::DecodeCatch(*d);
             }
         }
         check(true, "fuzz survived");
