@@ -17,12 +17,14 @@
 
 // Emberfall (PATCHES.md, "Module"): character XP from the primary professions (Emberfall docs/design/professions.md,
 // the rank system; Sundered Vale progression.md §5). Every gather (a node, a skinned corpse) and every craft of a
-// primary profession (SkillLine category 11) gives XP by its colour for the player: orange and yellow in full, green
-// half, grey nothing. On with Emberfall.OwnData = 1 and Emberfall.Professions.Xp.Enable (default 1). The colours are
+// primary profession (SkillLine category 11) or a gathering line gives XP by its colour for the player: orange and
+// yellow in full, green half, grey nothing. On with Emberfall.OwnData = 1 and Emberfall.Professions.Xp.Enable (default 1). The colours are
 // the thresholds the core hands the hooks: gathering's are PATCHES.md #14's (+40/+80/+120 under own data), a recipe's
 // its SkillLineAbility row (yellow TrivialSkillLineRankLow, green the midpoint, grey TrivialSkillLineRankHigh).
 // Emberfall.Professions.Xp.Rate (default 0.1, 2026-10-28) scales every action's XP in one place: profession XP is
-// cosmetic.
+// cosmetic. Mining, Herbalism and Skinning are secondary since 2026-11-06 (one main profession, professions.md §25) and
+// still give their gathering XP, as before, with Emberfall.Professions.Xp.Gathering (default 1; 0: the crafts only);
+// the other secondary skills (Cooking, First Aid, Fishing, Beastcraft) give none.
 
 #include "Config.h"
 #include "DBCStores.h"
@@ -39,10 +41,14 @@ using namespace Emberfall::Professions;
 namespace
 {
     bool s_enable = true;
+    bool s_gathering = true;
     XpRules s_rules;
 
-    bool IsPrimaryProfessionLine(uint32 skill)
+    // A main craft (category 11), or a gathering line while Emberfall.Professions.Xp.Gathering is on.
+    bool GivesXp(uint32 skill)
     {
+        if (s_gathering && (skill == SKILL_MINING || skill == SKILL_HERBALISM || skill == SKILL_SKINNING))
+            return true;
         SkillLineEntry const* line = sSkillLineStore.LookupEntry(skill);
         return line && line->categoryId == SKILL_CATEGORY_PROFESSION;
     }
@@ -50,7 +56,7 @@ namespace
     void Award(Player* player, uint32 skill, uint32 current, uint32 required, uint32 yellow, uint32 green, uint32 gray,
                char const* what)
     {
-        if (!s_enable || !player || !Emberfall::OwnData() || !IsPrimaryProfessionLine(skill))
+        if (!s_enable || !player || !Emberfall::OwnData() || !GivesXp(skill))
             return;
         Colour const c = ColourOf(current, required, yellow, green, gray);
         uint32 const xp = XpFor(s_rules, c, required);
@@ -72,10 +78,12 @@ namespace
             s_rules.perSkill = sConfigMgr->GetOption<float>("Emberfall.Professions.Xp.PerSkill", 0.06f, false);
             s_rules.greenPercent = sConfigMgr->GetOption<uint32>("Emberfall.Professions.Xp.GreenPercent", 50, false);
             s_rules.rate = sConfigMgr->GetOption<float>("Emberfall.Professions.Xp.Rate", 0.1f, false);
+            s_gathering = sConfigMgr->GetOption<bool>("Emberfall.Professions.Xp.Gathering", true, false);
             if (Emberfall::OwnData())
                 LOG_INFO("server.loading",
-                         ">> Emberfall profession XP: {} (base {}, {} per requirement point, green {}%, rate {})",
-                         s_enable ? "on" : "off", s_rules.base, s_rules.perSkill, s_rules.greenPercent, s_rules.rate);
+                         ">> Emberfall profession XP: {} (base {}, {} per requirement point, green {}%, rate {}, gathering {})",
+                         s_enable ? "on" : "off", s_rules.base, s_rules.perSkill, s_rules.greenPercent, s_rules.rate,
+                         s_gathering ? "on" : "off");
         }
     };
 

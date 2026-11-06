@@ -27,6 +27,11 @@
 //                                                             was open
 //   s -> c  CLOSE   <id>;<reason>                             RANGE (more than 5 yd), GONE, DIED (the hunter)
 //   c -> s  CLOSE   <id>                                      the hunter closed the frame (the beast sleeps on)
+//   s -> c  KNOWN   <family>;<item><taste>,<item><taste>,...  after the HELLO's OK, to a hunter: what each family made
+//                                                             of every item he has fed it (the characters DB's
+//                                                             ef_tame_known; tastes C F L P R), at most
+//                                                             kKnownPerMessage a message (SplitKnown): the compendium's
+//                                                             food lines on any machine
 
 #ifndef EMBERFALL_TAME_WIRE_H
 #define EMBERFALL_TAME_WIRE_H
@@ -35,6 +40,9 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace eftame::wire
 {
@@ -100,12 +108,23 @@ namespace eftame::wire
         std::string reason;               // empty from the client
     };
 
+    // KNOWN: what one family made of the items a hunter has fed it.
+    struct Known
+    {
+        std::uint32_t family = 0;         // the beast family (taming/families.yaml: EfBeastKind, ef_tame_family)
+        std::vector<std::pair<std::uint32_t, char>> items;   // item, taste (C F L P R)
+    };
+
+    constexpr std::size_t kKnownPerMessage = 24;   // "99999F," x 24 and the head stay well under 255 bytes
+
     inline efenc::Message Msg(std::uint32_t seq, char const* cmd) { return efenc::MakeMessage(seq, efenc::kTaming, cmd); }
 
     inline bool IsTaste(char c)
     {
         return c == kCake || c == kFavourite || c == kLiked || c == kPlain || c == kRefused || c == kDrank;
     }
+
+    inline bool IsKnownTaste(char c) { return c == kCake || c == kFavourite || c == kLiked || c == kPlain || c == kRefused; }
 
     inline bool IsOutcome(char c) { return c == kTamed || c == kWoke || c == kDied || c == kGone || c == kFailed; }
 
@@ -209,6 +228,63 @@ namespace eftame::wire
         if (!id)
             return std::nullopt;
         return Close{*id, m.fields.size() == 2 ? m.fields[1] : std::string()};
+    }
+
+    // One family's known items as messages of at most kKnownPerMessage items each (none for no items).
+    inline std::vector<Known> SplitKnown(Known const& all)
+    {
+        std::vector<Known> out;
+        for (std::size_t i = 0; i < all.items.size(); i += kKnownPerMessage)
+        {
+            Known k{all.family, {}};
+            for (std::size_t j = i; j < all.items.size() && j < i + kKnownPerMessage; ++j)
+                if (IsKnownTaste(all.items[j].second))
+                    k.items.push_back(all.items[j]);
+            if (!k.items.empty())
+                out.push_back(std::move(k));
+        }
+        return out;
+    }
+
+    inline std::string EncodeKnown(std::uint32_t seq, Known const& k)
+    {
+        if (!k.family || k.items.empty() || k.items.size() > kKnownPerMessage)
+            return {};
+        std::string list;
+        for (auto const& [item, taste] : k.items)
+        {
+            if (!IsKnownTaste(taste))
+                return {};
+            if (!list.empty())
+                list += ',';
+            list += std::to_string(item);
+            list += taste;
+        }
+        efenc::Message m = Msg(seq, "KNOWN");
+        m.fields = {std::to_string(k.family), list};
+        return efenc::Encode(m);
+    }
+
+    inline std::optional<Known> DecodeKnown(efenc::Message const& m)
+    {
+        if (m.kind != efenc::kTaming || m.cmd != "KNOWN" || m.fields.size() != 2)
+            return std::nullopt;
+        auto const family = efenc::ParseUint<std::uint32_t>(m.fields[0]);
+        if (!family || !*family)
+            return std::nullopt;
+        Known k{*family, {}};
+        for (std::string_view entry : efenc::Split(m.fields[1], ','))
+        {
+            if (entry.size() < 2 || !IsKnownTaste(entry.back()))
+                return std::nullopt;
+            auto const item = efenc::ParseUint<std::uint32_t>(entry.substr(0, entry.size() - 1));
+            if (!item || !*item)
+                return std::nullopt;
+            k.items.emplace_back(*item, entry.back());
+        }
+        if (k.items.empty() || k.items.size() > kKnownPerMessage)
+            return std::nullopt;
+        return k;
     }
 }
 
