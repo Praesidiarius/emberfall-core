@@ -304,6 +304,39 @@ namespace
         check(TrustFull(s) && bites == 10 && now == 120000, "a level-20 beast: ten bites, tamed at 2:00");
         check(draughts == 2, "two draughts keep it under");
     }
+
+    // KNOWN (hunter-taming.md §16): a family's fed items, split under the message's size, round trip; bad lists refuse.
+    void TestKnown()
+    {
+        namespace W = eftame::wire;
+        W::Known all{131, {}};
+        for (std::uint32_t i = 0; i < 50; ++i)
+            all.items.emplace_back(99400 + i, "CFLPR"[i % 5]);
+        all.items.emplace_back(99999, W::kDrank);   // a draught is no taste: left out
+        std::vector<W::Known> parts = W::SplitKnown(all);
+        check(parts.size() == 3 && parts[0].items.size() == W::kKnownPerMessage && parts[2].items.size() == 2,
+              "KNOWN splits 50 items into 24 + 24 + 2");
+        std::size_t back = 0;
+        for (W::Known const& k : parts)
+        {
+            std::string const body = W::EncodeKnown(9, k);
+            check(!body.empty() && body.size() + 4 <= efenc::kMaxBytes, "KNOWN fits one message");
+            auto m = efenc::Decode(body);
+            auto d = m ? W::DecodeKnown(*m) : std::nullopt;
+            check(d && d->family == 131 && d->items == k.items, "KNOWN round trip");
+            back += d ? d->items.size() : 0;
+        }
+        check(back == 50, "every taste comes back");
+        check(W::SplitKnown({131, {}}).empty(), "no items, no message");
+        check(W::EncodeKnown(1, {0, {{1, 'F'}}}).empty(), "no family, no message");
+        check(W::EncodeKnown(1, {131, {{1, 'D'}}}).empty(), "a draught is no known taste");
+        efenc::Message bad = efenc::MakeMessage(1, efenc::kTaming, "KNOWN");
+        for (char const* list : {"", "99405", "99405X", "F", "99405F,,99406L", "abcF"})
+        {
+            bad.fields = {"131", list};
+            check(!W::DecodeKnown(bad), std::string("KNOWN refuses '") + list + "'");
+        }
+    }
 }
 
 int main()
@@ -314,6 +347,7 @@ int main()
     TestDrowseAndClaim();
     TestFood();
     TestPace();
+    TestKnown();
     std::cout << "taming tests: " << g_checks - g_failed << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }
