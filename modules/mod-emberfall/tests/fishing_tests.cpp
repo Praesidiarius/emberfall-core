@@ -142,7 +142,7 @@ namespace
         pike.id = 4;
         pike.rarity = Rarity::Uncommon;
         pike.clue = Clue::Swirl;
-        pike.waters = {2, 0, 0, 0};
+        pike.waters = {2};
         pike.habitatPermil = {0, 400, 0, 1000, 600, 0};
         pike.timeMask = kDawn | kDay | kDusk;
         uint64_t const act = Activity(pike, 2, kReeds | kShallows, kDay, kClear);
@@ -355,7 +355,7 @@ namespace
         common.rarity = Rarity::Common;
         common.sizeTypMm = 200;
         common.sizeMaxMm = 400;
-        common.waters = {1, 0, 0, 0};
+        common.waters = {1};
         common.habitatPermil = {1000, 0, 0, 1000, 0, 0};   // shallows, reeds
         Species unc = common;
         unc.id = 2;

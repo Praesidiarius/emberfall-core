@@ -17,6 +17,10 @@
 //   c -> s  END     <fight>;<outcome L S R N X>;<duration ms>;<peak>;<over 900 ms>;<input seconds>;<phase ends a/b/c>
 //   s -> c  RESULT  <fight>;OK;<item>;<size mm>;<grams>;<best 0/1>   or   <fight>;REJ;<code>
 //   s -> c  CLOSE   <fight>;<reason MOVED DIED TIMEOUT CHANNEL GONE>
+//   s -> c  CATCH   <species>;<size mm>;<grams>;<best 0/1>                  a common landed at the click (no fight)
+//   c -> s  BOOK                                                         the fishing journal: what this character caught
+//   s -> c  BOOK    <part>;<last 0/1>;<species:caught:landed:lost:best mm:first unix>/...   kBookPerPart a part, from
+//                   part 0; an empty last part when nothing was caught
 
 #ifndef EMBERFALL_FISH_WIRE_H
 #define EMBERFALL_FISH_WIRE_H
@@ -26,6 +30,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace effish::wire
 {
@@ -61,6 +66,36 @@ namespace effish::wire
         std::uint32_t fight = 0;
         std::string reason;
     };
+
+    // A common landed at the click (fishing.md §6.1): the journal and the chat line learn of it.
+    struct Catch
+    {
+        std::uint32_t species = 0;
+        std::uint32_t sizeMm = 0;
+        std::uint32_t grams = 0;
+        bool best = false;
+    };
+
+    // One species of the character's record (ef_character_fish), the fishing journal's entry (fishing.md §13).
+    struct BookEntry
+    {
+        std::uint32_t species = 0;
+        std::uint32_t caught = 0;     // hooked
+        std::uint32_t landed = 0;
+        std::uint32_t lost = 0;
+        std::uint32_t bestMm = 0;
+        std::uint32_t first = 0;      // unix time of the first catch
+    };
+
+    struct BookPart
+    {
+        std::uint32_t part = 0;
+        bool last = false;
+        std::vector<BookEntry> entries;
+    };
+
+    // Entries per BOOK message: three of the longest (every number 10 digits) still fit the 255 bytes.
+    constexpr std::size_t kBookPerPart = 3;
 
     inline efenc::Message Msg(std::uint32_t seq, char const* cmd)
     {
@@ -236,6 +271,84 @@ namespace effish::wire
         efenc::Message m = Msg(seq, "CLOSE");
         m.fields = {std::to_string(c.fight), c.reason};
         return efenc::Encode(m);
+    }
+
+    inline std::string EncodeCatch(std::uint32_t seq, Catch const& c)
+    {
+        efenc::Message m = Msg(seq, "CATCH");
+        m.fields = {std::to_string(c.species), std::to_string(c.sizeMm), std::to_string(c.grams), c.best ? "1" : "0"};
+        return efenc::Encode(m);
+    }
+
+    inline std::optional<Catch> DecodeCatch(efenc::Message const& m)
+    {
+        if (m.kind != efenc::kFishing || m.cmd != "CATCH" || m.fields.size() != 4)
+            return std::nullopt;
+        auto species = efenc::ParseUint<std::uint32_t>(m.fields[0]), size = efenc::ParseUint<std::uint32_t>(m.fields[1]),
+             grams = efenc::ParseUint<std::uint32_t>(m.fields[2]);
+        if (!species || !*species || !size || !grams || (m.fields[3] != "0" && m.fields[3] != "1"))
+            return std::nullopt;
+        return Catch{*species, *size, *grams, m.fields[3] == "1"};
+    }
+
+    inline std::string EncodeBookRequest(std::uint32_t seq)
+    {
+        return efenc::Encode(Msg(seq, "BOOK"));
+    }
+
+    // The whole record as BOOK parts (at least one: an empty last part when nothing was caught).
+    inline std::vector<std::string> EncodeBook(std::uint32_t firstSeq, std::vector<BookEntry> const& entries)
+    {
+        std::vector<std::string> out;
+        std::size_t const parts = entries.empty() ? 1 : (entries.size() + kBookPerPart - 1) / kBookPerPart;
+        for (std::size_t k = 0; k < parts; ++k)
+        {
+            std::string list;
+            for (std::size_t i = k * kBookPerPart; i < entries.size() && i < (k + 1) * kBookPerPart; ++i)
+            {
+                BookEntry const& e = entries[i];
+                if (!list.empty())
+                    list += "/";
+                list += std::to_string(e.species) + ":" + std::to_string(e.caught) + ":" + std::to_string(e.landed) + ":" +
+                        std::to_string(e.lost) + ":" + std::to_string(e.bestMm) + ":" + std::to_string(e.first);
+            }
+            efenc::Message m = Msg(firstSeq + static_cast<std::uint32_t>(k), "BOOK");
+            m.fields = {std::to_string(k), k + 1 == parts ? "1" : "0", list};
+            out.push_back(efenc::Encode(m));
+        }
+        return out;
+    }
+
+    inline std::optional<BookPart> DecodeBook(efenc::Message const& m)
+    {
+        if (m.kind != efenc::kFishing || m.cmd != "BOOK" || m.fields.size() != 3 || (m.fields[1] != "0" && m.fields[1] != "1"))
+            return std::nullopt;
+        auto part = efenc::ParseUint<std::uint32_t>(m.fields[0]);
+        if (!part)
+            return std::nullopt;
+        BookPart b;
+        b.part = *part;
+        b.last = m.fields[1] == "1";
+        if (m.fields[2].empty())
+            return b;
+        for (std::string_view one : efenc::Split(m.fields[2], '/'))
+        {
+            auto const v = efenc::Split(one, ':');
+            if (v.size() != 6)
+                return std::nullopt;
+            std::uint32_t n[6];
+            for (std::size_t i = 0; i < 6; ++i)
+            {
+                auto x = efenc::ParseUint<std::uint32_t>(v[i]);
+                if (!x)
+                    return std::nullopt;
+                n[i] = *x;
+            }
+            if (!n[0])
+                return std::nullopt;
+            b.entries.push_back(BookEntry{n[0], n[1], n[2], n[3], n[4], n[5]});
+        }
+        return b;
     }
 
     inline std::optional<Close> DecodeClose(efenc::Message const& m)
