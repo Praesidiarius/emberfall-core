@@ -36,6 +36,11 @@
 //   - Kept in memory only (one State per beast, by its GUID); freed on death, evade, tame, wake, and a sweep drops
 //     states no creature has ticked for 30 s (grid unload, despawn). The Out Cold aura has its own duration, so a beast
 //     the module forgets wakes anyway.
+//   - Every tameable beast has a beast family (§15, ef_tame_beast: wolves, bears, herons ...), and its tastes are its
+//     family's (ef_tame_family, ef_tame_like); its CreatureFamily is only what it becomes (the companion).
+//   - The compendium's food lines (§16): every item a hunter feeds (or offers) a family is kept in the characters DB
+//     (ef_character_tame_known) and sent with the taste after the client's EFN HELLO (KNOWN), so they follow him to any
+//     machine.
 //   - `.eftame state` (the targeted beast), `.eftame force` (Drowse or Trust full), `.eftame reload`.
 // Config: Emberfall.Taming.Enable (1).
 
@@ -71,7 +76,9 @@
 #include <atomic>
 #include <iterator>
 #include <mutex>
+#include <set>
 #include <unordered_map>
+#include <utility>
 
 using namespace Acore::ChatCommands;
 
@@ -128,7 +135,12 @@ namespace
     std::vector<T::Arrow> s_arrows;
     std::unordered_map<uint32, T::Draught> s_draughts;
     std::unordered_map<uint64, Entry> s_states;      // by the beast's raw GUID
+    std::unordered_map<uint32, uint32> s_beasts;     // creature entry -> its beast family (ef_tame_beast, §15)
     std::atomic<uint32> s_count{0};
+
+    // What each hunter online has fed each family (ef_character_tame_known, §16): by the player's GUID counter, the
+    // (family, item) pairs; loaded at login, added at every bite and sniff, dropped at logout. Under s_lock.
+    std::unordered_map<uint32, std::set<std::pair<uint32, uint32>>> s_known;
 
     uint64 NowMs() { return uint64(GameTime::GetGameTimeMS().count()); }
 
@@ -165,6 +177,12 @@ namespace
                 Field* f = r->Fetch();
                 s_tastes.AddLike(f[0].Get<uint32>(), f[1].Get<std::string>(), f[2].Get<uint32>());
             } while (r->NextRow());
+        s_beasts.clear();
+        if (QueryResult r = WorldDatabase.Query("SELECT `entry`, `family` FROM `ef_tame_beast`"))
+            do
+            {
+                s_beasts[r->Fetch()[0].Get<uint32>()] = r->Fetch()[1].Get<uint32>();
+            } while (r->NextRow());
         s_arrows.clear();
         if (QueryResult r = WorldDatabase.Query("SELECT `item`, `drowse`, `max_level`, `skill` FROM `ef_tame_arrow`"))
             do
@@ -179,8 +197,70 @@ namespace
                 Field* f = r->Fetch();
                 s_draughts[f[0].Get<uint32>()] = {f[0].Get<uint32>(), f[1].Get<uint32>(), f[2].Get<uint32>()};
             } while (r->NextRow());
-        LOG_INFO("server.loading", ">> Emberfall taming: {} ({} families, {} arrows, {} draughts)", s_enable ? "on" : "off",
-                 s_tastes.Size(), s_arrows.size(), s_draughts.size());
+        LOG_INFO("server.loading", ">> Emberfall taming: {} ({} families, {} beasts, {} arrows, {} draughts)", s_enable ? "on" : "off",
+                 s_tastes.Size(), s_beasts.size(), s_arrows.size(), s_draughts.size());
+    }
+
+    // A beast's family (§15): its ef_tame_beast row; a creature the content build gave none (an older world DB) falls
+    // back to its CreatureFamily, which then has no tastes (everything refused but the draughts).
+    uint32 FamilyOf(Creature const* beast)
+    {
+        auto it = s_beasts.find(beast->GetEntry());
+        return it != s_beasts.end() ? it->second : beast->GetCreatureTemplate()->family;
+    }
+
+    // ---- the compendium's food lines (§16) --------------------------------------------------------------------------
+
+    void LoadKnown(Player* player)
+    {
+        std::set<std::pair<uint32, uint32>> known;
+        if (QueryResult r = CharacterDatabase.Query("SELECT `family`, `item` FROM `ef_character_tame_known` WHERE `guid` = {}",
+                                                    player->GetGUID().GetCounter()))
+            do
+            {
+                known.emplace(r->Fetch()[0].Get<uint32>(), r->Fetch()[1].Get<uint32>());
+            } while (r->NextRow());
+        std::lock_guard<std::recursive_mutex> guard(s_lock);
+        s_known[player->GetGUID().GetCounter()] = std::move(known);
+    }
+
+    // The hunter fed (or offered) `item` to a beast of `family`: remembered once. Under s_lock.
+    void Learn(Player* player, uint32 family, uint32 item)
+    {
+        if (!player || !family || !item)
+            return;
+        uint32 const guid = player->GetGUID().GetCounter();
+        if (!s_known[guid].emplace(family, item).second)
+            return;
+        CharacterDatabase.Execute("INSERT IGNORE INTO `ef_character_tame_known` (`guid`, `family`, `item`) VALUES ({}, {}, {})",
+                                  guid, family, item);
+    }
+
+    // KNOWN after the HELLO's OK: every family's fed items with what it made of them (the world data's taste now).
+    void SendKnown(Player* player)
+    {
+        std::lock_guard<std::recursive_mutex> guard(s_lock);
+        auto it = s_known.find(player->GetGUID().GetCounter());
+        if (it == s_known.end() || it->second.empty())
+            return;
+        E::ItemGroups const& groups = E::Groups();
+        W::Known family;
+        auto flush = [&]() {
+            for (W::Known const& part : W::SplitKnown(family))
+                E::Send(player, W::EncodeKnown(E::NextSeq(player), part));
+            family.items.clear();
+        };
+        for (auto const& [fam, item] : it->second)   // ordered by family
+        {
+            if (fam != family.family)
+            {
+                flush();
+                family.family = fam;
+            }
+            if (!IsDraught(item))
+                family.items.emplace_back(item, T::TasteLetter(s_tastes.Resolve(fam, item, groups).permil));
+        }
+        flush();
     }
 
     // ---- the hunter's side ------------------------------------------------------------------------------------------
@@ -475,12 +555,14 @@ namespace
                 T::AddTrust(s, trust);
                 ++s.eaten;
                 e.slotsDirty = true;
+                Learn(claimant, s.family, item);
                 if (claimant && e.openFor)
                     E::Send(claimant, W::EncodeEat(E::NextSeq(claimant), {uint32(e.openFor), item, T::TasteLetter(taste.permil), std::max<uint32>(trust, 1)}));
             }
             else if (int const r = T::FirstRefused(s_rule, s, s_tastes, groups, IsDraught); r >= 0)
             {
                 s.sniffed[r] = true;
+                Learn(claimant, s.family, s.slots[r].item);
                 if (claimant && e.openFor)
                     E::Send(claimant, W::EncodeEat(E::NextSeq(claimant), {uint32(e.openFor), s.slots[r].item, W::kRefused, 1}));
             }
@@ -652,6 +734,8 @@ namespace
             {
                 efenc::Message ok = efenc::MakeMessage(E::NextSeq(player), efenc::kTaming, "OK");
                 E::Send(player, efenc::Encode(ok));
+                if (player->getClass() == CLASS_HUNTER)
+                    SendKnown(player);   // the compendium's food lines (§16)
             }
             else if (msg.cmd == "OPEN")
                 HandleOpen(player, msg);
@@ -871,9 +955,25 @@ namespace
     public:
         emberfall_taming_player()
             : PlayerScript("emberfall_taming_player", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_UPDATE_SKILL,
-                PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_PLAYER_JUST_DIED }) { }
+                PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_DELETE_FROM_DB }) { }
 
-        void OnPlayerLogin(Player* player) override { Reconcile(player); }
+        void OnPlayerLogin(Player* player) override
+        {
+            Reconcile(player);
+            if (s_enable && player->getClass() == CLASS_HUNTER)
+                LoadKnown(player);
+        }
+
+        void OnPlayerLogout(Player* player) override
+        {
+            std::lock_guard<std::recursive_mutex> guard(s_lock);
+            s_known.erase(player->GetGUID().GetCounter());
+        }
+
+        void OnPlayerDeleteFromDB(CharacterDatabaseTransaction trans, uint32 guid) override
+        {
+            trans->Append("DELETE FROM `ef_character_tame_known` WHERE `guid` = {}", guid);
+        }
         void OnPlayerLevelChanged(Player* player, uint8 /*oldLevel*/) override { Reconcile(player); }
 
         void OnPlayerUpdateSkill(Player* player, uint32 skillId, uint32 /*value*/, uint32 /*max*/, uint32 /*step*/, uint32 /*newValue*/) override
@@ -1095,7 +1195,7 @@ class spell_ef_drowse_shot : public SpellScript
         {
             CreatureTemplate const* t = beast->GetCreatureTemplate();
             Entry e;
-            e.s = T::Begin(s_rule, key, t->family, beast->GetLevel(), T::RankOf(t->rank), now);
+            e.s = T::Begin(s_rule, key, FamilyOf(beast), beast->GetLevel(), T::RankOf(t->rank), now);
             e.lastTickMs = now;
             it = s_states.emplace(key, e).first;
             CountStates();
