@@ -105,20 +105,23 @@ namespace
                 if (!shared.count(id) && IsAccountWide(sAchievementStore.LookupEntry(id)))
                     Share(account, guid, id, uint32(data.date));
 
+            if (shared.empty())
+                return;
             // kept by the account, missing here: granted once the client has its achievement list
             std::vector<uint32> missing;
             for (uint32 id : shared)
                 if (!player->HasAchieved(id) && IsAccountWide(sAchievementStore.LookupEntry(id)))
                     missing.push_back(id);
-            if (missing.empty())
-                return;
-            LOG_DEBUG("module", "Emberfall account achievements: {} gets {} of account {}'s", player->GetName(),
-                      missing.size(), account);
+            LOG_DEBUG("module", "Emberfall account achievements: {} gets {} of account {}'s {}", player->GetName(),
+                      missing.size(), account, shared.size());
             player->m_Events.AddEventAtOffset([player, missing]
             {
                 for (uint32 id : missing)
                     if (AchievementEntry const* entry = sAchievementStore.LookupEntry(id))
                         player->CompletedAchievement(entry);
+                // what builds on achievements (a continent's exploration over its zones'): the ones that came in
+                // quietly with the character (another character earned them) count too
+                player->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_COMPLETE_ACHIEVEMENT);
             }, 1s);
         }
     };
