@@ -613,3 +613,24 @@ at (x, y, z) sent back to (x, y, z)` (or `... home to map M`).
 
 `data/sql/db-world/mod_emberfall_2026_11_06_01_seam_area.sql`: `ef_seam_area`. The rules: `src/seam/EfSeamLogic.h`;
 tests: `tests/seam_tests.cpp`. The core lists map 754 as a continent (`PATCHES.md` #39).
+
+## Account-wide achievements (Emberfall `content/data/achievements.yaml`)
+
+3.3.5 knows only per-character achievements. An Achievement.dbc row with Emberfall's flag 0x8000 (the bit later
+clients give account-wide achievements; unused in 3.3.5; Emberfall's exploration achievements carry it) is shared by
+every character of the account: the first character to earn it puts it into `ef_account_achievement` (account,
+achievement, first date; kept when that character is deleted) and into every other character's `character_achievement`
+with the same date (they load it quietly at their next login). At login a character gets what the account has and it
+lacks (a newer character; `Player::CompletedAchievement` a second later: toast, and the criteria that build on it, a
+continent's exploration), and the account gets what the character earned before the module. Criteria progress stays per
+character; a GM in GM mode earns nothing (the core's rule), the grant waits for a login out of it. Character-wide stays
+the default.
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_account_achievements_player` | `OnPlayerAchievementComplete` | an account-flagged achievement: into `ef_account_achievement` and the account's other characters |
+| | `OnPlayerLogin` | the character's account-flagged achievements into the account; the account's missing here granted after 1 s, then the achievement-completion criteria re-checked (a continent's exploration counts the zones that came in quietly) |
+
+`data/sql/db-characters/mod_emberfall_2026_11_08_00_account_achievements.sql`: `ef_account_achievement`, and every
+character's `at_login` gets `AT_LOGIN_CHECK_ACHIEVS` (0x400) once, so levels reached and areas explored before
+Emberfall's first achievements count at the next login.
