@@ -629,7 +629,7 @@ the default.
 | Script | Hook | What |
 |---|---|---|
 | `emberfall_account_achievements_player` | `OnPlayerAchievementComplete` | an account-flagged achievement: into `ef_account_achievement` and the account's other characters |
-| | `OnPlayerLogin` | the character's account-flagged achievements into the account; the account's missing here granted after 1 s |
+| | `OnPlayerLogin` | the character's account-flagged achievements into the account; the account's missing here granted after 1 s, then the achievement-completion criteria re-checked (a continent's exploration counts the zones that came in quietly) |
 
 `data/sql/db-characters/mod_emberfall_2026_11_08_00_account_achievements.sql`: `ef_account_achievement`, and every
 character's `at_login` gets `AT_LOGIN_CHECK_ACHIEVS` (0x400) once, so levels reached and areas explored before
