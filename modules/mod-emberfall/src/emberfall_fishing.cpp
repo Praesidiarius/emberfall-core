@@ -23,9 +23,9 @@
 // core's fishing unchanged (OnGossipHello returns false). In a cell, the hook click (GameObject::Use calls the script
 // first) is this module's:
 //   - the roll (src/fishing/EfFishLogic.h over the shared EfFishRules.h): junk as the core rolls it (a shoal skips it),
-//     else a species of the water by habitat, time of day (the server's local hour), the zone's weather (and "after
-//     rain"), the bait aura on the angler, the skill gates; the legendary through his quest chain; the size. The
-//     skill-up exactly as the core (OnPlayerUpdateFishingSkill, UpdateFishingSkill);
+//     else a species of the water by habitat, time of day (the part of the day by the sun: src/sun/EfSun.h), the
+//     zone's weather (and "after rain"), the bait aura on the angler, the skill gates; the legendary through his quest
+//     chain; the size. The skill-up exactly as the core (OnPlayerUpdateFishingSkill, UpdateFishingSkill);
 //   - junk: the core's junk loot (SendLoot LOOT_FISHING_JUNK); a common: the fish in the bobber's loot, the loot window;
 //   - uncommon and better: the fight. The bobber's spell id is cleared and its loot state set to activated (the core's
 //     own trick for an open loot window: the channel's end does not take it, its escape timer stops), the fishing
@@ -68,6 +68,7 @@
 #include "encounters/EfEncounterMgr.h"
 #include "fishing/EfFishLogic.h"
 #include "fishing/EfFishWire.h"
+#include "sun/EfSun.h"
 #include <algorithm>
 #include <cmath>
 #include <list>
@@ -140,10 +141,11 @@ namespace
     uint64 NowSec() { return uint64(GameTime::GetGameTime().count()); }
     uint64 Key(Player* p) { return p->GetGUID().GetCounter(); }
 
+    // The time of day by the sun (src/sun/EfSun.h): the part of the day on the sun clock, which the client reads from the
+    // same sunrise and sunset (its water clues); fishing.md §4.2's windows.
     uint8 TimeBitNow()
     {
-        std::tm const tm = Acore::Time::TimeBreakdown(time_t(NowSec()));
-        return effish::TimeOfHour(tm.tm_hour);
+        return F::TimeBitOf(Emberfall::Sun::PartNow());
     }
 
     // under s_lock

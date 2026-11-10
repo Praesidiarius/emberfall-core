@@ -25,6 +25,7 @@
 
 #include "EfFishFight.h"
 #include "EfFishRules.h"
+#include "../sun/EfSunTime.h"
 
 #include <cmath>
 #include <cstdint>
@@ -39,6 +40,12 @@ namespace Emberfall::Fishing
 {
     using effish::Rarity;
     using effish::Species;
+
+    // The rules' time-of-day bit for a part of the day by the sun (src/sun/EfSunTime.h: fishing.md §4.2's windows are
+    // read on the sun clock, by the server's roll and by the client's water clues alike).
+    constexpr std::uint8_t TimeBitOf(efsun::Part part) { return static_cast<std::uint8_t>(1u << static_cast<unsigned>(part)); }
+    static_assert(TimeBitOf(efsun::Part::Dawn) == effish::kDawn && TimeBitOf(efsun::Part::Day) == effish::kDay &&
+                  TimeBitOf(efsun::Part::Dusk) == effish::kDusk && TimeBitOf(efsun::Part::Night) == effish::kNight);
 
     // An ef_fish_cell row.
     struct Cell

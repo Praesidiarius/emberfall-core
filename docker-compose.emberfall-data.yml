@@ -162,6 +162,10 @@ services:
       AC_EMBERFALL_EDITOR_DATABASE: "${EF_EDITOR_DATABASE:-}"
       AC_EMBERFALL_EDITOR_MODE: "${EF_EDITOR_MODE:-local}"
       AC_EMBERFALL_EDITOR_REFRESH_SECONDS: "${EF_EDITOR_REFRESH_SECONDS:-60}"
+      # mod-emberfall's sun hours (src/emberfall_sun.cpp; Emberfall docs/design/atmosphere.md "The sun's hours"): each
+      # day's sunrise and sunset, sent to the clients. real (Zurich's own, the default), softened or fixed (06:00 /
+      # 19:45); `.efsun mode <mode>` switches it while the server runs.
+      AC_EMBERFALL_SUN_MODE: "${EF_SUN_MODE:-real}"
       # Races players may not create (stock CharacterCreating.Disabled.RaceMask, bit 1 << (race - 1)): Emberfall's
       # ef_server.sh sets EF_CREATE_DISABLED_RACE_MASK (0: every race, the ylvar's 2048 included).
       AC_CHARACTER_CREATING_DISABLED_RACE_MASK: "${EF_CREATE_DISABLED_RACE_MASK:-0}"

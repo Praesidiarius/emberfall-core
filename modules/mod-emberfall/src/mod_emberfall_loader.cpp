@@ -49,6 +49,7 @@ void AddEmberfallFishingScripts();
 void AddEmberfallTamingScripts();
 void AddEmberfallSeamScripts();
 void AddEmberfallAccountAchievementsScripts();
+void AddEmberfallSunScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -83,4 +84,5 @@ void Addmod_emberfallScripts()
     AddEmberfallTamingScripts();
     AddEmberfallSeamScripts();
     AddEmberfallAccountAchievementsScripts();
+    AddEmberfallSunScripts();
 }
