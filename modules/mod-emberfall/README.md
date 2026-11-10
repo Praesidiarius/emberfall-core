@@ -553,7 +553,7 @@ with a habitat file have rows), or the switch at 0, fishes exactly as the core d
 
 | Script | Hook | What |
 |---|---|---|
-| `go_ef_fishing_bobber` | `GameObjectScript::OnGossipHello` (the top of `GameObject::Use`) | the hook click in a cell: the roll (`src/fishing/EfFishLogic.h` over the shared `EfFishRules.h`: junk as the core rolls it, a fishing pool skips junk, counts a use and triples its own fish; the candidates by water, habitat bits, the server's local hour (dawn 05-08, day 08-18, dusk 18-21, night 21-05), the zone's weather and "after rain" (30 min), the bait aura (`ef_fish_bait`, likes in `ef_fish_species_bait`; no bait halves uncommons and refuses rares), the skill gates (base + 45, base + 95); the legendary: its `gate_quest` in the log means one bite in three when everything holds (ground-bait within 30 yd if `needs_groundbait`), its chain done a weight-2 candidate once a day per character), the size; the skill-up as the core (`OnPlayerUpdateFishingSkill`, `UpdateFishingSkill`). Junk: the core's junk loot. A common: the fish in the bobber's loot, the loot window. Uncommon and better: the bobber's spell id cleared and its loot state set to activated (the core's own way to keep a bobber with an open loot window: the channel's end leaves it, its escape timer stops), the fishing channel finished, Reeling (99264) cast with the bobber as `UNIT_FIELD_CHANNEL_OBJECT`, `OPEN` sent. A click on the bobber during its fight does nothing |
+| `go_ef_fishing_bobber` | `GameObjectScript::OnGossipHello` (the top of `GameObject::Use`) | the hook click in a cell: the roll (`src/fishing/EfFishLogic.h` over the shared `EfFishRules.h`: junk as the core rolls it, a fishing pool skips junk, counts a use and triples its own fish; the candidates by water, habitat bits, the part of the day by the sun (`Emberfall::Sun::PartNow()`, below: dawn 05-08, day 08-18, dusk 18-21, night 21-05 on the sun clock), the zone's weather and "after rain" (30 min), the bait aura (`ef_fish_bait`, likes in `ef_fish_species_bait`; no bait halves uncommons and refuses rares), the skill gates (base + 45, base + 95); the legendary: its `gate_quest` in the log means one bite in three when everything holds (ground-bait within 30 yd if `needs_groundbait`), its chain done a weight-2 candidate once a day per character), the size; the skill-up as the core (`OnPlayerUpdateFishingSkill`, `UpdateFishingSkill`). Junk: the core's junk loot. A common: the fish in the bobber's loot, the loot window. Uncommon and better: the bobber's spell id cleared and its loot state set to activated (the core's own way to keep a bobber with an open loot window: the channel's end leaves it, its escape timer stops), the fishing channel finished, Reeling (99264) cast with the bobber as `UNIT_FIELD_CHANNEL_OBJECT`, `OPEN` sent. A click on the bobber during its fight does nothing |
 | `emberfall_fishing_player` | `PlayerScript` | each update during a fight: the bobber gone `CLOSE;GONE`, the angler dead `DIED`, mounted or over 30 yd from the bobber `MOVED`, the Reeling channel lost `MOVED` (moved) or `CHANNEL`, past the fight's maximum + 10 s `TIMEOUT`; the bobber goes. Login loads the character's best sizes |
 | `FishingKind` (kind `F` of the framework) | EFN | `HELLO <hash>`: `OK` or `ERR;DATA;<server hash>` (`ef_fish_meta`). `END`: only the open fight's id, first END only (else `RESULT;<id>;REJ;NOENC`); `effish::CheckEnd` against the server's own clock from OPEN (the fastest landing any input could give less 0.5 s, the maximum + 10 s, the peak under the break and not under the fish's pull, time over 900, inputs for a rare or the legendary, the legendary's phases) and the angler (alive, unmounted, channelling Reeling, within 30 yd). Landed and fine: the fish in the bobber's loot, the loot window, `RESULT;<id>;OK;<item>;<size mm>;<grams>;<best>`; an accepted loss `RESULT;<id>;OK;0;<size>;<grams>;0`; anything else `RESULT;<id>;REJ;<FAST/SLOW/BREAK/PULL/OVER900/INPUTS/PHASES/OUTCOME/RANGE>`, logged with the numbers (logger `module`). More than 150 fights an hour is logged once |
 | `at_ef_fish_watch` | `AreaTriggerScript` (`areatrigger_scripts` from Emberfall's compiler) | `ef_fish_event` kind 1 rows of the trigger: the quest (in the log) is done (`AreaExploredOrEventHappens`) when the species' time and weather conditions hold now. Kind 2 rows: landing the species does it |
@@ -634,3 +634,51 @@ the default.
 `data/sql/db-characters/mod_emberfall_2026_11_08_00_account_achievements.sql`: `ef_account_achievement`, and every
 character's `at_login` gets `AT_LOGIN_CHECK_ACHIEVS` (0x400) once, so levels reached and areas explored before
 Emberfall's first achievements count at the next login.
+
+## The sun's hours (Emberfall `docs/design/atmosphere.md`, "The sun's hours")
+
+The game clock is the server's real local time; this makes the world's sunrise and sunset the real ones too. The server
+works out each day's sunrise and sunset for its place and date and tells every client (so all players see the same
+sky); what the server itself does by the time of day reads the same **sun clock**: the local time mapped so that the
+day's sunrise is 06:00 and its sunset 19:45, where Emberfall's lights and fishing's windows are written.
+
+| Setting | Default | What |
+|---|---|---|
+| `Emberfall.Sun.Mode` (`AC_EMBERFALL_SUN_MODE`; the compose file's `EF_SUN_MODE`) | `real` | `real`: the real sunrise and sunset; `softened`: half way between the fixed hours and the real ones; `fixed`: the fixed hours |
+| `Emberfall.Sun.Latitude`, `Emberfall.Sun.Longitude` | 47.37, 8.54 | the place (degrees north, east; Zurich) |
+| `Emberfall.Sun.FixedSunrise`, `Emberfall.Sun.FixedSunset` | 6.0, 19.75 | the fixed hours |
+| `Emberfall.Sun.DaylightEvent` | 200 | the game event that runs by day (Emberfall's world.yaml: NPCs with `hours`, quest markers); 0: none |
+
+Read at start and on `.reload config`. The daylight saving is the server clock's own: the hours are local hours by the
+UTC offset of the date's noon (`TZ`).
+
+| File | What |
+|---|---|
+| `src/sun/EfSunTime.h` | a **verbatim copy** of Emberfall's `client/src/data/EfSunTime.h` (Apache-2.0; Emberfall's `tools/py/tests/test_sun_hours.py` compares them): the sun clock and its inverse, the parts of the day, the modes' names, the EFSUN message |
+| `src/sun/EfSunLogic.h` | pure: dates, the NOAA sunrise equation (`SolarHours`), the day's hours per mode in whole minutes (`HoursFor`; a polar day or night keeps an hour of night or day), a daily event's window on the real clock (`DayWindow`, `CurrentWindow`) |
+| `src/sun/EfSun.h` | for the module's other scripts: `Emberfall::Sun::Hours()`, `SunClockNow()`, `PartNow()` (any thread). **Anything that goes by day and night asks here, never the clock's hour** |
+| `src/emberfall_sun.cpp` | the scripts below |
+| `tests/sun_tests.cpp` | Zurich's sunrises and sunsets through the year (solstices, equinoxes, both daylight-saving change days), other places, the modes, the sun clock's vectors (the client's too), the parts of the day at the windows' edges, the message, the event's window (`tests/run_tests.sh`) |
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_sun_world` | `WorldScript::OnAfterConfigLoad` | the settings; a reload works out the day again and tells everyone |
+| | `OnBeforeWorldInitialized` | the daylight event's hours from its data (`game_event.start_time`'s time of day, `length`; it must come round once a day), its first window; boot line `>> Emberfall sun: real at 47.37 N 8.54 E, 2026-11-10 (UTC+1): sunrise 07:22, sunset 16:58 (EFSUN); game event 200 follows the sun` |
+| | `OnUpdate` (every 10 s) | the server's day turned: the new hours to everyone in the world; the daylight event's window moved when it is over |
+| `emberfall_sun_player` | `PlayerScript::OnPlayerLogin` | the day's hours with the login's first packets |
+| `emberfall_sun_commands` | `CommandScript` | `.efsun` (GM, console): the mode, place and date, today's hours in use and in each mode, the clock and the sun clock now with the part of the day, the daylight event's window; `.efsun mode real\|softened\|fixed` (admin, console): switches at once for everyone, until the next config reload or restart |
+
+Protocol: an addon whisper in the player's own name (as EFU), `EFSUN\t<ver>;<mode>;<sunrise>;<sunset>`, the hours in
+whole minutes after the server's local midnight (`EFSUN\t1;real;442;1018`). Nothing comes back. A client without it
+ignores the reserved prefix; a later version may add fields after these four.
+
+The daylight event: the core starts and stops a game event by its own clock (`GameEventMgr::CheckOneGameEvent`: `Start`,
+every `Occurence`, for `Length`). The script sets the event's `Start` and `Length` to the window the sun gives it (of
+yesterday's, today's and tomorrow's the first that has not ended) and calls `World::ForceGameEventUpdate()`; the core
+does the rest as for any event. The manager hands its events out read-only (`GetEventMap() const`) and has no setter:
+the script casts the const away for these two fields (no core patch; on the world thread, where the manager's own
+update runs). In `fixed` mode the window is the data's hours in the server's local time (06:00-20:00), whatever the
+database session's time zone made of `start_time`.
+
+Used by: fishing's time of day (`emberfall_fishing.cpp TimeBitNow`: the bite roll, `.effish cell`, `at_ef_fish_watch`).
+No table, no SQL.
