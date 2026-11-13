@@ -133,7 +133,8 @@ Player* RandomPlayerbotFactory::CreateRandomBot(WorldSession* session, uint8 cls
 
             // Try to get 50/50 faction distribution for random bot population balance.
             // Without this check, races from the faction with more class options would dominate.
-            if (alliance == IsAlliance(race))
+            // EMBERFALL: every people alike (three of the four are the Accord's; the side roll gave the vargr half)
+            if (EmberfallBots::Enabled() || alliance == IsAlliance(race))
             {
                 if (IsValidRaceClassCombination(race, cls, sWorld->getIntConfig(CONFIG_EXPANSION)))
                     raceOptions.push_back(race);
