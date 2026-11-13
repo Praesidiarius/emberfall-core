@@ -478,6 +478,18 @@ bool PlayerbotAIConfig::Initialize()
         }
     }
 
+    // EMBERFALL: every Playerbots.ZoneBracket.<zone> the config names, not only the stock zones above (Emberfall's
+    // zones are its own area ids, 5001 and up)
+    for (std::string const& key : sConfigMgr->GetKeysByString("Playerbots.ZoneBracket."))
+    {
+        uint32 const zoneId = atoi(key.substr(std::string("Playerbots.ZoneBracket.").size()).c_str());
+        std::string const value = sConfigMgr->GetOption<std::string>(key, "");
+        size_t const commaPos = value.find(',');
+        if (zoneId && commaPos != std::string::npos)
+            ZoneBrackets[zoneId] = std::make_pair(uint32(atoi(value.substr(0, commaPos).c_str())),
+                                                  uint32(atoi(value.substr(commaPos + 1).c_str())));
+    }
+
     RandomChangeMultiplier = sConfigMgr->GetOption<float>("Playerbots.RandomChangeMultiplier", 1.0);
 
     RandomBotCombatStrategies = sConfigMgr->GetOption<std::string>("Playerbots.RandomBotCombatStrategies", "");
