@@ -126,7 +126,11 @@ bool EmberfallRotationAction::Execute(Event /*event*/)
     uint32 const spell = EmberfallPickStep(botAI, GetTarget(), false, &on);
     if (!spell || !on)
         return false;
-    return botAI->CastSpell(spell, on);
+    bool const ok = botAI->CastSpell(spell, on);
+    // the pilot's trace (Playerbots.log at debug): what each bot presses
+    LOG_DEBUG("playerbots", "Emberfall rotation: {} (level {}) casts {} on {}: {}", bot->GetName(), bot->GetLevel(), spell,
+              on->GetName(), ok ? "ok" : "failed");
+    return ok;
 }
 
 bool EmberfallPrepareAction::isPossible() { return EmberfallPickStep(botAI, nullptr, true, nullptr) != 0; }
@@ -137,7 +141,9 @@ bool EmberfallPrepareAction::Execute(Event /*event*/)
     uint32 const spell = EmberfallPickStep(botAI, nullptr, true, &on);
     if (!spell || !on)
         return false;
-    return botAI->CastSpell(spell, on);
+    bool const ok = botAI->CastSpell(spell, on);
+    LOG_DEBUG("playerbots", "Emberfall prepare: {} casts {}: {}", bot->GetName(), spell, ok ? "ok" : "failed");
+    return ok;
 }
 
 bool EmberfallPrepareTrigger::IsActive()
