@@ -336,6 +336,22 @@ loot range their own copy at the kill; `LootView` shows a freeforall quest item 
 to the master looter or a roll; `Player::isAllowedToLoot` keeps the corpse lootable, `UNIT_DYNFLAG_LOOTABLE` per viewer,
 for each member with something left on it).
 
+## Quest objects only for those who need them (Emberfall feedback #511)
+
+`src/emberfall_questvisibility.cpp`. No config, no SQL. Emberfall's compiler gives a quest's pick-ups OBJECT_VISIBILITY
+conditions (`conditions` SourceType 30: the quest in progress, fewer of its item than it collects;
+`tools/py/emberfall_content/quest_objects.py`), which the core asks whenever it decides what a player sees
+(`Player::CanSeeObjectByVisibilityConditions`) but decides only as the player moves. The script brings the player's view
+of every game object with visibility conditions in their sight range up to date (`Player::UpdateVisibilityOf`) on their
+next tick (their events, once however many hooks fired) after a quest state change, so the objects appear on accepting
+and go when the count is done without a step or a relog.
+
+| Script | Hook | When |
+|---|---|---|
+| `emberfall_quest_visibility_player` | `OnPlayerQuestAccept`, `OnPlayerQuestAbandon`, `OnPlayerCompleteQuest` (the reward) | the quest log changed |
+| | `OnPlayerLootItem`, `OnPlayerStoreNewItem` | an item came in (a quest's count may be full) |
+| `emberfall_quest_visibility_objects` | `AllGameObjectScript::OnGameObjectLootStateChanged` (`GO_ACTIVATED` with a player) | the player used an object (a goober's credit) |
+
 ## GM command fixes
 
 `src/emberfall_gmcommands.cpp`; the logic without the core is `src/gmcommands/EfGmCommandLogic.h`
