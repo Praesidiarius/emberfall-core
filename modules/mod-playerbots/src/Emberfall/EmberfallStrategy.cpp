@@ -11,6 +11,7 @@
 #include "Playerbots.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
+#include "Timer.h"
 
 std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
 {
@@ -51,8 +52,9 @@ namespace
     }
 }
 
-uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** castOn)
+uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** castOn, EmberfallBackoff const* backoff)
 {
+    uint32 const now = getMSTime();
     Player* bot = botAI->GetBot();
     EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(bot);
     if (!spec)
@@ -63,6 +65,9 @@ uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** 
     {
         if (!bot->HasSpell(step.spell))
             continue;
+        if (backoff)
+            if (auto it = backoff->find(step.spell); it != backoff->end() && now < it->second)
+                continue;
         SpellInfo const* info = sSpellMgr->GetSpellInfo(step.spell);
         if (!info)
             continue;
@@ -118,15 +123,19 @@ uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** 
     return 0;
 }
 
-bool EmberfallRotationAction::isPossible() { return EmberfallPickStep(botAI, GetTarget(), false, nullptr) != 0; }
+bool EmberfallRotationAction::isPossible() { return EmberfallPickStep(botAI, GetTarget(), false, nullptr, &backoff) != 0; }
 
 bool EmberfallRotationAction::Execute(Event /*event*/)
 {
     Unit* on = nullptr;
-    uint32 const spell = EmberfallPickStep(botAI, GetTarget(), false, &on);
+    uint32 const spell = EmberfallPickStep(botAI, GetTarget(), false, &on, &backoff);
     if (!spell || !on)
         return false;
     bool const ok = botAI->CastSpell(spell, on);
+    // a cast the checks let through but the core refused (Set On without a companion, a script's own condition): the
+    // next steps get their turn for 10 s
+    if (!ok)
+        backoff[spell] = getMSTime() + 10000;
     // the pilot's trace (Playerbots.log at debug): what each bot presses
     LOG_DEBUG("playerbots", "Emberfall rotation: {} (level {}) casts {} on {}: {}", bot->GetName(), bot->GetLevel(), spell,
               on->GetName(), ok ? "ok" : "failed");

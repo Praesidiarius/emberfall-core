@@ -13,6 +13,8 @@
 #include "Strategy.h"
 #include "Trigger.h"
 
+#include <unordered_map>
+
 class EmberfallCombatStrategy : public Strategy
 {
 public:
@@ -29,8 +31,12 @@ public:
     void InitTriggers(std::vector<TriggerNode*>& triggers) override;
 };
 
+// Spells a bot's cast of failed although the checks passed (Set On without a companion), skipped until the time (ms).
+using EmberfallBackoff = std::unordered_map<uint32, uint32>;
+
 // The spec's next ability on the current target (0: none); the buffs and the companion when `prepare`.
-uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** castOn);
+uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** castOn,
+                         EmberfallBackoff const* backoff = nullptr);
 
 class EmberfallRotationAction : public Action
 {
@@ -39,6 +45,9 @@ public:
     std::string const GetTargetName() override { return "current target"; }
     bool isPossible() override;
     bool Execute(Event event) override;
+
+private:
+    EmberfallBackoff backoff;
 };
 
 class EmberfallPrepareAction : public Action
