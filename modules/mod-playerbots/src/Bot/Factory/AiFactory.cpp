@@ -7,6 +7,7 @@
 #include "AiFactory.h"
 #include "BattlegroundMgr.h"
 #include "DKAiObjectContext.h"
+#include "EmberfallBots.h"
 #include "DruidAiObjectContext.h"
 #include "Engine.h"
 #include "Group.h"
@@ -285,14 +286,26 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
 {
     uint8 tab = GetPlayerSpecTab(player);
 
+    // EMBERFALL (the playerbots pilot): a bot of a class with Emberfall damage specs fights with its spec's routine
+    // (EmberfallStrategy.h) and the stock movement; none of the stock class strategies (stock spells by name).
+    EmberfallBots::Spec const* efSpec = EmberfallBots::SpecOf(player);
+
     if (!player->InBattleground())
-        engine->addStrategiesNoInit("racials", "chat", "default", "cast time", "potions", "duel", "boost", nullptr);
+    {
+        if (efSpec)
+            engine->addStrategiesNoInit("chat", "default", "cast time", nullptr);
+        else
+            engine->addStrategiesNoInit("racials", "chat", "default", "cast time", "potions", "duel", "boost", nullptr);
+    }
 
     if (sPlayerbotAIConfig.AutoAvoidAoe && facade->HasGameClientMaster())
         engine->addStrategy("avoid aoe", false);
 
     engine->addStrategy("formation", false);
 
+    if (efSpec)
+        engine->addStrategiesNoInit("ef", "dps assist", efSpec->ranged ? "ranged" : "close", nullptr);
+    else
     switch (player->getClass())
     {
         case CLASS_PRIEST:
@@ -509,6 +522,11 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 {
     uint8 tab = GetPlayerSpecTab(player);
 
+    // EMBERFALL (the playerbots pilot): the spec's companion and self buffs instead of the stock class buffs.
+    bool const efBot = EmberfallBots::SpecOf(player) != nullptr;
+    if (efBot)
+        nonCombatEngine->addStrategiesNoInit("ef nc", "dps assist", nullptr);
+    else
     switch (player->getClass())
     {
         case CLASS_PRIEST:
@@ -589,8 +607,8 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
     {
         Player* master = facade->GetMaster();
 
-        // let 25% of free bots start duels.
-        if (!urand(0, 3))
+        // let 25% of free bots start duels (EMBERFALL: none, testers would get duel requests from bots).
+        if (!efBot && !urand(0, 3))
             nonCombatEngine->addStrategy("start duel", false);
 
         if (sPlayerbotAIConfig.RandomBotJoinLfg)

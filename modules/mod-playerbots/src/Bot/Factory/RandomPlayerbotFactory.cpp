@@ -17,6 +17,7 @@
 #include "Log.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
+#include "EmberfallBots.h"
 #include "PlayerbotOperations.h"
 #include "PlayerbotWorldThreadProcessor.h"
 #include "Playerbots.h"
@@ -112,21 +113,31 @@ Player* RandomPlayerbotFactory::CreateRandomBot(WorldSession* session, uint8 cls
 {
     LOG_DEBUG("playerbots", "Creating a new random bot for class: {}", cls);
 
-    const bool alliance = static_cast<bool>(urand(0, 1));
+    bool alliance = static_cast<bool>(urand(0, 1));
 
     std::vector<uint8> raceOptions;
-    for (uint8 race = RACE_HUMAN; race < sRaceMgr->GetMaxRaces(); ++race)
+    for (int attempt = 0; attempt < 2 && raceOptions.empty(); ++attempt)
     {
-        // skip disabled with config races
-        if ((1 << (race - 1)) & sWorld->getIntConfig(CONFIG_CHARACTER_CREATING_DISABLED_RACEMASK))
-            continue;
-
-        // Try to get 50/50 faction distribution for random bot population balance.
-        // Without this check, races from the faction with more class options would dominate.
-        if (alliance == IsAlliance(race))
+        // EMBERFALL: a side without a race for the class (the Kindred have one race) gives the bot to the other side
+        if (attempt == 1)
         {
-            if (IsValidRaceClassCombination(race, cls, sWorld->getIntConfig(CONFIG_EXPANSION)))
-                raceOptions.push_back(race);
+            if (!EmberfallBots::Enabled())
+                break;
+            alliance = !alliance;
+        }
+        for (uint8 race = RACE_HUMAN; race < sRaceMgr->GetMaxRaces(); ++race)
+        {
+            // skip disabled with config races
+            if ((1 << (race - 1)) & sWorld->getIntConfig(CONFIG_CHARACTER_CREATING_DISABLED_RACEMASK))
+                continue;
+
+            // Try to get 50/50 faction distribution for random bot population balance.
+            // Without this check, races from the faction with more class options would dominate.
+            if (alliance == IsAlliance(race))
+            {
+                if (IsValidRaceClassCombination(race, cls, sWorld->getIntConfig(CONFIG_EXPANSION)))
+                    raceOptions.push_back(race);
+            }
         }
     }
 
@@ -141,7 +152,12 @@ Player* RandomPlayerbotFactory::CreateRandomBot(WorldSession* session, uint8 cls
     const auto raceAndGender = CombineRaceAndGender(race, gender);
 
     std::string name;
-    if (!nameCache.empty())
+    if (EmberfallBots::Enabled())
+    {
+        // EMBERFALL: a name of the bot's own tribe (ef_bot_name, from the game repo's content/data/bots/names.yaml)
+        name = EmberfallBots::TakeName(race, gender);
+    }
+    else if (!nameCache.empty())
     {
         if (nameCache[raceAndGender].empty())
         {
@@ -191,12 +207,13 @@ Player* RandomPlayerbotFactory::CreateRandomBot(WorldSession* session, uint8 cls
     }
 
     //uint8 skinColor = skinColors[urand(0, skinColors.size() - 1)]; //not used, line marked for removal.
-    std::pair<uint8, uint8> face = faces[urand(0, faces.size() - 1)];
-    std::pair<uint8, uint8> hair = hairs[urand(0, hairs.size() - 1)];
+    // EMBERFALL: a race without CharSections rows of a kind (Emberfall's own bodies) takes variation 0
+    std::pair<uint8, uint8> face = faces.empty() ? std::pair<uint8, uint8>(0, 0) : faces[urand(0, faces.size() - 1)];
+    std::pair<uint8, uint8> hair = hairs.empty() ? std::pair<uint8, uint8>(0, 0) : hairs[urand(0, hairs.size() - 1)];
 
     bool excludeCheck = (race == RACE_TAUREN) || (race == RACE_DRAENEI) ||
                         (gender == GENDER_FEMALE && race != RACE_NIGHTELF && race != RACE_UNDEAD_PLAYER);
-    uint8 facialHair = excludeCheck ? 0 : facialHairTypes[urand(0, facialHairTypes.size() - 1)];
+    uint8 facialHair = (excludeCheck || facialHairTypes.empty()) ? 0 : facialHairTypes[urand(0, facialHairTypes.size() - 1)];
 
     std::unique_ptr<CharacterCreateInfo> characterInfo = std::make_unique<CharacterCreateInfo>(
         name, race, cls, gender, face.second, face.first, hair.first, hair.second, facialHair);
@@ -726,7 +743,7 @@ void RandomPlayerbotFactory::CreateRandomBots()
             continue;
         }
 
-        if (!nameCached)
+        if (!nameCached && !EmberfallBots::Enabled()) // EMBERFALL: names from ef_bot_name instead
         {
             nameCached = true;
             LOG_INFO("playerbots", "Creating cache for names per gender and race...");
@@ -770,6 +787,10 @@ void RandomPlayerbotFactory::CreateRandomBots()
 
             // skip disabled with config classes
             if ((1 << (cls - 1)) & sWorld->getIntConfig(CONFIG_CHARACTER_CREATING_DISABLED_CLASSMASK))
+                continue;
+
+            // EMBERFALL: only classes with a damage spec in ef_bot_spec (Emberfall's six)
+            if (EmberfallBots::Enabled() && !EmberfallBots::HasSpecs(cls))
                 continue;
 
             Player* playerBot = factory.CreateRandomBot(session, cls, nameCache);

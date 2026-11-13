@@ -6,6 +6,7 @@
 
 #include "AutoMaintenanceOnLevelupAction.h"
 #include "BroadcastHelper.h"
+#include "EmberfallBots.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotFactory.h"
 #include "RandomPlayerbotMgr.h"
@@ -36,6 +37,12 @@ void AutoMaintenanceOnLevelupAction::AutoTeleportForLevel()
 
 void AutoMaintenanceOnLevelupAction::AutoPickTalents()
 {
+    // EMBERFALL: the talent tree v2 budgets are mod-emberfall's, not the stock free talent points
+    if (EmberfallBots::Enabled())
+    {
+        EmberfallBots::ApplyTalents(bot);
+        return;
+    }
     bool const isRandomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
     if (!(isRandomBot ? sPlayerbotAIConfig.AutoPickTalents
                       : sPlayerbotAIConfig.AutoPickTalentsForPlayerControlledBots))
@@ -166,6 +173,16 @@ void AutoMaintenanceOnLevelupAction::AutoUpgradeEquip()
         return;
 
     PlayerbotFactory factory(bot, bot->GetLevel());
+
+    // EMBERFALL: food and gear from Emberfall's items; the stock ammunition, reagents, consumables and potions ids
+    // do not exist there
+    if (EmberfallBots::Enabled())
+    {
+        factory.InitFood();
+        if (sPlayerbotAIConfig.AutoUpgradeEquip)
+            factory.InitEquipment(true);
+        return;
+    }
 
     factory.CleanupConsumables();
 

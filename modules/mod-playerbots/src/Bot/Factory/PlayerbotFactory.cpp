@@ -7,6 +7,7 @@
 #include "PlayerbotFactory.h"
 #include "PlayerbotsDatabase.h"
 #include "AccountMgr.h"
+#include "EmberfallBots.h"
 #include "AiFactory.h"
 #include "AiObjectContext.h"
 #include "ArenaTeam.h"
@@ -830,6 +831,13 @@ void PlayerbotFactory::Randomize(bool incremental)
 
     LOG_DEBUG("playerbots", "{} randomizing {} (level {} class = {})...", (incremental ? "Incremental" : "Full"),
              bot->GetName().c_str(), level, bot->getClass());
+    // EMBERFALL (the playerbots pilot): Emberfall's own data has none of the stock spells, talents, consumables,
+    // glyphs, enchants, ammunition, mounts or pets this function hands out; RandomizeEmberfall keeps what works on it.
+    if (EmberfallBots::Enabled())
+    {
+        RandomizeEmberfall(incremental);
+        return;
+    }
     // LOG_DEBUG("playerbots", "Preparing to {} randomize...", (incremental ? "incremental" : "full"));
     uint32 oldLevel = bot->GetLevel();
     Prepare();
@@ -1343,6 +1351,8 @@ void PlayerbotFactory::InitConsumables()
 
 void PlayerbotFactory::InitPetTalents()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: no stock pet talents
+        return;
     if (bot->GetLevel() <= 70 && sPlayerbotAIConfig.LimitTalentsExpansion)
         return;
 
@@ -1495,6 +1505,8 @@ void PlayerbotFactory::InitPetTalents()
 
 void PlayerbotFactory::InitPet()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock pet spells and taming; Emberfall's companions are its own
+        return;
     Pet* pet = bot->GetPet();
 
     if (!pet && bot->GetPetStable() && bot->GetPetStable()->CurrentPet)
@@ -1707,6 +1719,11 @@ void PlayerbotFactory::ResetQuests()
 
 uint32 PlayerbotFactory::InitTalentsTree(bool increment /*false*/, bool use_template /*true*/, bool reset /*false*/)
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: the spec and its talents through mod-emberfall's talent system
+    {
+        EmberfallBots::ApplyTalents(bot);
+        return 0;
+    }
     uint32 specTab;
     uint8 cls = bot->getClass();
     std::map<uint8, uint32> tabs = AiFactory::GetPlayerSpecTabs(bot);
@@ -2008,6 +2025,9 @@ bool PlayerbotFactory::CanEquipArmor(ItemTemplate const* proto)
     {
         return false;
     }
+    // EMBERFALL: a shield only for a spec that fights with one (no damage spec of the pilot does)
+    if (proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD && EmberfallBots::Enabled() && EmberfallBots::CanEquipShield(bot) == 0)
+        return false;
 
     return true;
     // for (uint8 slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
@@ -2103,6 +2123,10 @@ void PlayerbotFactory::AddItemStats(uint32 mod, uint8& sp, uint8& ap, uint8& tan
 
 bool PlayerbotFactory::CanEquipWeapon(ItemTemplate const* proto)
 {
+    // EMBERFALL: the spec's own weapons (ef_bot_spec: the Executioner's two-handers, the Corsair's two blades, ...)
+    if (EmberfallBots::Enabled())
+        if (int8 const ef = EmberfallBots::CanEquipWeapon(bot, proto); ef >= 0)
+            return ef == 1;
     switch (bot->getClass())
     {
         case CLASS_PRIEST:
@@ -3598,6 +3622,8 @@ void PlayerbotFactory::InitAvailableSpells()
 
 void PlayerbotFactory::InitClassSpells()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock spell ids, which Emberfall's classes do not have
+        return;
     int32_t level = bot->GetLevel();
     switch (bot->getClass())
     {

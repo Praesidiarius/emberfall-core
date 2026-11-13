@@ -5,6 +5,7 @@
  */
 
 #include "ActionContext.h"
+#include "EmberfallStrategy.h"
 #include "AiObjectContext.h"
 #include "Aq20ActionContext.h"
 #include "BTActionContext.h"
@@ -34,6 +35,7 @@ void AiObjectContext::BuildSharedActionContexts(
     SharedNamedObjectContextList<Action>& actionContexts)
 {
     actionContexts.Add(new ActionContext());
+    actionContexts.Add(new EmberfallActionContext()); // EMBERFALL: the playerbots pilot's routine
     actionContexts.Add(new ChatActionContext());
     actionContexts.Add(new WorldPacketActionContext());
     actionContexts.Add(new RaidAq20ActionContext());

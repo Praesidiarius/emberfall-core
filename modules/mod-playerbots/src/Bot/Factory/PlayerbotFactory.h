@@ -63,6 +63,8 @@ public:
     static void Init();
     void Refresh();
     void Randomize(bool incremental);
+    // EMBERFALL (the playerbots pilot, src/Emberfall/EmberfallFactory.cpp): Randomize on Emberfall's own data.
+    void RandomizeEmberfall(bool incremental);
     static std::list<uint32> classQuestIds;
     void ClearEverything();
     void InitSkills();

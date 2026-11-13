@@ -7,6 +7,7 @@
 #include "PlayerbotAIConfig.h"
 #include "BisListMgr.h"
 #include "Config.h"
+#include "EmberfallBots.h"
 #include "NewRpgInfo.h"
 #include "PlayerbotDungeonRepository.h"
 #include "PlayerbotFactory.h"
@@ -787,6 +788,7 @@ bool PlayerbotAIConfig::Initialize()
 
     SelfBotLevel = sConfigMgr->GetOption<int32>("Playerbots.SelfBotLevel", 1);
 
+    EmberfallBots::Load(); // EMBERFALL: specs, routines, talents and names of Emberfall's data, before the bots are made
     RandomPlayerbotFactory::LoadLocalizedNameColumns();
     RandomPlayerbotFactory::CreateRandomBots();
     if (World::IsStopped())
