@@ -1103,6 +1103,17 @@ void PlayerbotFactory::Refresh()
     // {
     //     InitEquipment(true);
     // }
+    // EMBERFALL: keep the bags (quest items), our trainers' spells, the spec's talents, food, repair
+    if (EmberfallBots::Enabled())
+    {
+        InitFood();
+        InitAvailableSpells();
+        EmberfallBots::ApplyTalents(bot);
+        bot->DurabilityRepairAll(false, 1.0f, false);
+        if (bot->isDead())
+            bot->ResurrectPlayer(1.0f, false);
+        return;
+    }
     InitAttunementQuests();
     ClearInventory();
     InitAmmo();
@@ -1137,6 +1148,8 @@ void PlayerbotFactory::Refresh()
 
 void PlayerbotFactory::InitConsumables()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     uint8 specTab = AiFactory::GetPlayerSpecTab(bot);
     std::vector<std::pair<uint32, uint32>> items;
 
@@ -2926,6 +2939,8 @@ inline Item* StoreNewItemInInventorySlot(Player* player, uint32 newItemId, uint3
 
 void PlayerbotFactory::InitBags(bool destroyOld)
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     for (uint8 slot = INVENTORY_SLOT_BAG_START; slot < INVENTORY_SLOT_BAG_END; ++slot)
     {
         uint32 newItemId = 51809;
@@ -3060,6 +3075,8 @@ bool PlayerbotFactory::CanEquipUnseenItem(uint8 slot, uint16& dest, uint32 item)
 
 void PlayerbotFactory::InitTradeSkills()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     if (!sRandomPlayerbotMgr.IsRandomBot(bot))
         return;
 
@@ -3402,6 +3419,8 @@ void PlayerbotFactory::UpdateTradeSkills()
 
 void PlayerbotFactory::InitSkills()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     //uint32 maxValue = level * 5; //not used, line marked for removal.
     bot->UpdateSkillsForLevel();
 
@@ -3721,6 +3740,8 @@ void PlayerbotFactory::InitClassSpells()
 
 void PlayerbotFactory::InitSpecialSpells()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     for (std::vector<uint32>::iterator i = sPlayerbotAIConfig.RandomBotSpellIds.begin();
          i != sPlayerbotAIConfig.RandomBotSpellIds.end(); ++i)
     {
@@ -3970,6 +3991,8 @@ void PlayerbotFactory::InitQuests(std::list<uint32>& questMap, bool withRewardIt
 
 void PlayerbotFactory::InitInstanceQuests()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     // Yunfan: use configuration instead of hard code
     uint32 currentXP = bot->GetUInt32Value(PLAYER_XP);
     // LOG_INFO("playerbots", "Initializing quests...");
@@ -4033,6 +4056,8 @@ static void DestroyObsoleteAmmo(Player* bot, ItemTemplate const* ammo)
 
 void PlayerbotFactory::InitAmmo()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     uint8 const botClass = bot->getClass();
     if (botClass != CLASS_HUNTER && botClass != CLASS_ROGUE && botClass != CLASS_WARRIOR)
         return;
@@ -4121,6 +4146,8 @@ void PlayerbotFactory::AutoGear(Player* bot, uint32 itemQuality, uint32 ilvl, bo
 
 void PlayerbotFactory::InitMounts()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     uint32 firstmount = sPlayerbotAIConfig.UseGroundMountAtMinLevel;
     uint32 secondmount = sPlayerbotAIConfig.UseFastGroundMountAtMinLevel;
     uint32 thirdmount = sPlayerbotAIConfig.UseFlyMountAtMinLevel;
@@ -4266,6 +4293,8 @@ void PlayerbotFactory::UnbindInstance()
 
 void PlayerbotFactory::InitPotions()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     uint32 effects[] = {SPELL_EFFECT_HEAL, SPELL_EFFECT_ENERGIZE};
     for (uint8 i = 0; i < 2; ++i)
     {
@@ -4411,6 +4440,8 @@ void PlayerbotFactory::InitFood()
 
 void PlayerbotFactory::InitReagents()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     std::vector<std::pair<uint32, uint32>> items;
     switch (bot->getClass())
     {
@@ -4596,6 +4627,8 @@ void PlayerbotFactory::CleanupConsumables() // remove old consumables as part of
 
 void PlayerbotFactory::InitGlyphs(bool increment)
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     bot->InitGlyphsForLevel();
     if (!increment && botAI &&
         botAI->GetAiObjectContext()->GetValue<bool>("custom_glyphs")->Get())
@@ -4945,6 +4978,8 @@ void PlayerbotFactory::CancelAuras() { bot->RemoveAllAuras(); }
 
 void PlayerbotFactory::InitInventory()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     InitInventoryTrade();
     InitInventoryEquip();
     InitInventorySkill();
@@ -5065,6 +5100,8 @@ void PlayerbotFactory::InitInventoryEquip()
 
 void PlayerbotFactory::InitGuild()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     if (bot->GetGuildId())
     {
         if (!bot->HasItemCount(5976, 1) && bot->GetLevel() > 9)
@@ -5100,6 +5137,8 @@ void PlayerbotFactory::InitGuild()
 
 void PlayerbotFactory::InitImmersive()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     uint32 owner = bot->GetGUID().GetCounter();
     std::map<Stats, uint32> percentMap;
 
@@ -5659,6 +5698,8 @@ void PlayerbotFactory::IterateItemsInBank(IterateItemsVisitor* visitor)
 
 void PlayerbotFactory::InitKeyring()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     if (!bot)
         return;
 
@@ -5709,6 +5750,8 @@ void PlayerbotFactory::InitKeyring()
 }
 void PlayerbotFactory::InitReputation()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     if (!bot)
         return;
 
@@ -5754,6 +5797,8 @@ void PlayerbotFactory::InitReputation()
 
 void PlayerbotFactory::InitAttunementQuests()
 {
+    if (EmberfallBots::Enabled()) // EMBERFALL: stock ids, not on Emberfall's data (EmberfallFactory.cpp)
+        return;
     uint32 level = bot->GetLevel();
     if (level < 55)
         return; // Only apply for level 55+ bots
