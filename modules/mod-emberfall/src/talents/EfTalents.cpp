@@ -1761,23 +1761,37 @@ namespace Emberfall::Talents
         eft::Pairs pairs = live ? live->pairs : eft::Pairs{};
         eft::Pairs const kept = LiveKept(*st, *data);
         int32 bought = 0;
+        EfClass const* cls = data->Class(player->getClass());
         // One node at a time, in the wanted order, each kept only when the whole loadout still passes the rules at this
-        // level (budgets, pick slots, rows, gates): what a levelling player of the spec would have bought by now.
-        for (auto const& [node, rank] : wanted)
+        // level (budgets, pick slots, rows, gates): what a levelling player of the spec would have bought by now. Only
+        // nodes of the class tree and of the active spec's tree (before the choice: the class tree). Passes until one
+        // buys nothing: a node a row gate refused may open once the row above is bought.
+        for (int pass = 0; pass < 8; ++pass)
         {
-            if (!data->Node(node))
-                continue;
-            auto it = pairs.find(node);
-            if (it != pairs.end() && it->second.rank >= rank)
-                continue;
-            eft::Pairs candidate = pairs;
-            candidate[node].rank = static_cast<uint8>(rank);
-            if (!data->Validate(*spec, data->LoadoutString(*spec, candidate), level).ok())
-                continue;
-            if (!data->CheckKept(kept, candidate).ok())
-                continue;
-            pairs = std::move(candidate);
-            ++bought;
+            int32 const before = bought;
+            for (auto const& [node, rank] : wanted)
+            {
+                EfNode const* n = data->Node(node);
+                if (!n || !cls)
+                    continue;
+                bool const inClass = n->tree == cls->classTree;
+                bool const inSpec = st->activeSpec && spec->treeId && n->tree == spec->treeId;
+                if (!inClass && !inSpec)
+                    continue;
+                auto it = pairs.find(node);
+                if (it != pairs.end() && it->second.rank >= rank)
+                    continue;
+                eft::Pairs candidate = pairs;
+                candidate[node].rank = static_cast<uint8>(rank);
+                if (!data->Validate(*spec, data->LoadoutString(*spec, candidate), level).ok())
+                    continue;
+                if (!data->CheckKept(kept, candidate).ok())
+                    continue;
+                pairs = std::move(candidate);
+                ++bought;
+            }
+            if (bought == before)
+                break;
         }
         if (bought)
             ApplyPairs(player, *st, *data, std::move(pairs), true);
