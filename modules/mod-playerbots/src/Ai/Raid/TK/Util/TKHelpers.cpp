@@ -349,8 +349,14 @@ uint32 GetKaelthasTkPhase(Unit* kaelthas)
     if (!kaelthas)
         return PHASE_NONE;
 
+    // EMBERFALL: Emberfall builds the core without the stock scripts (CSCRIPTS=none), so the stock boss class's type
+    // information does not exist to cast to; the stock raid this reads is not in Emberfall's world either.
+#if defined(EMBERFALL_STOCK_SCRIPTS)
     boss_kaelthas* kaelAI = dynamic_cast<boss_kaelthas*>(kaelthas->GetAI());
     return kaelAI ? kaelAI->GetPhase() : Id(PHASE_NONE);
+#else
+    return Id(PHASE_NONE);
+#endif
 }
 
 // The non-attackable unit flag covers the period in phase 1 before the advisor activates.
