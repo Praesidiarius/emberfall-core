@@ -70,6 +70,16 @@ public:
     bool Execute(Event event) override;
 };
 
+// White swings of a ranged spec that fights in reach too (ef_bot_spec.swing: the Ranger in Bear's Claw), without moving.
+class EmberfallSwingAction : public Action
+{
+public:
+    EmberfallSwingAction(PlayerbotAI* botAI) : Action(botAI, "ef swing") {}
+    std::string const GetTargetName() override { return "current target"; }
+    bool isPossible() override;
+    bool Execute(Event event) override;
+};
+
 class EmberfallPrepareAction : public Action
 {
 public:
@@ -166,6 +176,7 @@ public:
         creators["ef rest"] = &EmberfallActionContext::rest;
         creators["ef group leave"] = &EmberfallActionContext::group_leave;
         creators["ef escape"] = &EmberfallActionContext::escape;
+        creators["ef swing"] = &EmberfallActionContext::swing;
     }
 
 private:
@@ -176,6 +187,7 @@ private:
     static Action* rest(PlayerbotAI* botAI) { return new EmberfallRestAction(botAI); }
     static Action* group_leave(PlayerbotAI* botAI) { return new EmberfallGroupLeaveAction(botAI); }
     static Action* escape(PlayerbotAI* botAI) { return new EmberfallEscapeAction(botAI); }
+    static Action* swing(PlayerbotAI* botAI) { return new EmberfallSwingAction(botAI); }
 };
 
 class EmberfallTriggerContext : public NamedObjectContext<Trigger>

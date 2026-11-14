@@ -36,7 +36,12 @@ std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
     if (!EmberfallBots::FightsRanged(botAI->GetBot()))
         actions.push_back(NextAction("melee", ACTION_DEFAULT));
     else
+    {
         actions.push_back(NextAction("ef auto shot", ACTION_DEFAULT + 0.2f));
+        // a ranged spec with claws (the Ranger after its leap): white swings while a foe is in reach, without walking in
+        if (EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(botAI->GetBot()); spec && spec->swing)
+            actions.push_back(NextAction("ef swing", ACTION_DEFAULT + 0.1f));
+    }
     return actions;
 }
 
@@ -303,6 +308,19 @@ bool EmberfallAutoShotAction::Execute(Event /*event*/)
 {
     Unit* target = GetTarget();
     return target && botAI->CastSpell(SPELL_AUTO_SHOT, target);
+}
+
+bool EmberfallSwingAction::isPossible()
+{
+    Unit* target = GetTarget();
+    return target && target->IsAlive() && bot->IsWithinMeleeRange(target) &&
+           !(bot->GetVictim() == target && bot->HasUnitState(UNIT_STATE_MELEE_ATTACKING));
+}
+
+bool EmberfallSwingAction::Execute(Event /*event*/)
+{
+    Unit* target = GetTarget();
+    return target && bot->Attack(target, true);
 }
 
 bool EmberfallPrepareAction::isPossible() { return EmberfallPickStep(botAI, nullptr, true, nullptr) != 0; }
