@@ -17,6 +17,7 @@
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
+#include "PlayerbotFactory.h"
 #include "Playerbots.h"
 #include "Spell.h"
 #include "SpellInfo.h"
@@ -283,12 +284,15 @@ bool EmberfallRestAction::Execute(Event /*event*/)
     bool const wantFood = bot->GetHealthPct() < 99.0f && !bot->HasAuraType(SPELL_AURA_MOD_REGEN);
     bool const wantDrink = bot->GetMaxPower(POWER_MANA) > 0 && bot->GetPowerPct(POWER_MANA) < 99.0f &&
                            !bot->HasAuraType(SPELL_AURA_MOD_POWER_REGEN);
+    bool carries = false;
     for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
     {
         Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
         if (!item)
             continue;
         ItemTemplate const* proto = item->GetTemplate();
+        if (EmberfallBots::IsFood(proto) || EmberfallBots::IsDrink(proto))
+            carries = true;
         bool const food = wantFood && EmberfallBots::IsFood(proto);
         bool const drink = wantDrink && EmberfallBots::IsDrink(proto);
         if (!food && !drink)
@@ -311,6 +315,14 @@ bool EmberfallRestAction::Execute(Event /*event*/)
             return true;
         retryAt = getMSTime() + 30000;  // a refused use (a shared cooldown): sit and regenerate, try again in 30 s
         break;
+    }
+    // eaten up (a stack lasts a bot about an hour; the level-up maintenance restocks it, but high levels come slowly):
+    // new provisions as if bought, at most every 10 minutes; this rest is a sit without them
+    if (!carries && getMSTime() >= restockAt)
+    {
+        restockAt = getMSTime() + 600000;
+        PlayerbotFactory factory(bot, bot->GetLevel());
+        factory.InitFood();
     }
     if (bot->getStandState() != UNIT_STAND_STATE_SIT)
         bot->SetStandState(UNIT_STAND_STATE_SIT);

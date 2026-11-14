@@ -98,7 +98,8 @@ public:
     bool Execute(Event event) override;
 
 private:
-    uint32 retryAt = 0;  // ms
+    uint32 retryAt = 0;    // ms
+    uint32 restockAt = 0;  // ms
 };
 
 // Group play (bot step 2): a bot a player invited leaves the group by itself when its leader has been away (offline,
