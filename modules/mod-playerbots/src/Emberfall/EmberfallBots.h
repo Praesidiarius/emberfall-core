@@ -113,6 +113,8 @@ namespace EmberfallBots
     uint32 IdleCrowd(Player* bot, Unit* target, float yards);
     // Escape (bot deaths): below this health percent (0: off) in a fight the bot is losing, it runs.
     float EscapeBelowPct();
+    // A defensive (a routine step with self_below) with two or more creatures attacking: that many points earlier (0: off).
+    float DefensiveCrowdBonusPct();
     // How many levels above the bot a creature it attacks or a quest it takes may be (MaxTargetLevelAbove, 2).
     int32 MaxLevelAbove();
     // Our provisions: Emberfall's food and drink spells use the categories 2 and 3 (content/data/spells/consumables.yaml),

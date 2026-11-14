@@ -215,7 +215,11 @@ uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** 
         // a defensive: only with the bot's own health low, on itself when the ability has no range
         if (step.selfBelowPct)
         {
-            if (bot->GetHealthPct() >= float(step.selfBelowPct))
+            // with two or more creatures on it the bot does not wait as long (DefensiveCrowdBonusPct, bot deaths)
+            float below = float(step.selfBelowPct);
+            if (EmberfallBots::DefensiveCrowdBonusPct() > 0.0f && bot->getAttackers().size() >= 2)
+                below += EmberfallBots::DefensiveCrowdBonusPct();
+            if (bot->GetHealthPct() >= below)
                 continue;
             if (info->GetMaxRange(false, bot) <= 0.0f)
                 on = bot;
