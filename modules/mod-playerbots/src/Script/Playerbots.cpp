@@ -13,6 +13,7 @@
 #include "BuiltInConfig.h"
 #include "DBUpdater.h"
 #include "DatabaseEnv.h"
+#include "EmberfallBots.h"
 #include "PlayerbotsDatabase.h"
 #include <mysqld_error.h>
 #include "AllMapScript.h"
@@ -161,7 +162,9 @@ public:
                     "|cffcccccchttps://github.com/mod-playerbots/mod-playerbots|r");
             }
 
-            if (sPlayerbotAIConfig.Enabled || sPlayerbotAIConfig.RandomBotAutologin)
+            // EMBERFALL: the module's notice above stays (its licence note); the bot count line is left out (an
+            // untranslated English line for every player at every login)
+            if ((sPlayerbotAIConfig.Enabled || sPlayerbotAIConfig.RandomBotAutologin) && !EmberfallBots::Enabled())
             {
                 std::string maxAllowedBotCount = std::to_string(sRandomPlayerbotMgr.GetMaxAllowedBotCount());
 
