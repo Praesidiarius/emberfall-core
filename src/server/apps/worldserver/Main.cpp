@@ -455,7 +455,13 @@ bool StartDB()
         return false;
 
     if (!sScriptMgr->OnModuleDatabasesLoading())
+    {
+        // Emberfall: the core databases are open by now; closing them here lets the worldserver stop with exit 1 and the
+        // module's message instead of a segfault in the exit path (2026-11-14: mod-playerbots without its database)
+        LOG_ERROR("server.worldserver", "A module's database could not be loaded (see above); stopping");
+        StopDB();
         return false;
+    }
 
     ///- Get the realm Id from the configuration file
     realm.Id.Realm = sConfigMgr->GetOption<uint32>("RealmID", 1);
