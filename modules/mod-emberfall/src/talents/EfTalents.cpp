@@ -1764,9 +1764,10 @@ namespace Emberfall::Talents
         EfClass const* cls = data->Class(player->getClass());
         // One node at a time, in the wanted order, each kept only when the whole loadout still passes the rules at this
         // level (budgets, pick slots, rows, gates): what a levelling player of the spec would have bought by now. Only
-        // nodes of the class tree and of the active spec's tree (before the choice: the class tree). Passes until one
-        // buys nothing: a node a row gate refused may open once the row above is bought.
-        for (int pass = 0; pass < 8; ++pass)
+        // nodes of the class tree and of the active spec's tree (before the choice: the class tree). After each purchase
+        // the list starts again from its top, so an earlier node a row gate refused (a pick) gets the next point before
+        // a later one (a passive) takes it; until nothing more can be bought.
+        for (int pass = 0; pass < 256; ++pass)
         {
             int32 const before = bought;
             for (auto const& [node, rank] : wanted)
@@ -1789,6 +1790,7 @@ namespace Emberfall::Talents
                     continue;
                 pairs = std::move(candidate);
                 ++bought;
+                break;
             }
             if (bought == before)
                 break;
