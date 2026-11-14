@@ -7,6 +7,7 @@
 #include "ItemUsageValue.h"
 #include "AiFactory.h"
 #include "ChatHelper.h"
+#include "EmberfallBots.h"
 #include "GuildTaskMgr.h"
 #include "Item.h"
 #include "LootObjectStack.h"
@@ -241,6 +242,17 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemTemplate const* itemProto, 
 
     if (itemProto->InventoryType == INVTYPE_NON_EQUIP)
         return ITEM_USAGE_NONE;
+
+    // EMBERFALL: a looted or rewarded upgrade follows the spec's gear rules too (the factory's only covered the bot's
+    // own outfit: the step-2 run's Corsairs picked up shields)
+    if (EmberfallBots::Enabled())
+    {
+        if (itemProto->Class == ITEM_CLASS_ARMOR && itemProto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD &&
+            EmberfallBots::CanEquipShield(bot) == 0)
+            return ITEM_USAGE_NONE;
+        if (EmberfallBots::CanEquipWeapon(bot, itemProto) == 0)
+            return ITEM_USAGE_NONE;
+    }
 
     Item* pItem = Item::CreateItem(itemProto->ItemId, 1, bot);
     if (!pItem)
