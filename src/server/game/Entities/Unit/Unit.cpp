@@ -20,6 +20,7 @@
 #include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "EmberfallCastWhileMoving.h" // EMBERFALL: casting on the move (PATCHES.md #25)
 #include "EmberfallKitWeapon.h" // EMBERFALL: kit strikes roll with their own hand (PATCHES.md #36)
+#include "EmberfallStatRules.h" // EMBERFALL: the stat rules (PATCHES.md #40)
 #include "AbstractFollower.h"
 #include "AreaDefines.h"
 #include "ArenaSpectator.h"
@@ -9018,6 +9019,10 @@ int32 Unit::SpellBaseDamageBonusDone(SpellSchoolMask schoolMask)
         }
         // ... and attack power
         DoneAdvertisedBenefit += int32(CalculatePct(GetTotalAttackPowerValue(BASE_ATTACK), GetTotalAuraModifierByMiscMask(SPELL_AURA_MOD_SPELL_DAMAGE_OF_ATTACK_POWER, schoolMask)));
+
+        // EMBERFALL: the stat rules (PATCHES.md #40): Intellect gives spell power one for one
+        if (Emberfall::StatRules::On())
+            DoneAdvertisedBenefit += Emberfall::StatRules::SpellPowerFromIntellect(GetStat(STAT_INTELLECT));
     }
     return DoneAdvertisedBenefit;
 }
@@ -9787,6 +9792,10 @@ int32 Unit::SpellBaseHealingBonusDone(SpellSchoolMask schoolMask)
 
         // ... and attack power
         AdvertisedBenefit += int32(CalculatePct(GetTotalAttackPowerValue(BASE_ATTACK), GetTotalAuraModifierByMiscMask(SPELL_AURA_MOD_SPELL_HEALING_OF_ATTACK_POWER, schoolMask)));
+
+        // EMBERFALL: the stat rules (PATCHES.md #40): Intellect gives spell power one for one
+        if (Emberfall::StatRules::On())
+            AdvertisedBenefit += Emberfall::StatRules::SpellPowerFromIntellect(GetStat(STAT_INTELLECT));
     }
     return AdvertisedBenefit;
 }

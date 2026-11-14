@@ -17,6 +17,7 @@
 
 #include "Config.h"
 #include "Creature.h"
+#include "EmberfallStatRules.h" // EMBERFALL: the stat rules (PATCHES.md #40)
 #include "Pet.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -943,6 +944,24 @@ void Player::UpdateManaRegen()
         SetStatFloatValue(UNIT_FIELD_POWER_REGEN_INTERRUPTED_FLAT_MODIFIER, 0);
         SetStatFloatValue(UNIT_FIELD_POWER_REGEN_FLAT_MODIFIER, 0);
         return;
+    }
+
+    // EMBERFALL: the stat rules (PATCHES.md #40): no Spirit; a flat rate of the level's pool a second, the same while
+    // casting (both fields hold one number, so Regenerate's five-second choice changes nothing)
+    if (Emberfall::StatRules::On() && Emberfall::StatRules::Current().manaRegenPerSecond)
+    {
+        float const flat = Emberfall::StatRules::Current().manaRegenPerSecond(this);
+        if (flat >= 0.0f)
+        {
+            float mp5 = (GetTotalAuraModifierByMiscValue(SPELL_AURA_MOD_POWER_REGEN, POWER_MANA) + m_baseManaRegen) / 5.0f;
+            for (AuraEffect const* aurEff : GetAuraEffectsByType(SPELL_AURA_MOD_MANA_REGEN_FROM_STAT))
+                mp5 += GetStat(Stats(aurEff->GetMiscValue())) * aurEff->GetAmount() / 500.0f;
+            float const regen = Emberfall::StatRules::ManaRegenPerSecond(flat,
+                GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_POWER_REGEN_PERCENT, POWER_MANA), mp5);
+            SetStatFloatValue(UNIT_FIELD_POWER_REGEN_INTERRUPTED_FLAT_MODIFIER + AsUnderlyingType(POWER_MANA), regen);
+            SetStatFloatValue(UNIT_FIELD_POWER_REGEN_FLAT_MODIFIER + AsUnderlyingType(POWER_MANA), regen);
+            return;
+        }
     }
 
     float Intellect = GetStat(STAT_INTELLECT);

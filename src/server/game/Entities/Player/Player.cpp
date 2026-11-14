@@ -18,6 +18,7 @@
 #include "Player.h"
 #include "EmberfallCombatLog.h"
 #include "EmberfallOwnData.h"
+#include "EmberfallStatRules.h" // EMBERFALL: the stat rules (PATCHES.md #40)
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "AreaDefines.h"
@@ -5464,7 +5465,8 @@ float Player::OCTRegenHPPerSpirit()
         return 0.0f;
 
     // Formula from PaperDollFrame script
-    float spirit = GetStat(STAT_SPIRIT);
+    // EMBERFALL: the stat rules (PATCHES.md #40): no Spirit; health out of combat from Vigour (Stamina), same tables
+    float spirit = GetStat(Emberfall::StatRules::On() ? STAT_STAMINA : STAT_SPIRIT);
     float baseSpirit = spirit;
     if (baseSpirit > 50)
         baseSpirit = 50;
