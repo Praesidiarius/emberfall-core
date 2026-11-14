@@ -13,6 +13,7 @@
 
 #include "Config.h"
 #include "EmberfallBots.h"
+#include "EmberfallFights.h"
 #include "Group.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
@@ -212,6 +213,13 @@ bool EmberfallRotationAction::Execute(Event /*event*/)
     // next steps get their turn for 10 s
     if (!ok)
         backoff[spell] = getMSTime() + 10000;
+    else if (EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(bot))
+        for (EmberfallBots::RoutineStep const& step : spec->steps)
+            if (step.spell == spell && step.selfBelowPct)
+            {
+                EmberfallFights::NoteDefensive(bot);
+                break;
+            }
     // the pilot's trace (Playerbots.log at debug): what each bot presses
     LOG_DEBUG("playerbots", "Emberfall rotation: {} (level {}) casts {} on {}: {}", bot->GetName(), bot->GetLevel(), spell,
               on->GetName(), ok ? "ok" : "failed");
