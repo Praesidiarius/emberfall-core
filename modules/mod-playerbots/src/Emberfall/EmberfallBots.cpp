@@ -56,13 +56,14 @@ namespace EmberfallBots
         std::shared_mutex s_botSpecLock;                      // bots update in the map threads
         float s_restHealth = 60.0f, s_restMana = 40.0f, s_restUntil = 90.0f;
         int32 s_maxLevelAbove = 2;
-        float s_restMargin = 0.0f;                            // bot deaths: rest for the last fights' cost (0: off)
-        float s_pullCrowdYards = 0.0f;                        // bot deaths: idle creatures round a pull (0: off)
-        uint32 s_pullCrowdMax = 2;
+        // bot deaths (Emberfall docs/design/playerbots-pilot.md §13): the measured run's settings are the defaults
+        float s_restMargin = 25.0f;                           // rest for the last fights' cost (0: off)
+        float s_pullCrowdYards = 12.0f;                       // idle creatures round a pull (0: off)
+        uint32 s_pullCrowdMax = 1;
         float s_pullCrowdPenalty = 20.0f;
         float s_escapeBelow = 0.0f;                           // bot deaths: run from a lost fight (0: off)
         float s_defensiveCrowdBonus = 0.0f;                   // bot deaths: defensives earlier against 2+ (0: off)
-        uint32 s_avoidDeathMinutes = 0;                       // bot deaths: no pulls where it just died (0: off)
+        uint32 s_avoidDeathMinutes = 10;                      // bot deaths: no pulls where it just died (0: off)
         float s_avoidDeathYards = 40.0f;
 
         std::set<uint32> ParseIds(std::string const& text)
@@ -134,13 +135,13 @@ namespace EmberfallBots
         s_restMana = sConfigMgr->GetOption<float>("Playerbots.Emberfall.RestManaPct", 40.0f);
         s_restUntil = sConfigMgr->GetOption<float>("Playerbots.Emberfall.RestUntilPct", 90.0f);
         s_maxLevelAbove = sConfigMgr->GetOption<int32>("Playerbots.Emberfall.MaxTargetLevelAbove", 2);
-        s_restMargin = sConfigMgr->GetOption<float>("Playerbots.Emberfall.RestMarginPct", 0.0f);
-        s_pullCrowdYards = sConfigMgr->GetOption<float>("Playerbots.Emberfall.PullCrowdYards", 0.0f);
-        s_pullCrowdMax = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.PullCrowdMax", 2);
+        s_restMargin = sConfigMgr->GetOption<float>("Playerbots.Emberfall.RestMarginPct", 25.0f);
+        s_pullCrowdYards = sConfigMgr->GetOption<float>("Playerbots.Emberfall.PullCrowdYards", 12.0f);
+        s_pullCrowdMax = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.PullCrowdMax", 1);
         s_pullCrowdPenalty = sConfigMgr->GetOption<float>("Playerbots.Emberfall.PullCrowdPenaltyYards", 20.0f);
         s_escapeBelow = sConfigMgr->GetOption<float>("Playerbots.Emberfall.EscapeBelowPct", 0.0f);
         s_defensiveCrowdBonus = sConfigMgr->GetOption<float>("Playerbots.Emberfall.DefensiveCrowdBonusPct", 0.0f);
-        s_avoidDeathMinutes = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.AvoidDeathSpotMinutes", 0);
+        s_avoidDeathMinutes = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.AvoidDeathSpotMinutes", 10);
         s_avoidDeathYards = sConfigMgr->GetOption<float>("Playerbots.Emberfall.AvoidDeathSpotYards", 40.0f);
         for (char const* t : {"ef_bot_spec", "ef_bot_routine", "ef_bot_talent", "ef_bot_name", "ef_bot_character"})
             if (!TableExists(t))

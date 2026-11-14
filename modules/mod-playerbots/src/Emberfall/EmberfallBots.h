@@ -101,23 +101,24 @@ namespace EmberfallBots
 
     // Rest between pulls (bot step 2): below Playerbots.Emberfall.RestHealthPct (60) health or RestManaPct (40) mana a
     // bot pulls nothing and sits, eating and drinking what it carries, until RestUntilPct (90) of both.
-    // With RestMarginPct > 0 (bot deaths, docs §13) the threshold is at least what the bot's last fights cost it plus
+    // With RestMarginPct > 0 (25 by default; bot deaths, docs §13) the threshold is at least what the bot's last fights cost it plus
     // that margin (capped at 99), and it rests at least up to that.
     bool NeedsRest(Player* bot);
     bool RestedEnough(Player* bot);
-    // Pulling (bot deaths): a grind target with idle hostile creatures within PullCrowdYards (0: off) counts
-    // PullCrowdPenaltyYards farther a creature, and more than PullCrowdMax of them rule it out.
+    // Pulling (bot deaths): a grind target with idle hostile creatures within PullCrowdYards (12; 0: off) counts
+    // PullCrowdPenaltyYards (20) farther a creature, and more than PullCrowdMax (1) of them rule it out.
     float PullCrowdYards();
     uint32 PullCrowdMax();
     float PullCrowdPenalty();
     // Idle hostile creatures (alive, not fighting, no critters) within `yards` of the target, the target left out.
     uint32 IdleCrowd(Player* bot, Unit* target, float yards);
-    // Escape (bot deaths): below this health percent (0: off) in a fight the bot is losing, it runs.
+    // Escape (bot deaths): below this health percent (0: off, the default) in a fight the bot is losing, it runs. Measured
+    // at 35: worse (the bots died running, 101 of 104 deaths in the half hour), so off.
     float EscapeBelowPct();
     // A defensive (a routine step with self_below) with two or more creatures attacking: that many points earlier (0: off).
     float DefensiveCrowdBonusPct();
-    // A pull the bot leaves alone: within AvoidDeathSpotYards (40) of where it died less than AvoidDeathSpotMinutes ago
-    // (0: off), as a player who died at a camp goes elsewhere for a while.
+    // A pull the bot leaves alone: within AvoidDeathSpotYards (40) of where it died less than AvoidDeathSpotMinutes (10)
+    // ago (0: off), as a player who died at a camp goes elsewhere for a while.
     bool AvoidAsPull(Player* bot, Unit* target);
     // How many levels above the bot a creature it attacks or a quest it takes may be (MaxTargetLevelAbove, 2).
     int32 MaxLevelAbove();
