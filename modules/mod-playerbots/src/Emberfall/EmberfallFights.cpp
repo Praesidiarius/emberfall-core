@@ -193,6 +193,16 @@ namespace EmberfallFights
             return false;
         }
 
+        // one character a routine step: 1 the bot knows its ability, 0 not (yet)
+        std::string KnownSteps(Player* bot, EmberfallBots::Spec const* spec)
+        {
+            std::string out;
+            if (spec)
+                for (EmberfallBots::RoutineStep const& step : spec->steps)
+                    out += bot->HasSpell(step.spell) ? '1' : '0';
+            return out.empty() ? "-" : out;
+        }
+
         void Emit(Player* bot, Fight const& f, bool died)
         {
             EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(bot);
@@ -201,11 +211,12 @@ namespace EmberfallFights
             std::string const line = Acore::StringFormat(
                 "bot={} level={} spec={} hp0={:.0f} mp0={:.0f} state={} rpg={} first={} zone={} area={} x={:.0f} y={:.0f} "
                 "near15={} near30={} first_entry={} n_pull={} n_max={} n_all={} n_death={} foes={} dur={:.1f} deal_s={:.1f} "
-                "dealt={} taken={} min_hp={:.0f} def={}/{} kills={} escaped={} killer={} death_foes={}",
+                "dealt={} taken={} min_hp={:.0f} def={}/{} kills={} escaped={} killer={} death_foes={} steps={}",
                 bot->GetName(), bot->GetLevel(), spec ? spec->key : "-", f.hp0, f.mp0, f.state, f.rpg, f.first, f.zone,
                 f.area, f.x, f.y, f.near15, f.near30, f.firstEntry, PullCount(f), f.nMax, f.foes.size(), f.nDeath,
                 FoeList(f), durMs / 1000.0f, dealMs / 1000.0f, f.dealt, f.taken, f.minHp, f.defensives,
-                KnowsDefensive(bot) ? 1 : 0, f.kills, f.escaped ? 1 : 0, f.killer, f.deathFoes.empty() ? "-" : f.deathFoes);
+                KnowsDefensive(bot) ? 1 : 0, f.kills, f.escaped ? 1 : 0, f.killer, f.deathFoes.empty() ? "-" : f.deathFoes,
+                KnownSteps(bot, spec));
             if (died)
                 LOG_INFO("playerbots", "Emberfall death: {}", line);
             else
