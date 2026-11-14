@@ -239,7 +239,7 @@ bool EmberfallRestTrigger::IsActive()
     if (EmberfallBots::NeedsRest(bot))
         return true;
     // once seated, until rested enough
-    return bot->GetStandState() == UNIT_STAND_STATE_SIT && !EmberfallBots::RestedEnough(bot);
+    return bot->getStandState() == UNIT_STAND_STATE_SIT && !EmberfallBots::RestedEnough(bot);
 }
 
 bool EmberfallRestAction::Execute(Event /*event*/)
@@ -262,7 +262,7 @@ bool EmberfallRestAction::Execute(Event /*event*/)
         uint32 const spell = proto->Spells[0].SpellId;
         if (bot->HasAura(spell) || bot->HasSpellCooldown(spell) || proto->RequiredLevel > bot->GetLevel())
             continue;
-        if (bot->GetStandState() != UNIT_STAND_STATE_SIT)
+        if (bot->getStandState() != UNIT_STAND_STATE_SIT)
             bot->SetStandState(UNIT_STAND_STATE_SIT);
         if (botAI->CastSpell(spell, bot, item))
         {
@@ -272,7 +272,7 @@ bool EmberfallRestAction::Execute(Event /*event*/)
             return true;
         }
     }
-    if (bot->GetStandState() != UNIT_STAND_STATE_SIT)
+    if (bot->getStandState() != UNIT_STAND_STATE_SIT)
         bot->SetStandState(UNIT_STAND_STATE_SIT);
     return true;
 }
