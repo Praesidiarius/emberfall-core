@@ -104,6 +104,25 @@ and #2's skip at the start of `SetInitialWorldSettings`, all before the first ho
 (`OnLoadCustomDatabaseTable` comes before the DBCs, the next one after them is far later); #8 is
 reached from `WorldState::Load` and `DisableMgr` with no hook in between; #9 is a struct field type.
 
+## The bots (`modules/mod-playerbots`, Emberfall docs/design/playerbots-pilot.md)
+
+`modules/mod-playerbots` is mod-playerbots/mod-playerbots 405f8119 (GPL-2.0-or-later), vendored, without its chat
+text, speech, name and stock-world SQL rows (its schema: `data/sql/emberfall/`), with Emberfall's mode
+(`Playerbots.Emberfall.Enable`: `src/Emberfall/` and short `EMBERFALL:` hunks in the module's own files). The core
+carries the playerbots fork's small patch (mod-playerbots/azerothcore-wotlk `Playerbot` 32fd3472a over AzerothCore
+977614be0; the rest of the hooks the module needs are upstream):
+
+| What | Where |
+|---|---|
+| `MOD_PLAYERBOTS` defined for the database, game and modules targets when the module is present; the mysql library linked into `modules` | `modules/CMakeLists.txt` |
+| Bots path with a stricter filter (ground and water, no lava, slime or steep ground) and pay extra for deep water; players and creatures as before | `src/server/game/Movement/MovementGenerators/PathGenerator.cpp` (`CreateFilter`) |
+| Paths of up to 148 points instead of 74 under `MOD_PLAYERBOTS`; `SetNavTerrainCost`, `SetExcludeFlags` | `src/server/game/Movement/MovementGenerators/PathGenerator.h` |
+| `NAV_GROUND_STEEP` (0x10, was unused): the steep-slope area the fork's mmaps generator tags; Emberfall's mmaps do not carry it yet, so it never matches | `src/common/Collision/Maps/MapDefines.h` |
+| The `Playerbots` log appender and logger | `src/server/apps/worldserver/worldserver.conf.dist` |
+
+The pilot branch also merged upstream to 977614be0 (37 commits, 2026-11-06), which the module's async
+`ModuleDatabasePool` (#27773) needs; its one characters update is `data/sql/updates/db_characters/2026_11_03_00.sql`.
+
 ## Build and deployment
 
 | What | Where |
