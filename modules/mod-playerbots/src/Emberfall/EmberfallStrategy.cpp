@@ -33,8 +33,7 @@ std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
     // The routine first; a melee spec swings when nothing in its table can go, a ranged spec with a bow keeps its Auto
     // Shot going (a caster waits for its power).
     std::vector<NextAction> actions = {NextAction("ef rotation", ACTION_DEFAULT + 0.5f)};
-    EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(botAI->GetBot());
-    if (!spec || !spec->ranged)
+    if (!EmberfallBots::FightsRanged(botAI->GetBot()))
         actions.push_back(NextAction("melee", ACTION_DEFAULT));
     else
         actions.push_back(NextAction("ef auto shot", ACTION_DEFAULT + 0.2f));

@@ -57,6 +57,7 @@ namespace EmberfallBots
         std::set<uint32> weapons;   // ItemSubclassWeapon values the spec fights with (main hand); empty: any
         std::set<uint32> offhand;   // weapon subclasses in the off hand (dual wield); empty: no off-hand weapon
         bool shield = false;        // may carry a shield in the off hand
+        bool prespecRanged = false; // keeps its distance before the spec choice (levels 1-9: the hunter's shots)
         std::vector<RoutineStep> steps;
         std::vector<std::pair<uint32, uint32>> talents; // (node, rank) in buying order, class tree and spec tree
     };
@@ -76,6 +77,10 @@ namespace EmberfallBots
     // The bot's spec: the one stored for it ("ef_spec" in playerbots_random_bots), else a damage spec of its class
     // chosen now (by weight) and stored. Null when its class has no damage spec in the tables.
     Spec const* SpecOf(Player* bot);
+    // The spec choice comes at level 10: below it a bot fights with its class's pre-spec kit.
+    constexpr uint8 PRESPEC_LEVELS_END = 10;
+    // The bot keeps its distance now (the spec's range, or its pre-spec range below level 10).
+    bool FightsRanged(Player* bot);
     // The damage specs of a class (for the creation of bots: classes without any are skipped).
     bool HasSpecs(uint8 classId);
 

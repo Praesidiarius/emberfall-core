@@ -144,7 +144,7 @@ namespace EmberfallBots
             }
 
         if (QueryResult r = PlayerbotsDatabase.Query(
-                "SELECT spec_id, class_id, spec_key, ranged, weight, weapons, offhand, shield FROM ef_bot_spec"))
+                "SELECT spec_id, class_id, spec_key, ranged, weight, weapons, offhand, shield, prespec_ranged FROM ef_bot_spec"))
         {
             do
             {
@@ -158,6 +158,7 @@ namespace EmberfallBots
                 s.weapons = ParseIds(f[5].Get<std::string>());
                 s.offhand = ParseIds(f[6].Get<std::string>());
                 s.shield = f[7].Get<uint8>() != 0;
+                s.prespecRanged = f[8].Get<uint8>() != 0;
                 s_classSpecs[s.classId].push_back(s.id);
                 s_specs.emplace(s.id, std::move(s));
             } while (r->NextRow());
@@ -231,6 +232,14 @@ namespace EmberfallBots
     }
 
     bool HasSpecs(uint8 classId) { return s_classSpecs.count(classId) > 0; }
+
+    bool FightsRanged(Player* bot)
+    {
+        Spec const* spec = SpecOf(bot);
+        if (!spec)
+            return false;
+        return bot->GetLevel() < PRESPEC_LEVELS_END ? spec->prespecRanged : spec->ranged;
+    }
 
     Spec const* SpecOf(Player* bot)
     {
