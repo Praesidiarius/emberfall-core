@@ -14,6 +14,7 @@
 #include "Common.h"
 #include "CreatureData.h"
 #include "DBCStores.h"
+#include "EmberfallBots.h"
 #include "EmoteAction.h"
 #include "Engine.h"
 #include "EventProcessor.h"
@@ -3124,6 +3125,10 @@ bool PlayerbotAI::TellMasterNoFacing(std::ostringstream& stream, PlayerbotSecuri
 
 bool PlayerbotAI::TellMasterNoFacing(std::string const text, PlayerbotSecurityLevel securityLevel)
 {
+    // EMBERFALL: a bot tells its player nothing (the module's lines are English stock text, not ours; the group-play
+    // look's "Hello" whisper); the callers go on as if it had been said
+    if (EmberfallBots::Enabled())
+        return true;
     Player* master = GetMaster();
     PlayerbotAI* masterBotAI = nullptr;
     if (master)
@@ -3161,7 +3166,7 @@ bool PlayerbotAI::TellMasterNoFacing(std::string const text, PlayerbotSecurityLe
 bool PlayerbotAI::TellError(std::string const text, PlayerbotSecurityLevel securityLevel)
 {
     Player* master = GetMaster();
-    if (!IsTellAllowed(securityLevel) || !master || GET_PLAYERBOT_AI(master))
+    if (EmberfallBots::Enabled() || !IsTellAllowed(securityLevel) || !master || GET_PLAYERBOT_AI(master))
         return false;
 
     if (PlayerbotMgr* mgr = GET_PLAYERBOT_MGR(master))
