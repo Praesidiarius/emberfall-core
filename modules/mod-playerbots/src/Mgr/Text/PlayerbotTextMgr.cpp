@@ -97,7 +97,8 @@ std::string PlayerbotTextMgr::GetBotText(std::string name)
 {
     if (botTexts.empty())
     {
-        LOG_ERROR("playerbots", "Can't get bot text {}! No bots texts loaded!", name);
+        // EMBERFALL: no text rows on purpose (chat off): a debug line, not an error
+        LOG_DEBUG("playerbots", "Can't get bot text {}! No bots texts loaded!", name);
         return "";
     }
 
@@ -142,7 +143,7 @@ std::string PlayerbotTextMgr::GetBotText(ChatReplyType replyType, std::map<std::
 {
     if (botTexts.empty())
     {
-        LOG_ERROR("playerbots", "Can't get bot text reply {}! No bots texts loaded!", replyType);
+        LOG_DEBUG("playerbots", "Can't get bot text reply {}! No bots texts loaded!", replyType);
         return "";
     }
     if (botTexts["reply"].empty())

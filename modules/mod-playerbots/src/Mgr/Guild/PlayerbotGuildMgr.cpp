@@ -157,7 +157,8 @@ void PlayerbotGuildMgr::LoadGuildNames()
 
     if (!result)
     {
-        LOG_ERROR("playerbots", "No entries found in playerbots_guild_names. List is empty.");
+        // EMBERFALL: no stock guild names (one Emberfall guild per side instead): information, not an error
+        LOG_INFO("playerbots", "No entries found in playerbots_guild_names. List is empty.");
         return;
     }
 
@@ -185,7 +186,7 @@ void PlayerbotGuildMgr::ValidateGuildCache()
     QueryResult result = CharacterDatabase.Query("SELECT guildid, name FROM guild");
     if (!result)
     {
-        LOG_ERROR("playerbots", "No guilds found in database, resetting guild cache");
+        LOG_INFO("playerbots", "No guilds found in database, resetting guild cache");
         ResetGuildCache();
         return;
     }
