@@ -14,6 +14,7 @@
 #include "DBUpdater.h"
 #include "DatabaseEnv.h"
 #include "EmberfallBots.h"
+#include "EmberfallFights.h"
 #include "PlayerbotsDatabase.h"
 #include <mysqld_error.h>
 #include "AllMapScript.h"
@@ -634,6 +635,7 @@ void AddPlayerbotsScripts()
     new PlayerbotsGlobalScript();
     new PlayerbotsWorldScript();
     new PlayerBotsBGScript();
+    EmberfallFights::AddScripts(); // EMBERFALL: the bots' fight records (deaths measurements, EmberfallFights.h)
     AddPlayerbotsSecureLoginScripts();
     AddPlayerbotsSelfBotAfkScripts();
     AddPlayerbotsCommandscripts();

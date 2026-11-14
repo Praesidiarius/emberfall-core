@@ -23,6 +23,7 @@
 #include <vector>
 
 class Player;
+class Unit;
 struct ItemTemplate;
 
 namespace EmberfallBots
@@ -56,6 +57,11 @@ namespace EmberfallBots
         std::set<uint32> weapons;   // ItemSubclassWeapon values the spec fights with (main hand); empty: any
         std::set<uint32> offhand;   // weapon subclasses in the off hand (dual wield); empty: no off-hand weapon
         bool shield = false;        // may carry a shield in the off hand
+        bool prespecRanged = false; // keeps its distance before the spec choice (levels 1-9: the hunter's shots)
+        bool swing = false;         // a ranged spec that swings its melee weapon when a foe is in reach (the Ranger's claws)
+        // gear: the stat weights for the module's item scores (strength, agility, intellect, spirit, stamina,
+        // spell_power, attack_power); empty: the module's stock weights
+        std::vector<std::pair<std::string, float>> statWeights;
         std::vector<RoutineStep> steps;
         std::vector<std::pair<uint32, uint32>> talents; // (node, rank) in buying order, class tree and spec tree
     };
@@ -75,6 +81,10 @@ namespace EmberfallBots
     // The bot's spec: the one stored for it ("ef_spec" in playerbots_random_bots), else a damage spec of its class
     // chosen now (by weight) and stored. Null when its class has no damage spec in the tables.
     Spec const* SpecOf(Player* bot);
+    // The spec choice comes at level 10: below it a bot fights with its class's pre-spec kit.
+    constexpr uint8 PRESPEC_LEVELS_END = 10;
+    // The bot keeps its distance now (the spec's range, or its pre-spec range below level 10).
+    bool FightsRanged(Player* bot);
     // The damage specs of a class (for the creation of bots: classes without any are skipped).
     bool HasSpecs(uint8 classId);
 
@@ -91,8 +101,25 @@ namespace EmberfallBots
 
     // Rest between pulls (bot step 2): below Playerbots.Emberfall.RestHealthPct (60) health or RestManaPct (40) mana a
     // bot pulls nothing and sits, eating and drinking what it carries, until RestUntilPct (90) of both.
+    // With RestMarginPct > 0 (25 by default; bot deaths, docs §13) the threshold is at least what the bot's last fights cost it plus
+    // that margin (capped at 99), and it rests at least up to that.
     bool NeedsRest(Player* bot);
     bool RestedEnough(Player* bot);
+    // Pulling (bot deaths): a grind target with idle hostile creatures within PullCrowdYards (12; 0: off) counts
+    // PullCrowdPenaltyYards (20) farther a creature, and more than PullCrowdMax (1) of them rule it out.
+    float PullCrowdYards();
+    uint32 PullCrowdMax();
+    float PullCrowdPenalty();
+    // Idle hostile creatures (alive, not fighting, no critters) within `yards` of the target, the target left out.
+    uint32 IdleCrowd(Player* bot, Unit* target, float yards);
+    // Escape (bot deaths): below this health percent (0: off, the default) in a fight the bot is losing, it runs. Measured
+    // at 35: worse (the bots died running, 101 of 104 deaths in the half hour), so off.
+    float EscapeBelowPct();
+    // A defensive (a routine step with self_below) with two or more creatures attacking: that many points earlier (0: off).
+    float DefensiveCrowdBonusPct();
+    // A pull the bot leaves alone: within AvoidDeathSpotYards (40) of where it died less than AvoidDeathSpotMinutes (10)
+    // ago (0: off), as a player who died at a camp goes elsewhere for a while.
+    bool AvoidAsPull(Player* bot, Unit* target);
     // How many levels above the bot a creature it attacks or a quest it takes may be (MaxTargetLevelAbove, 2).
     int32 MaxLevelAbove();
     // Our provisions: Emberfall's food and drink spells use the categories 2 and 3 (content/data/spells/consumables.yaml),
