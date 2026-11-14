@@ -66,4 +66,10 @@ namespace Emberfall::Talents
     void Dump(Player* player, std::vector<std::string>& out);
     bool GmSetSpec(Player* player, uint32 specId, std::string& out);
     bool GmReset(Player* player, std::string& out);
+
+    // Server-side players (the playerbots pilot, Emberfall docs/design/playerbots-pilot.md): from the spec's level on
+    // makes `specId` the active spec (at once, as a GM switch), then buys the (node, rank) pairs of `wanted` in that order
+    // as far as the talent rules allow at the character's level, each node checked on its own (budgets, pick slots,
+    // rows). Before the spec level it spends the class tree (spec 0). The number of nodes bought, or -1 (reason in `out`).
+    int32 BotBuild(Player* player, uint32 specId, std::vector<std::pair<uint32, uint32>> const& wanted, std::string& out);
 }

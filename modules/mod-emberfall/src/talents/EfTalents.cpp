@@ -1725,4 +1725,79 @@ namespace Emberfall::Talents
         out = fmt::format("{}: the active loadout of spec {} is reset", player->GetName(), st->activeSpec);
         return true;
     }
+
+    int32 BotBuild(Player* player, uint32 specId, std::vector<std::pair<uint32, uint32>> const& wanted, std::string& out)
+    {
+        std::shared_ptr<EfTalentModel const> data = Data();
+        PlayerState* st = State(player);
+        if (!st || !data)
+        {
+            out = "the system is off or the class has no trees";
+            return -1;
+        }
+        uint32 const level = player->GetLevel();
+        if (specId && level >= data->specLevel && st->activeSpec != specId)
+        {
+            EfSpec const* target = data->Spec(specId);
+            if (!target || target->classId != player->getClass())
+            {
+                out = fmt::format("spec {} is not a spec of class {}", specId, player->getClass());
+                return -1;
+            }
+            if (level >= target->availableLevel)
+            {
+                if (st->pending.spec)
+                    (void)st->EndSwitch();
+                EnterSpec(player, *st, *data, specId);
+            }
+        }
+        EfSpec const* spec = data->SpecOrPre(st->activeSpec, player->getClass());
+        if (!spec)
+        {
+            out = "no spec or pre-spec tree for the class";
+            return -1;
+        }
+        Loadout const* live = st->Active(st->activeSpec);
+        eft::Pairs pairs = live ? live->pairs : eft::Pairs{};
+        eft::Pairs const kept = LiveKept(*st, *data);
+        int32 bought = 0;
+        EfClass const* cls = data->Class(player->getClass());
+        // One node at a time, in the wanted order, each kept only when the whole loadout still passes the rules at this
+        // level (budgets, pick slots, rows, gates): what a levelling player of the spec would have bought by now. Only
+        // nodes of the class tree and of the active spec's tree (before the choice: the class tree). After each purchase
+        // the list starts again from its top, so an earlier node a row gate refused (a pick) gets the next point before
+        // a later one (a passive) takes it; until nothing more can be bought.
+        for (int pass = 0; pass < 256; ++pass)
+        {
+            int32 const before = bought;
+            for (auto const& [node, rank] : wanted)
+            {
+                EfNode const* n = data->Node(node);
+                if (!n || !cls)
+                    continue;
+                bool const inClass = n->tree == cls->classTree;
+                bool const inSpec = st->activeSpec && spec->treeId && n->tree == spec->treeId;
+                if (!inClass && !inSpec)
+                    continue;
+                auto it = pairs.find(node);
+                if (it != pairs.end() && it->second.rank >= rank)
+                    continue;
+                eft::Pairs candidate = pairs;
+                candidate[node].rank = static_cast<uint8>(rank);
+                if (!data->Validate(*spec, data->LoadoutString(*spec, candidate), level).ok())
+                    continue;
+                if (!data->CheckKept(kept, candidate).ok())
+                    continue;
+                pairs = std::move(candidate);
+                ++bought;
+                break;
+            }
+            if (bought == before)
+                break;
+        }
+        if (bought)
+            ApplyPairs(player, *st, *data, std::move(pairs), true);
+        out = fmt::format("{}: spec {}, {} node(s) bought", player->GetName(), st->activeSpec, bought);
+        return bought;
+    }
 }

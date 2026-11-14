@@ -14,6 +14,12 @@ Current changes (every code change is listed in `PATCHES.md`):
 - `modules/mod-emberfall` also carries the spec and talent system (`Emberfall.Talents.Enable`; Emberfall
   `docs/design/talents.md` §3): the `ef_*` world and `ef_character_*` tables, the `EFT` addon-message
   protocol, validation and spell reconcile, GM `.ef` commands. Module code only.
+- `modules/mod-playerbots`: server-side players ("bots"), mod-playerbots/mod-playerbots 405f8119
+  (GPL-2.0-or-later, compatible with the core's AGPL-3.0) vendored with Emberfall's mode
+  (`Playerbots.Emberfall.Enable`, `src/Emberfall/`): damage specs only, our names, routines, talents, quests, a guild
+  per side, the run-time off switch `.playerbots rndbot off|on`. Its database is made by Emberfall's tooling
+  (`data/sql/emberfall/`). The fork's small core patch is in `PATCHES.md` ("The bots"); Emberfall
+  `docs/design/playerbots-pilot.md`.
 - `docker-compose.emberfall-data.yml`: a second, separate server ("emberfall-data" profile) on
   Emberfall's own data, with its own containers (`ef-data-*`), ports (MySQL 3320, auth 3725, world
   8086), volume, data (`var/serverdata-ef`) and images (`emberfall/ac-wotlk-*:own-data`). Driven
