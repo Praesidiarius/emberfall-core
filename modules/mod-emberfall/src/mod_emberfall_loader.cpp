@@ -51,6 +51,7 @@ void AddEmberfallSeamScripts();
 void AddEmberfallAccountAchievementsScripts();
 void AddEmberfallSunScripts();
 void AddEmberfallQuestVisibilityScripts();
+void AddEmberfallSkillRecipesScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -87,4 +88,5 @@ void Addmod_emberfallScripts()
     AddEmberfallAccountAchievementsScripts();
     AddEmberfallSunScripts();
     AddEmberfallQuestVisibilityScripts();
+    AddEmberfallSkillRecipesScripts();
 }

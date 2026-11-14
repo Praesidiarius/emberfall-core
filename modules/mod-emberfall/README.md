@@ -519,6 +519,19 @@ bags, or by mail when they are full.
 | `src/emberfall_skill_levels.cpp` | `emberfall_skill_levels_world` (`OnStartup`: reads the rows), `emberfall_skill_levels_player` (`OnPlayerLogin`, `OnPlayerLevelChanged`: `Player::SetSkill`, `SendProficiency`, the unequip) |
 | `data/sql/db-world/mod_emberfall_2026_10_29_00_skill_level.sql` | `ef_skill_level` |
 
+## Recipes at their skill value (Emberfall `docs/design/professions.md` §27)
+
+A SkillLineAbility row learned at a skill value (`SKILL_LINE_ABILITY_LEARNED_ON_SKILL_VALUE`: Mining's ingots,
+Enchanting's glyphs, Beastcraft's) comes from `Player::learnSkillRewardedSpells`, which the core runs at login, on
+`SetSkill` and in `UpdateSkillPro` only when the skill crosses 75, 150, ... 450: a recipe due at 105 came at the next login
+or at 150. On every skill rise (`OnPlayerUpdateSkill`: `UpdateSkill` and `UpdateSkillPro`, so gathering, crafting, fishing
+and weapon skill-ups) the module runs it for the new value: the recipe arrives at once, with the client's "You have
+learned" line. No switch, no core patch.
+
+| File | What |
+|---|---|
+| `src/emberfall_skill_recipes.cpp` | `emberfall_skill_recipes_player` (`OnPlayerUpdateSkill`: `Player::learnSkillRewardedSpells(skill, new value)`) |
+
 ## Buffs at any level (Emberfall feedback #237)
 
 The core scales a player's positive aura to its target's level: a target more than 10 levels under the spell's
