@@ -2,6 +2,7 @@
 // database. Built and run by tests/run_profspec_tests.sh.
 
 #include "EfProfModel.h"
+#include "EfProfText.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -125,7 +126,7 @@ int main()
     CHECK(m.Problems().empty());
     CHECK(m.TreesOf(186).size() == 3);
     CHECK(m.TreesOf(186)[0]->id == 1 && m.TreesOf(186)[1]->id == 3 && m.TreesOf(186)[2]->id == 2);
-    CHECK(m.Budget(75) == 7 && m.Budget(9) == 0 && m.Budget(500) == 50);
+    CHECK(m.Budget(186, 75) == 7 && m.Budget(186, 9) == 0 && m.Budget(186, 500) == 50);   // no floor named: every 10 skill
 
     // the wire: base 36, a tree per part
     CHECK(m.Encode(186, {}) == "0000.00.0");
@@ -215,6 +216,55 @@ int main()
     CHECK(t.RepairFactor({}) == 1.0f);
     CHECK(t.RepairFactor({{1201, 3}}) > 0.909f && t.RepairFactor({{1201, 3}}) < 0.911f);
     CHECK(t.RepairFactor({{1201, 35}}) == 0.0f);
+
+    // the profession rework (professions.md §28): talent points only above rank 2's cap, per profession
+    {
+        Model f = MakeModel();
+        f.pointsFrom = {{186, 175}, {185, 150}};
+        f.stepOf = {{185, 5}};
+        CHECK(f.Budget(186, 75) == 0 && f.Budget(186, 175) == 0 && f.Budget(186, 184) == 0 && f.Budget(186, 185) == 1);
+        CHECK(f.Budget(186, 325) == 15 && f.Budget(186, 500) == 32);     // a tree and a half of 21
+        CHECK(f.Budget(185, 150) == 0 && f.Budget(185, 300) == 30);      // Cooking and First Aid: one per 5 above 150
+        CHECK(f.Budget(171, 100) == 10);                                  // a profession not named: as before
+        CHECK(f.Validate(186, {{101, 1}}, 175).code == "BUDGET");        // nothing to spend below rank 3
+        CHECK(f.Validate(186, {{101, 1}}, 190).ok());
+        // the specialisations: the pick needs the last rank, the unlearn ladder's last step repeats
+        Specialisation w{97901, 164, 1, 325, 500, "weaponsmith"};
+        f.specs[w.spell] = w;
+        f.specs[97902] = {97902, 164, 2, 325, 500, "armoursmith"};
+        f.specs[97903] = {97903, 171, 1, 325, 500, "potions"};
+        f.unlearnCopper = {10000, 100000, 1000000, 10000000, 100000000};
+        CHECK(f.Problems().empty());
+        CHECK(f.SpecsOf(164).size() == 2 && f.SpecsOf(164)[0]->key == "weaponsmith" && f.SpecsOf(171).size() == 1);
+        CHECK(f.Spec(97902) && f.Spec(97902)->sort == 2 && !f.Spec(1));
+        CHECK(Model::CanPick(w, 500, 0) && !Model::CanPick(w, 325, 0) && !Model::CanPick(w, 500, 97902));
+        CHECK(f.UnlearnCopper(0) == 10000 && f.UnlearnCopper(3) == 10000000 && f.UnlearnCopper(4) == 100000000);
+        CHECK(f.UnlearnCopper(9) == 100000000);                           // 10,000 gold from the fifth on
+        Model none;
+        CHECK(none.UnlearnCopper(2) == 0);
+        Specialisation bad{97904, 164, 3, 500, 500, "bad"};               // falls back to its own cap: no
+        f.specs[bad.spell] = bad;
+        CHECK(f.Problems().size() == 1);
+    }
+
+    // the trainer's lines in the three languages
+    {
+        using namespace ef::prof::text;
+        CHECK(Money(100000000, Lang::En) == "10,000 gold" && Money(10000, Lang::En) == "1 gold");
+        CHECK(Money(15025, Lang::En) == "1 gold 50 silver 25 copper" && Money(0, Lang::En) == "0 copper");
+        CHECK(Money(100000000, Lang::De) == "10.000 Gold");
+        CHECK(Money(100000000, Lang::Fr) == "10\xC2\xA0" "000\xC2\xA0pi\xC3\xA8" "ces d'or");
+        CHECK(UnlearnTreeLine(Lang::En, "Rich Seams", 1) == "Unlearn talents: Rich Seams (1 point)");
+        CHECK(UnlearnTreeLine(Lang::De, "Reiche Adern", 3) == "Talente verlernen: Reiche Adern (3 Punkte)");
+        CHECK(PickLine(Lang::En, "Weaponsmith") == "Choose your specialisation: Weaponsmith");
+        std::string const box = DropBox(Lang::En, "Weaponsmith", "Blacksmithing", 100000, 325);
+        CHECK(box.find("10 gold") != std::string::npos && box.find("back to 325") != std::string::npos);
+        CHECK(DropBox(Lang::De, "Waffenschmied", "Schmiedekunst", 10000, 325).find("1 Gold") != std::string::npos);
+        CHECK(DropBox(Lang::Fr, "Forgeron d'armes", "Forge", 10000, 325).find("325") != std::string::npos);
+        CHECK(PickBox(Lang::En, "Weapons.").rfind("Weapons.", 0) == 0);
+        CHECK(Dropped(Lang::En, "Weaponsmith", "Blacksmithing", 10000, 325) ==
+              "You gave up Weaponsmith for 1 gold. Blacksmithing is back at 325. Choose a new specialisation at a trainer.");
+    }
 
     if (s_failed)
     {

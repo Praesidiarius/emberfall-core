@@ -21,8 +21,12 @@
 //   trees      three per profession (ef_prof_tree.sort 1-3), nodes in `ord` order; a node opens when every rank of a
 //              parent is bought and the tree has `gate` points spent on the nodes of the rows above (SV's tiers)
 //   rules      the talent system's TalentRules.h (checkTree: rank, path, gate) per tree, then one budget for the
-//              profession's trees: skill / points_per_skill; and a stored rank never goes down (SV gathering-specs.md
-//              §2: points come back only with a whole tree, at the trainer)
+//              profession's trees: (skill - points_from) / points_per_skill, the skill above rank 2's cap (the
+//              profession rework, professions.md §28: talents open at rank 3); and a stored rank never goes down (SV
+//              gathering-specs.md §2: points come back only with a whole tree, at the trainer)
+//   specs      the crafts' specialisations at the last rank (professions.md §28): a passive spell each, whose aura
+//              every last-rank recipe asks for (Spell.dbc CasterAuraSpell); picked at a trainer once the last rank is
+//              learned, given up for the price ladder's next step (skill back to the rank's start)
 //   wire       a profession's ranks as `<tree 1>.<tree 2>.<tree 3>`, one base-36 digit (0-9, a-z) per node in `ord`
 //              order, so a node may hold up to 35 ranks
 //   effects    a node's effect, per_rank and targets (items, families, spells); Sum() adds per_rank x rank over the
@@ -133,11 +137,24 @@ namespace ef::prof
         bool ok() const { return code.empty(); }
     };
 
+    // A craft's specialisation at the last rank (ef_prof_specialisation): its passive spell, the craft, its place, the
+    // skill an unlearn sets the craft back to (the rank's start) and the cap the craft must have to pick one.
+    struct Specialisation
+    {
+        uint32_t spell = 0, skill = 0, sort = 0, backTo = 0, needsCap = 0;
+        std::string key;
+    };
+
     class Model
     {
     public:
         std::string hash;
         uint32_t pointsPerSkill = 10, feePerPoint = 0;
+        // per profession (skill line): the skill above which talent points come (rank 2's cap) and the skill a point
+        // costs; a profession not named takes 0 and pointsPerSkill
+        std::map<uint32_t, uint32_t> pointsFrom, stepOf;
+        std::map<uint32_t, Specialisation> specs;                 // spell -> specialisation
+        std::vector<uint32_t> unlearnCopper;                      // the price of the 1st, 2nd, ... unlearn; the last repeats
         std::map<uint32_t, Tree> trees;
         struct Recipe
         {
@@ -194,7 +211,44 @@ namespace ef::prof
             return t ? t->skill : 0;
         }
 
-        uint32_t Budget(uint32_t skillValue) const { return pointsPerSkill ? skillValue / pointsPerSkill : 0; }
+        // The talent points a profession's skill gives: one per `step` skill above `from` (none below it: the tab is
+        // closed below rank 3).
+        uint32_t Budget(uint32_t skill, uint32_t skillValue) const
+        {
+            auto const f = pointsFrom.find(skill);
+            auto const s = stepOf.find(skill);
+            uint32_t const from = f == pointsFrom.end() ? 0 : f->second;
+            uint32_t const step = s == stepOf.end() ? pointsPerSkill : s->second;
+            return step && skillValue > from ? (skillValue - from) / step : 0;
+        }
+
+        // A craft's specialisations in their order.
+        std::vector<Specialisation const*> SpecsOf(uint32_t skill) const
+        {
+            std::vector<Specialisation const*> out;
+            for (auto const& [spell, sp] : specs)
+                if (sp.skill == skill)
+                    out.push_back(&sp);
+            std::sort(out.begin(), out.end(), [](Specialisation const* a, Specialisation const* b) { return a->sort < b->sort; });
+            return out;
+        }
+        Specialisation const* Spec(uint32_t spell) const
+        {
+            auto const it = specs.find(spell);
+            return it == specs.end() ? nullptr : &it->second;
+        }
+
+        // What giving up a specialisation costs after `done` earlier ones (1, 10, 100, 1,000, then 10,000 gold: the
+        // last step repeats).
+        uint32_t UnlearnCopper(uint32_t done) const
+        {
+            if (unlearnCopper.empty())
+                return 0;
+            return unlearnCopper[std::min<size_t>(done, unlearnCopper.size() - 1)];
+        }
+
+        // A specialisation can be picked with the craft's last rank learned (its cap) and none active.
+        static bool CanPick(Specialisation const& sp, uint32_t maxSkill, uint32_t active) { return !active && maxSkill >= sp.needsCap; }
 
         // Points spent in one profession (or one tree).
         uint32_t Spent(uint32_t skill, Ranks const& ranks) const
@@ -296,8 +350,8 @@ namespace ef::prof
                 if (!r.ok())
                     return {talents::errorCode(r.code), r.detail};
             }
-            if (Spent(skill, ranks) > Budget(skillValue))
-                return {"BUDGET", Budget(skillValue)};
+            if (Spent(skill, ranks) > Budget(skill, skillValue))
+                return {"BUDGET", Budget(skill, skillValue)};
             return {};
         }
 
@@ -448,6 +502,10 @@ namespace ef::prof
         std::vector<std::string> Problems() const
         {
             std::vector<std::string> out;
+            for (auto const& [spell, sp] : specs)
+                if (!sp.skill || !sp.needsCap || sp.backTo >= sp.needsCap)
+                    out.push_back("specialisation " + std::to_string(spell) + ": skill " + std::to_string(sp.skill) + ", back to " +
+                                  std::to_string(sp.backTo) + ", needs " + std::to_string(sp.needsCap));
             for (auto const& [skill, ids] : m_bySkill)
             {
                 for (size_t i = 0; i < ids.size(); ++i)
