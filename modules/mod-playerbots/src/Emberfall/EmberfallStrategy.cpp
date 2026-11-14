@@ -18,6 +18,7 @@
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "Playerbots.h"
+#include "Spell.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "Timer.h"
@@ -26,11 +27,14 @@
 
 std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
 {
-    // The routine first; a melee spec swings when nothing in its table can go (a ranged spec waits for its power).
+    // The routine first; a melee spec swings when nothing in its table can go, a ranged spec with a bow keeps its Auto
+    // Shot going (a caster waits for its power).
     std::vector<NextAction> actions = {NextAction("ef rotation", ACTION_DEFAULT + 0.5f)};
     EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(botAI->GetBot());
     if (!spec || !spec->ranged)
         actions.push_back(NextAction("melee", ACTION_DEFAULT));
+    else
+        actions.push_back(NextAction("ef auto shot", ACTION_DEFAULT + 0.2f));
     return actions;
 }
 
@@ -213,6 +217,33 @@ bool EmberfallRotationAction::Execute(Event /*event*/)
     return ok;
 }
 
+namespace
+{
+    uint32 constexpr SPELL_AUTO_SHOT = 75;
+}
+
+bool EmberfallAutoShotAction::isPossible()
+{
+    Unit* target = GetTarget();
+    if (!target || !target->IsAlive() || !bot->HasSpell(SPELL_AUTO_SHOT))
+        return false;
+    Item* ranged = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED);
+    if (!ranged || ranged->GetTemplate()->Class != ITEM_CLASS_WEAPON)
+        return false;
+    // already shooting at it
+    if (Spell* current = bot->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
+        if (current->m_targets.GetUnitTargetGUID() == target->GetGUID())
+            return false;
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(SPELL_AUTO_SHOT);
+    return info && InReach(bot, target, info) && botAI->CanCastSpell(SPELL_AUTO_SHOT, target);
+}
+
+bool EmberfallAutoShotAction::Execute(Event /*event*/)
+{
+    Unit* target = GetTarget();
+    return target && botAI->CastSpell(SPELL_AUTO_SHOT, target);
+}
+
 bool EmberfallPrepareAction::isPossible() { return EmberfallPickStep(botAI, nullptr, true, nullptr) != 0; }
 
 bool EmberfallPrepareAction::Execute(Event /*event*/)
@@ -246,9 +277,12 @@ bool EmberfallRestAction::Execute(Event /*event*/)
 {
     if (bot->isMoving())
         bot->StopMoving();
-    // our provisions: food below full health, drink below full mana, each while its aura is not on
-    bool const wantFood = bot->GetHealthPct() < 99.0f;
-    bool const wantDrink = bot->GetMaxPower(POWER_MANA) > 0 && bot->GetPowerPct(POWER_MANA) < 99.0f;
+    // our provisions: food below full health, drink below full mana, each while its aura is not on. Used as a player
+    // uses the item (the core seats the bot when the aura lands and takes the item); not through PlayerbotAI::CastSpell,
+    // which stands a seated bot up and fails, so the step-2 run's bots sat and stood without ever eating.
+    bool const wantFood = bot->GetHealthPct() < 99.0f && !bot->HasAuraType(SPELL_AURA_MOD_REGEN);
+    bool const wantDrink = bot->GetMaxPower(POWER_MANA) > 0 && bot->GetPowerPct(POWER_MANA) < 99.0f &&
+                           !bot->HasAuraType(SPELL_AURA_MOD_POWER_REGEN);
     for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
     {
         Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
@@ -262,15 +296,21 @@ bool EmberfallRestAction::Execute(Event /*event*/)
         uint32 const spell = proto->Spells[0].SpellId;
         if (bot->HasAura(spell) || bot->HasSpellCooldown(spell) || proto->RequiredLevel > bot->GetLevel())
             continue;
-        if (bot->getStandState() != UNIT_STAND_STATE_SIT)
-            bot->SetStandState(UNIT_STAND_STATE_SIT);
-        if (botAI->CastSpell(spell, bot, item))
-        {
-            bot->DestroyItemCount(item->GetEntry(), 1, true);
-            LOG_DEBUG("playerbots", "Emberfall rest: {} {} ({}% health, {}% mana)", bot->GetName(), food ? "eats" : "drinks",
-                      uint32(bot->GetHealthPct()), uint32(bot->GetPowerPct(POWER_MANA)));
+        if (bot->IsNonMeleeSpellCast(false))
             return true;
-        }
+        if (getMSTime() < retryAt)
+            break;
+        SpellCastTargets targets;
+        targets.SetUnitTarget(bot);
+        bot->CastItemUseSpell(item, targets, 1, 0);  // the item may be gone after this
+        bool const ok = bot->HasAura(spell);
+        LOG_DEBUG("playerbots", "Emberfall rest: {} {} ({}% health, {}% mana): {}", bot->GetName(),
+                  food ? "eats" : "drinks", uint32(bot->GetHealthPct()), uint32(bot->GetPowerPct(POWER_MANA)),
+                  ok ? "ok" : "failed");
+        if (ok)
+            return true;
+        retryAt = getMSTime() + 30000;  // a refused use (a shared cooldown): sit and regenerate, try again in 30 s
+        break;
     }
     if (bot->getStandState() != UNIT_STAND_STATE_SIT)
         bot->SetStandState(UNIT_STAND_STATE_SIT);

@@ -57,6 +57,17 @@ private:
     EmberfallBackoff backoff;
 };
 
+// Auto Shot (75) under the routine for a bot with a bow, gun or crossbow, as a player hunter has it on the bar from level
+// 1: without it a hunter bot fired one shot every 6 s before 10 and lost fights to level-1 beasts.
+class EmberfallAutoShotAction : public Action
+{
+public:
+    EmberfallAutoShotAction(PlayerbotAI* botAI) : Action(botAI, "ef auto shot") {}
+    std::string const GetTargetName() override { return "current target"; }
+    bool isPossible() override;
+    bool Execute(Event event) override;
+};
+
 class EmberfallPrepareAction : public Action
 {
 public:
@@ -85,6 +96,9 @@ class EmberfallRestAction : public Action
 public:
     EmberfallRestAction(PlayerbotAI* botAI) : Action(botAI, "ef rest") {}
     bool Execute(Event event) override;
+
+private:
+    uint32 retryAt = 0;  // ms
 };
 
 // Group play (bot step 2): a bot a player invited leaves the group by itself when its leader has been away (offline,
@@ -127,6 +141,7 @@ public:
     EmberfallActionContext()
     {
         creators["ef rotation"] = &EmberfallActionContext::rotation;
+        creators["ef auto shot"] = &EmberfallActionContext::auto_shot;
         creators["ef prepare"] = &EmberfallActionContext::prepare;
         creators["ef quest"] = &EmberfallActionContext::quest;
         creators["ef rest"] = &EmberfallActionContext::rest;
@@ -135,6 +150,7 @@ public:
 
 private:
     static Action* rotation(PlayerbotAI* botAI) { return new EmberfallRotationAction(botAI); }
+    static Action* auto_shot(PlayerbotAI* botAI) { return new EmberfallAutoShotAction(botAI); }
     static Action* prepare(PlayerbotAI* botAI) { return new EmberfallPrepareAction(botAI); }
     static Action* quest(PlayerbotAI* botAI) { return new EmberfallQuestAction(botAI); }
     static Action* rest(PlayerbotAI* botAI) { return new EmberfallRestAction(botAI); }

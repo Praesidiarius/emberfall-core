@@ -606,6 +606,20 @@ void RandomPlayerbotFactory::CreateRandomBots()
         CharacterDatabase.Execute("DELETE FROM character_talent WHERE guid NOT IN (SELECT guid FROM characters)");
         CharacterDatabase.Execute("DELETE FROM corpse WHERE guid NOT IN (SELECT guid FROM characters)");
 
+        // EMBERFALL: mod-emberfall's own per-character rows (talents, spec, class kit, professions, taming, fishing);
+        // left behind they went to the next bot that got the same guid (a level-1 bot with an older bot's spec and
+        // its spells, and none of its own)
+        if (QueryResult efTables = CharacterDatabase.Query(
+                "SELECT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+                "AND TABLE_NAME LIKE 'ef\\_character\\_%%' AND COLUMN_NAME = 'guid'"))
+        {
+            do
+            {
+                std::string const table = efTables->Fetch()[0].Get<std::string>();
+                CharacterDatabase.Execute("DELETE FROM `" + table + "` WHERE guid NOT IN (SELECT guid FROM characters)");
+            } while (efTables->NextRow());
+        }
+
         // Clean up group data
         CharacterDatabase.Execute("DELETE FROM `groups` WHERE leaderGuid NOT IN (SELECT guid FROM characters)");
         CharacterDatabase.Execute("DELETE FROM group_member WHERE memberGuid NOT IN (SELECT guid FROM characters)");
