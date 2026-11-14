@@ -5,6 +5,7 @@
  */
 
 #include "GrindTargetValue.h"
+#include "EmberfallBots.h"
 #include "NewRpgInfo.h"
 #include "Playerbots.h"
 #include "ReputationMgr.h"
@@ -46,6 +47,10 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
 
         return unit;
     }
+
+    // EMBERFALL: no new pull below the rest threshold (the bot eats and rests first, EmberfallStrategy.cpp)
+    if (EmberfallBots::Enabled() && EmberfallBots::NeedsRest(bot))
+        return nullptr;
 
     GuidVector targets = *context->GetValue<GuidVector>("possible targets");
     if (targets.empty())
@@ -92,7 +97,9 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
             continue;
         }
 
-        if (!bot->InBattleground() && (int)unit->GetLevel() - (int)bot->GetLevel() > 4 && !unit->GetGUID().IsPlayer())
+        // EMBERFALL: at most Playerbots.Emberfall.MaxTargetLevelAbove (default 2) levels above the bot, not 4
+        if (!bot->InBattleground() && !unit->GetGUID().IsPlayer() &&
+            (int)unit->GetLevel() - (int)bot->GetLevel() > (EmberfallBots::Enabled() ? EmberfallBots::MaxLevelAbove() : 4))
             continue;
 
         if (Creature* creature = unit->ToCreature())

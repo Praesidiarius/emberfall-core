@@ -4375,6 +4375,25 @@ std::vector<uint32> PlayerbotFactory::GetCurrentGemsCount()
 
 void PlayerbotFactory::InitFood()
 {
+    // EMBERFALL: our provisions (food heals, drink restores mana while seated: EmberfallBots::IsFood/IsDrink), the best
+    // of each the bot's level allows, a stack of 20; eaten by the rest action (EmberfallStrategy.cpp)
+    if (EmberfallBots::Enabled())
+    {
+        uint32 food = 0, drink = 0, foodLevel = 0, drinkLevel = 0;
+        for (auto const& [itemId, proto] : *sObjectMgr->GetItemTemplateStore())
+        {
+            if (proto.RequiredLevel > bot->GetLevel() || proto.Bonding != NO_BIND)
+                continue;
+            if (EmberfallBots::IsFood(&proto) && (!food || proto.RequiredLevel > foodLevel))
+                food = itemId, foodLevel = proto.RequiredLevel;
+            else if (EmberfallBots::IsDrink(&proto) && (!drink || proto.RequiredLevel > drinkLevel))
+                drink = itemId, drinkLevel = proto.RequiredLevel;
+        }
+        for (uint32 itemId : {food, drink})
+            if (itemId && bot->GetItemCount(itemId) < 10)
+                StoreItem(itemId, 20);
+        return;
+    }
     if (botAI && botAI->HasCheat(BotCheatMask::food))
     {
         return;

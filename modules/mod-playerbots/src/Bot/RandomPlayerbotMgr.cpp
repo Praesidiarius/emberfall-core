@@ -7,6 +7,7 @@
 #include "RandomPlayerbotMgr.h"
 #include "PlayerbotsDatabase.h"
 #include "AiFactory.h"
+#include "EmberfallBots.h"
 #include "Battleground.h"
 #include "BattlegroundMgr.h"
 #include "Cell.h"
@@ -291,6 +292,14 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
 
     if (!sPlayerbotAIConfig.RandomBotAutologin || !sPlayerbotAIConfig.Enabled)
         return;
+
+    // EMBERFALL: switched off at run time (`.playerbots rndbot off`): every random bot out, none in
+    if (EmberfallBots::Paused())
+    {
+        if (GetPlayerbotsCount())
+            LogoutAllBots();
+        return;
+    }
 
     if (sPlayerbotAIConfig.RandomBotConcentrateInPlayerZone)
         UpdatePlayerZones();
@@ -2709,6 +2718,15 @@ bool RandomPlayerbotMgr::HandlePlayerbotConsoleCommand(ChatHandler* /*handler*/,
 
     std::string const cmd = args;
 
+    // EMBERFALL: the off switch (docs/operations.md, incidents): `.playerbots rndbot off` logs every random bot out at
+    // once and logs none in until `.playerbots rndbot on` (or a restart; Playerbots.Enabled = 0 keeps them off)
+    if (cmd == "off" || cmd == "on")
+    {
+        EmberfallBots::SetPaused(cmd == "off");
+        LOG_INFO("playerbots", "Random bots switched {} ({} online now)", cmd, sRandomPlayerbotMgr.GetPlayerbotsCount());
+        return true;
+    }
+
     if (cmd == "reset")
     {
         PlayerbotsDatabase.Execute(PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_DEL_RANDOM_BOTS));
@@ -2885,6 +2903,10 @@ void RandomPlayerbotMgr::OnBotLoginInternal(Player* const bot)
             _isBotLogging = false;
         }
     }
+
+    // EMBERFALL: the mark: every bot in its side's one bot guild (Playerbots.Emberfall.GuildAccord / GuildKindred)
+    if (EmberfallBots::Enabled())
+        EmberfallBots::EnsureGuild(bot);
 
     // Run guild recovery/assignment at login to handle empty guild tables after restart.
     if (sPlayerbotAIConfig.RandomBotGuildCount > 0)

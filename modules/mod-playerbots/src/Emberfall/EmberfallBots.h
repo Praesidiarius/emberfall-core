@@ -37,6 +37,7 @@ namespace EmberfallBots
         uint8 belowPct = 0;      // > 0: only on a target under this health percent
         uint32 debuffAura = 0;   // > 0: only while the target lacks this aura from the bot (damage over time)
         uint32 buffAura = 0;     // > 0: only while the bot lacks this aura (a self buff)
+        uint8 selfBelowPct = 0;  // > 0: only with the bot's own health under this percent (a defensive)
     };
 
     struct Spec
@@ -55,6 +56,13 @@ namespace EmberfallBots
 
     // Playerbots.Emberfall.Enable and the ef_bot_* tables loaded.
     bool Enabled();
+    // The mark for testers: the bot joins its side's one bot guild (made by the first bot of the side that logs in;
+    // names Playerbots.Emberfall.GuildAccord / GuildKindred, our own words). Empty names: no guild.
+    void EnsureGuild(Player* bot);
+
+    // The run-time off switch (`.playerbots rndbot off|on`): every random bot logged out, none logged in.
+    bool Paused();
+    void SetPaused(bool paused);
     // Reads the config and the tables (at the module's start); logs what it found.
     void Load();
 
@@ -74,6 +82,17 @@ namespace EmberfallBots
     // opinion (the stock rule decides).
     int8 CanEquipWeapon(Player* bot, ItemTemplate const* proto);
     int8 CanEquipShield(Player* bot);
+
+    // Rest between pulls (bot step 2): below Playerbots.Emberfall.RestHealthPct (60) health or RestManaPct (40) mana a
+    // bot pulls nothing and sits, eating and drinking what it carries, until RestUntilPct (90) of both.
+    bool NeedsRest(Player* bot);
+    bool RestedEnough(Player* bot);
+    // How many levels above the bot a creature it attacks or a quest it takes may be (MaxTargetLevelAbove, 2).
+    int32 MaxLevelAbove();
+    // Our provisions: Emberfall's food and drink spells use the categories 2 and 3 (content/data/spells/consumables.yaml),
+    // the stock 11 and 59.
+    bool IsFood(ItemTemplate const* proto);
+    bool IsDrink(ItemTemplate const* proto);
 }
 
 #endif

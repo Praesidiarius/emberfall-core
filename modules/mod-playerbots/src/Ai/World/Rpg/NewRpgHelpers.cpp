@@ -5,6 +5,8 @@
  */
 
 #include "NewRpgHelpers.h"
+#include "EmberfallBots.h"
+#include "EmberfallQuests.h"
 #include "QuestLevelRules.h"
 #include "Creature.h"
 #include "GameObject.h"
@@ -153,7 +155,9 @@ bool IsQuestWorthDoing(Player* bot, Quest const* quest)
 
 bool IsQuestCapableDoing(Player* bot, Quest const* quest)
 {
-    bool highLevelQuest = bot->GetLevel() + QUEST_MAX_LEVELS_ABOVE_BOT < bot->GetQuestLevel(quest);
+    // EMBERFALL: at most Playerbots.Emberfall.MaxTargetLevelAbove levels above the bot
+    int32 const above = EmberfallBots::Enabled() ? EmberfallBots::MaxLevelAbove() : int32(QUEST_MAX_LEVELS_ABOVE_BOT);
+    bool highLevelQuest = int32(bot->GetLevel()) + above < int32(bot->GetQuestLevel(quest));
     if (highLevelQuest)
         return false;
 
@@ -163,6 +167,10 @@ bool IsQuestCapableDoing(Player* bot, Quest const* quest)
 
     // now we only capable of doing solo quests
     if (quest->GetSuggestedPlayers() >= 2)
+        return false;
+
+    // EMBERFALL: no escort, event or timed quests (EmberfallQuests.h)
+    if (!EmberfallBots::QuestDoable(quest))
         return false;
 
     return true;

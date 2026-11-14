@@ -596,8 +596,14 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
     if (!player->InBattleground())
     {
-        nonCombatEngine->addStrategiesNoInit("nc", "food", "chat", "follow", "default", "force rebuff", "quest", "loot",
-                                            "gather", "duel", "pvp", "buff", "mount", "emote", nullptr);
+        // EMBERFALL: our rest ("ef nc": our provisions) instead of the stock food (stock food categories and auras), no
+        // duels, no stock buffs, no attacks on players of the other side
+        if (efBot)
+            nonCombatEngine->addStrategiesNoInit("nc", "chat", "follow", "default", "quest", "loot", "gather", "mount",
+                                                nullptr);
+        else
+            nonCombatEngine->addStrategiesNoInit("nc", "food", "chat", "follow", "default", "force rebuff", "quest", "loot",
+                                                "gather", "duel", "pvp", "buff", "mount", "emote", nullptr);
     }
 
     if (sPlayerbotAIConfig.AutoSaveMana && PlayerbotAI::IsHeal(player, true))

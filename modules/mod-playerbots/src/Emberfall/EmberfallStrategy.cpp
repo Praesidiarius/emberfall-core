@@ -25,7 +25,11 @@ std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
 
 void EmberfallNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
+    // resting first: nothing else moves the bot while it eats (above the rpg walk, grinding and looting)
+    triggers.push_back(new TriggerNode("ef rest", {NextAction("ef rest", ACTION_HIGH + 5)}));
     triggers.push_back(new TriggerNode("ef prepare", {NextAction("ef prepare", ACTION_HIGH)}));
+    // the quest kinds the stock quest walk never finishes (EmberfallQuests.h): above the rpg walk (3.0)
+    triggers.push_back(new TriggerNode("ef quest", {NextAction("ef quest", 4.0f)}));
 }
 
 namespace
@@ -95,6 +99,14 @@ uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** 
                 on = target;
                 break;
         }
+        // a defensive: only with the bot's own health low, on itself when the ability has no range
+        if (step.selfBelowPct)
+        {
+            if (bot->GetHealthPct() >= float(step.selfBelowPct))
+                continue;
+            if (info->GetMaxRange(false, bot) <= 0.0f)
+                on = bot;
+        }
         if (on == target)
         {
             if (step.belowPct && target->GetHealthPct() >= float(step.belowPct))
@@ -158,4 +170,50 @@ bool EmberfallPrepareAction::Execute(Event /*event*/)
 bool EmberfallPrepareTrigger::IsActive()
 {
     return !bot->IsInCombat() && EmberfallPickStep(botAI, nullptr, true, nullptr) != 0;
+}
+
+bool EmberfallRestTrigger::IsActive()
+{
+    if (!EmberfallBots::Enabled() || !bot->IsAlive() || bot->IsInCombat() || bot->IsInFlight() || bot->IsMounted() ||
+        bot->IsInWater())
+        return false;
+    if (EmberfallBots::NeedsRest(bot))
+        return true;
+    // once seated, until rested enough
+    return bot->GetStandState() == UNIT_STAND_STATE_SIT && !EmberfallBots::RestedEnough(bot);
+}
+
+bool EmberfallRestAction::Execute(Event /*event*/)
+{
+    if (bot->isMoving())
+        bot->StopMoving();
+    // our provisions: food below full health, drink below full mana, each while its aura is not on
+    bool const wantFood = bot->GetHealthPct() < 99.0f;
+    bool const wantDrink = bot->GetMaxPower(POWER_MANA) > 0 && bot->GetPowerPct(POWER_MANA) < 99.0f;
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+    {
+        Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+        if (!item)
+            continue;
+        ItemTemplate const* proto = item->GetTemplate();
+        bool const food = wantFood && EmberfallBots::IsFood(proto);
+        bool const drink = wantDrink && EmberfallBots::IsDrink(proto);
+        if (!food && !drink)
+            continue;
+        uint32 const spell = proto->Spells[0].SpellId;
+        if (bot->HasAura(spell) || bot->HasSpellCooldown(spell) || proto->RequiredLevel > bot->GetLevel())
+            continue;
+        if (bot->GetStandState() != UNIT_STAND_STATE_SIT)
+            bot->SetStandState(UNIT_STAND_STATE_SIT);
+        if (botAI->CastSpell(spell, bot, item))
+        {
+            bot->DestroyItemCount(item->GetEntry(), 1, true);
+            LOG_DEBUG("playerbots", "Emberfall rest: {} {} ({}% health, {}% mana)", bot->GetName(), food ? "eats" : "drinks",
+                      uint32(bot->GetHealthPct()), uint32(bot->GetPowerPct(POWER_MANA)));
+            return true;
+        }
+    }
+    if (bot->GetStandState() != UNIT_STAND_STATE_SIT)
+        bot->SetStandState(UNIT_STAND_STATE_SIT);
+    return true;
 }

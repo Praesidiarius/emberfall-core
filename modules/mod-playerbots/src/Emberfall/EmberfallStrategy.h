@@ -9,6 +9,7 @@
 #define PLAYERBOTS_EMBERFALLSTRATEGY_H
 
 #include "Action.h"
+#include "EmberfallQuests.h"
 #include "NamedObjectContext.h"
 #include "Strategy.h"
 #include "Trigger.h"
@@ -65,6 +66,21 @@ public:
     bool IsActive() override;
 };
 
+// Rest between pulls (EmberfallBots::NeedsRest): sit, eat and drink our provisions, until rested enough.
+class EmberfallRestTrigger : public Trigger
+{
+public:
+    EmberfallRestTrigger(PlayerbotAI* botAI) : Trigger(botAI, "ef rest", 1) {}
+    bool IsActive() override;
+};
+
+class EmberfallRestAction : public Action
+{
+public:
+    EmberfallRestAction(PlayerbotAI* botAI) : Action(botAI, "ef rest") {}
+    bool Execute(Event event) override;
+};
+
 class EmberfallStrategyContext : public NamedObjectContext<Strategy>
 {
 public:
@@ -86,20 +102,31 @@ public:
     {
         creators["ef rotation"] = &EmberfallActionContext::rotation;
         creators["ef prepare"] = &EmberfallActionContext::prepare;
+        creators["ef quest"] = &EmberfallActionContext::quest;
+        creators["ef rest"] = &EmberfallActionContext::rest;
     }
 
 private:
     static Action* rotation(PlayerbotAI* botAI) { return new EmberfallRotationAction(botAI); }
     static Action* prepare(PlayerbotAI* botAI) { return new EmberfallPrepareAction(botAI); }
+    static Action* quest(PlayerbotAI* botAI) { return new EmberfallQuestAction(botAI); }
+    static Action* rest(PlayerbotAI* botAI) { return new EmberfallRestAction(botAI); }
 };
 
 class EmberfallTriggerContext : public NamedObjectContext<Trigger>
 {
 public:
-    EmberfallTriggerContext() { creators["ef prepare"] = &EmberfallTriggerContext::prepare; }
+    EmberfallTriggerContext()
+    {
+        creators["ef prepare"] = &EmberfallTriggerContext::prepare;
+        creators["ef quest"] = &EmberfallTriggerContext::quest;
+        creators["ef rest"] = &EmberfallTriggerContext::rest;
+    }
 
 private:
     static Trigger* prepare(PlayerbotAI* botAI) { return new EmberfallPrepareTrigger(botAI); }
+    static Trigger* quest(PlayerbotAI* botAI) { return new EmberfallQuestTrigger(botAI); }
+    static Trigger* rest(PlayerbotAI* botAI) { return new EmberfallRestTrigger(botAI); }
 };
 
 #endif

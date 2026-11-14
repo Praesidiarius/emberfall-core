@@ -6,6 +6,7 @@
 
 #include "NewRpgBaseAction.h"
 #include "BroadcastHelper.h"
+#include "EmberfallBots.h"
 #include "ChatHelper.h"
 #include "Creature.h"
 #include "GameObject.h"
@@ -235,6 +236,13 @@ bool NewRpgBaseAction::MoveWorldObjectTo(ObjectGuid guid, float distance)
                 (M_PI * irand(-25, 25) / 100.0);  // 45 degrees infront of target (leading it's movement)
 
     float rnd = rand_norm();
+    // EMBERFALL: bots spread round a standing quest giver (any side, 60-100 % of the distance), not in a clump on the
+    // side they came from
+    if (EmberfallBots::Enabled() && (!object->ToUnit() || !object->ToUnit()->isMoving()))
+    {
+        angle = float(rand_norm() * 2.0 * M_PI);
+        rnd = 0.6f + 0.4f * float(rand_norm());
+    }
     x += cos(angle) * distance * rnd;
     y += sin(angle) * distance * rnd;
     if (!object->GetMap()->CheckCollisionAndGetValidCoords(object, object->GetPositionX(), object->GetPositionY(),
@@ -632,7 +640,8 @@ bool NewRpgBaseAction::SearchQuestGiverAndAcceptOrReward()
     if (bot->CanInteractWithQuestGiver(object))
     {
         InteractWithNpcOrGameObjectForQuest(npcOrGo);
-        ForceToWait(5000);
+        // EMBERFALL: a short stay at the giver (2 s, the stock 5 s), so bots do not stand there in a crowd
+        ForceToWait(EmberfallBots::Enabled() ? 2000 : 5000);
         return true;
     }
     return MoveWorldObjectTo(npcOrGo);
