@@ -236,7 +236,7 @@ namespace EmberfallFights
             EmberfallFightsPlayerScript()
                 : PlayerScript("EmberfallFightsPlayerScript",
                                {PLAYERHOOK_ON_PLAYER_ENTER_COMBAT, PLAYERHOOK_ON_PLAYER_LEAVE_COMBAT,
-                                PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_CREATURE_KILL})
+                                PLAYERHOOK_ON_PLAYER_JUST_DIED})
             {
             }
 
@@ -281,15 +281,6 @@ namespace EmberfallFights
                 Emit(player, *f, true);
                 s_fights.erase(player->GetGUID().GetRawValue());
             }
-
-            void OnPlayerCreatureKill(Player* killer, Creature* /*killed*/) override
-            {
-                if (!IsEfBot(killer))
-                    return;
-                std::lock_guard<std::mutex> guard(s_lock);
-                if (Fight* f = Find(killer))
-                    ++f->kills;
-            }
         };
 
         class EmberfallFightsUnitScript : public UnitScript
@@ -333,6 +324,9 @@ namespace EmberfallFights
                     if (f.first[0] == '?')
                         f.first = "pulled";
                     f.dealt += std::min(damage, victim->GetHealth());
+                    // the killing blow (the kill hook comes after the bot has left the fight)
+                    if (damage >= victim->GetHealth() && victim->IsAlive())
+                        ++f.kills;
                     uint32 const now = getMSTime();
                     if (!f.firstDealMs)
                         f.firstDealMs = now;
