@@ -29,8 +29,9 @@
 //   - Out Cold (99525, spell_ef_out_cold): Drowse full; the beast's combat stops, it lies down, immune, for 60 s.
 //     While it sleeps it lies as dead (UNIT_STAND_STATE_DEAD: the client holds its Death pose, feedback #435) and is
 //     passive; every update ends any combat it is in (its own, with each side: the hunter keeps his combat with other
-//     mobs) and stops the auto shots and pets still at it (feedback #436), since a hostile hit on it (the Drowse Shot
-//     that put it under, an immune hit) stands it up and engages it after the effect.
+//     mobs) and its AI's engagement (feedback #536-#538: an engaged passive creature out of combat evades, which took
+//     Out Cold off and walked it home), and stops the auto shots and pets still at it (feedback #436), since a hostile
+//     hit on it (the Drowse Shot that put it under, an immune hit) stands it up and engages it after the effect.
 //     The claimant's client asks to open it (EFN OPEN); PUT and TAKE move food and draughts between the bags and its
 //     six slots; it eats every 4 s, drinks a draught under 15 s of sleep; Trust full: the tame.
 //   - The tame (from the claimant's own update, never inside the beast's): an out companion is stabled first, Out Cold
@@ -474,6 +475,12 @@ namespace
         for (Player* p : shooters)
             if (Spell* shot = p->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL); shot && shot->m_targets.GetUnitTargetGUID() == beast->GetGUID())
                 p->InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
+        // The engagement ends too (feedback #536-#538): the end of its combat leaves the AI engaged
+        // (CreatureAI::JustExitedCombat does nothing), and an engaged passive creature out of combat evades at its next AI
+        // update (CreatureAI::UpdateVictim): the evade took Out Cold off with its other auras and walked it home, and the
+        // module's tick then woke it ("its trust is gone").
+        if (CreatureAI* ai = beast->AI(); ai && ai->IsEngaged())
+            ai->EngagementOver();
     }
 
     // Asleep: lying as dead, passive, out of combat. Every update of the beast and after each hit on it: a hostile
@@ -484,7 +491,8 @@ namespace
             beast->SetStandState(UNIT_STAND_STATE_DEAD);
         if (!beast->HasReactState(REACT_PASSIVE))
             beast->SetReactState(REACT_PASSIVE);
-        if (beast->IsInCombat() || beast->GetVictim() || !beast->getAttackers().empty() || !beast->GetThreatMgr().IsThreatListEmpty(true))
+        if (T::NeedsPeace({beast->IsInCombat(), beast->IsEngaged(), beast->GetVictim() != nullptr, !beast->getAttackers().empty(),
+                           !beast->GetThreatMgr().IsThreatListEmpty(true)}))
             MakePeace(beast);
     }
 

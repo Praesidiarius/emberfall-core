@@ -62,6 +62,17 @@ namespace Emberfall::Taming
         }
     }
 
+    // What still ties a sleeping beast to a fight (§4.2, feedback #436): its combat, its AI's engagement, a victim, the
+    // attackers on it, its threat list. Any of them and the module makes peace again; the engagement on its own counts
+    // (feedback #536-#538): an engaged passive creature out of combat evades at its next AI update, which takes Out
+    // Cold off and walks it home.
+    struct Unrest
+    {
+        bool inCombat = false, engaged = false, victim = false, attackers = false, threat = false;
+    };
+
+    inline bool NeedsPeace(Unrest const& u) { return u.inCombat || u.engaged || u.victim || u.attackers || u.threat; }
+
     // Beastcraft points for a tame (§3.1): one, three for an elite, five for a rare (a rare elite is a rare).
     inline std::uint32_t TameSkillPoints(Rank r)
     {

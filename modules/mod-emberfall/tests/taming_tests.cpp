@@ -339,8 +339,20 @@ namespace
     }
 }
 
+// The sleeping beast's peace (feedback #436, #536-#538): any tie to a fight asks for peace, the AI's engagement alone too.
+static void TestPeace()
+{
+    check(!NeedsPeace({}), "a beast tied to nothing is left alone");
+    check(NeedsPeace({false, true, false, false, false}), "engaged alone (out of combat, no threat): peace, or it evades");
+    check(NeedsPeace({true, false, false, false, false}), "in combat: peace");
+    check(NeedsPeace({false, false, true, false, false}), "a victim: peace");
+    check(NeedsPeace({false, false, false, true, false}), "attackers: peace");
+    check(NeedsPeace({false, false, false, false, true}), "threat: peace");
+}
+
 int main()
 {
+    TestPeace();
     TestWire();
     TestBars();
     TestArrows();
