@@ -50,6 +50,7 @@ void AddEmberfallTamingScripts();
 void AddEmberfallSeamScripts();
 void AddEmberfallAccountAchievementsScripts();
 void AddEmberfallSunScripts();
+void AddEmberfallQuestVisibilityScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -85,4 +86,5 @@ void Addmod_emberfallScripts()
     AddEmberfallSeamScripts();
     AddEmberfallAccountAchievementsScripts();
     AddEmberfallSunScripts();
+    AddEmberfallQuestVisibilityScripts();
 }
