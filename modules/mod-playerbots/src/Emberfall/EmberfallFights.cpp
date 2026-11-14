@@ -65,8 +65,15 @@ namespace EmberfallFights
             std::string killer = "-";
         };
 
+        struct Losses
+        {
+            float health[2] = {0.0f, 0.0f};  // percent of the maximum, the last fight lived first
+            float mana[2] = {0.0f, 0.0f};
+        };
+
         std::mutex s_lock;
         std::unordered_map<uint64, Fight> s_fights;
+        std::unordered_map<uint64, Losses> s_losses;
 
         bool IsEfBot(Player* player)
         {
@@ -250,6 +257,12 @@ namespace EmberfallFights
                 if (!f || f->dying)
                     return;  // a death: its line comes from OnPlayerJustDied
                 Emit(player, *f, false);
+                // what the fight cost: the rest before the next pull looks at the last two (EmberfallBots::NeedsRest)
+                Losses& l = s_losses[player->GetGUID().GetRawValue()];
+                l.health[1] = l.health[0];
+                l.mana[1] = l.mana[0];
+                l.health[0] = std::max(0.0f, f->hp0 - player->GetHealthPct());
+                l.mana[0] = std::max(0.0f, f->mp0 - ManaPct(player));
                 s_fights.erase(player->GetGUID().GetRawValue());
             }
 
@@ -345,6 +358,49 @@ namespace EmberfallFights
         std::lock_guard<std::mutex> guard(s_lock);
         if (Fight* f = Find(bot))
             f->escaped = true;
+    }
+
+    bool Escaping(Player* bot)
+    {
+        std::lock_guard<std::mutex> guard(s_lock);
+        Fight* f = Find(bot);
+        return f && f->escaped;
+    }
+
+    float LastLossPct(Player* bot, bool mana)
+    {
+        std::lock_guard<std::mutex> guard(s_lock);
+        auto it = s_losses.find(bot->GetGUID().GetRawValue());
+        if (it == s_losses.end())
+            return 0.0f;
+        float const* l = mana ? it->second.mana : it->second.health;
+        return std::max(l[0], l[1]);
+    }
+
+    bool Losing(Player* bot, float* secondsToKill, float* secondsToDie)
+    {
+        std::lock_guard<std::mutex> guard(s_lock);
+        Fight* f = Find(bot);
+        if (!f)
+            return false;
+        float const elapsed = getMSTimeDiff(f->startMs, getMSTime()) / 1000.0f;
+        if (elapsed < 3.0f || !f->taken)
+            return false;
+        uint64 foeHealth = 0;
+        for (auto const& [guid, ref] : bot->GetCombatManager().GetPvECombatRefs())
+            if (Unit* other = ref->GetOther(bot))
+                foeHealth += other->GetHealth();
+        if (!foeHealth)
+            return false;
+        float const dps = std::max(1.0f, f->dealt / elapsed);
+        float const dtps = std::max(1.0f, f->taken / elapsed);
+        float const toKill = foeHealth / dps;
+        float const toDie = bot->GetHealth() / dtps;
+        if (secondsToKill)
+            *secondsToKill = toKill;
+        if (secondsToDie)
+            *secondsToDie = toDie;
+        return toDie < toKill;
     }
 
     void AddScripts()

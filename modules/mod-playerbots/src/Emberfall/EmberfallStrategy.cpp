@@ -15,6 +15,7 @@
 #include "EmberfallBots.h"
 #include "EmberfallFights.h"
 #include "Group.h"
+#include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -38,6 +39,54 @@ std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
     else
         actions.push_back(NextAction("ef auto shot", ACTION_DEFAULT + 0.2f));
     return actions;
+}
+
+void EmberfallCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
+{
+    // above everything of the fight: a lost fight is left (EmberfallStrategy.h)
+    triggers.push_back(new TriggerNode("ef escape", {NextAction("ef escape", ACTION_EMERGENCY + 5)}));
+}
+
+bool EmberfallEscapeTrigger::IsActive()
+{
+    float const below = EmberfallBots::EscapeBelowPct();
+    if (below <= 0.0f || !bot->IsAlive() || !bot->IsInCombat() || bot->GetGroup())
+        return false;
+    if (EmberfallFights::Escaping(bot))
+        return true;
+    if (bot->GetHealthPct() >= below)
+        return false;
+    float toKill = 0.0f, toDie = 0.0f;
+    if (!EmberfallFights::Losing(bot, &toKill, &toDie))
+        return false;
+    LOG_DEBUG("playerbots", "Emberfall escape: {} (level {}) runs at {}% health: {:.1f} s to die, {:.1f} s to kill",
+              bot->GetName(), bot->GetLevel(), uint32(bot->GetHealthPct()), toDie, toKill);
+    EmberfallFights::NoteEscape(bot);
+    return true;
+}
+
+bool EmberfallEscapeAction::Execute(Event /*event*/)
+{
+    // away from the nearest foe, a long stride at a time; while the stride lasts the bot keeps running
+    Unit* nearest = nullptr;
+    float best = 0.0f;
+    for (auto const& [guid, ref] : bot->GetCombatManager().GetPvECombatRefs())
+        if (Unit* other = ref->GetOther(bot))
+        {
+            float const d = bot->GetDistance(other);
+            if (!nearest || d < best)
+            {
+                nearest = other;
+                best = d;
+            }
+        }
+    if (!nearest)
+        return false;
+    if (bot->IsNonMeleeSpellCast(false))
+        bot->InterruptNonMeleeSpells(false);
+    if (bot->isMoving() && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+        return true;
+    return MoveAway(nearest, 25.0f);
 }
 
 void EmberfallNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)

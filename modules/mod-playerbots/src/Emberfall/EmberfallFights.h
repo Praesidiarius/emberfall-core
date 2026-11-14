@@ -24,8 +24,14 @@ namespace EmberfallFights
 {
     // The rotation cast a defensive (a step with self_below_pct) successfully.
     void NoteDefensive(Player* bot);
-    // The bot ran from the fight (EmberfallStrategy's escape).
+    // The bot ran from the fight (EmberfallStrategy's escape); Escaping: it has in this fight.
     void NoteEscape(Player* bot);
+    bool Escaping(Player* bot);
+    // The health (or mana) share the bot's last fights lived cost it: the larger of the last two, in percent.
+    float LastLossPct(Player* bot, bool mana);
+    // The fight so far says the bot dies before its foes: its health over the damage it takes a second against the
+    // foes' health over the damage it deals a second (from 3 s into the fight).
+    bool Losing(Player* bot, float* secondsToKill = nullptr, float* secondsToDie = nullptr);
     // The script hooks (a player script and a unit script); from AddPlayerbotsScripts.
     void AddScripts();
 }

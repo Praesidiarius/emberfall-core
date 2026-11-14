@@ -15,6 +15,7 @@
 #define PLAYERBOTS_EMBERFALLSTRATEGY_H
 
 #include "Action.h"
+#include "MovementActions.h"
 #include "EmberfallQuests.h"
 #include "NamedObjectContext.h"
 #include "Strategy.h"
@@ -28,6 +29,7 @@ public:
     EmberfallCombatStrategy(PlayerbotAI* botAI) : Strategy(botAI) {}
     std::string const getName() override { return "ef"; }
     std::vector<NextAction> getDefaultActions() override;
+    void InitTriggers(std::vector<TriggerNode*>& triggers) override;
 };
 
 class EmberfallNonCombatStrategy : public Strategy
@@ -81,6 +83,22 @@ class EmberfallPrepareTrigger : public Trigger
 public:
     EmberfallPrepareTrigger(PlayerbotAI* botAI) : Trigger(botAI, "ef prepare", 5) {}
     bool IsActive() override;
+};
+
+// Escape (bot deaths, Playerbots.Emberfall.EscapeBelowPct, 0: off): below that health in a fight the record says the bot
+// loses (EmberfallFights::Losing), it runs from its foes as a player does, and keeps running until the fight is over.
+class EmberfallEscapeTrigger : public Trigger
+{
+public:
+    EmberfallEscapeTrigger(PlayerbotAI* botAI) : Trigger(botAI, "ef escape", 1) {}
+    bool IsActive() override;
+};
+
+class EmberfallEscapeAction : public MovementAction
+{
+public:
+    EmberfallEscapeAction(PlayerbotAI* botAI) : MovementAction(botAI, "ef escape") {}
+    bool Execute(Event event) override;
 };
 
 // Rest between pulls (EmberfallBots::NeedsRest): sit, eat and drink our provisions, until rested enough.
@@ -147,6 +165,7 @@ public:
         creators["ef quest"] = &EmberfallActionContext::quest;
         creators["ef rest"] = &EmberfallActionContext::rest;
         creators["ef group leave"] = &EmberfallActionContext::group_leave;
+        creators["ef escape"] = &EmberfallActionContext::escape;
     }
 
 private:
@@ -156,6 +175,7 @@ private:
     static Action* quest(PlayerbotAI* botAI) { return new EmberfallQuestAction(botAI); }
     static Action* rest(PlayerbotAI* botAI) { return new EmberfallRestAction(botAI); }
     static Action* group_leave(PlayerbotAI* botAI) { return new EmberfallGroupLeaveAction(botAI); }
+    static Action* escape(PlayerbotAI* botAI) { return new EmberfallEscapeAction(botAI); }
 };
 
 class EmberfallTriggerContext : public NamedObjectContext<Trigger>
@@ -167,6 +187,7 @@ public:
         creators["ef quest"] = &EmberfallTriggerContext::quest;
         creators["ef rest"] = &EmberfallTriggerContext::rest;
         creators["ef group"] = &EmberfallTriggerContext::group;
+        creators["ef escape"] = &EmberfallTriggerContext::escape;
     }
 
 private:
@@ -174,6 +195,7 @@ private:
     static Trigger* quest(PlayerbotAI* botAI) { return new EmberfallQuestTrigger(botAI); }
     static Trigger* rest(PlayerbotAI* botAI) { return new EmberfallRestTrigger(botAI); }
     static Trigger* group(PlayerbotAI* botAI) { return new EmberfallGroupTrigger(botAI); }
+    static Trigger* escape(PlayerbotAI* botAI) { return new EmberfallEscapeTrigger(botAI); }
 };
 
 #endif
