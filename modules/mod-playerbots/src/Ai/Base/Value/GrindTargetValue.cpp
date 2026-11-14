@@ -147,8 +147,11 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
         else
         {
             float newdistance = bot->GetDistance(unit);
-            // EMBERFALL (bot deaths): a pull with idle creatures standing round it brings them along (social aggro, 10
-            // yd): a crowded one counts farther, a camp is left alone (Playerbots.Emberfall.PullCrowd*)
+            // EMBERFALL (bot deaths): not where it just died (Playerbots.Emberfall.AvoidDeathSpot*); a pull with idle
+            // creatures standing round it brings them along (social aggro, 10 yd): a crowded one counts farther, a camp
+            // is left alone (Playerbots.Emberfall.PullCrowd*)
+            if (EmberfallBots::Enabled() && !unit->IsInCombat() && EmberfallBots::AvoidAsPull(bot, unit))
+                continue;
             if (EmberfallBots::Enabled() && EmberfallBots::PullCrowdYards() > 0.0f && !unit->IsInCombat() &&
                 unit->IsCreature())
             {

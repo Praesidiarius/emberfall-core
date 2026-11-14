@@ -115,6 +115,9 @@ namespace EmberfallBots
     float EscapeBelowPct();
     // A defensive (a routine step with self_below) with two or more creatures attacking: that many points earlier (0: off).
     float DefensiveCrowdBonusPct();
+    // A pull the bot leaves alone: within AvoidDeathSpotYards (40) of where it died less than AvoidDeathSpotMinutes ago
+    // (0: off), as a player who died at a camp goes elsewhere for a while.
+    bool AvoidAsPull(Player* bot, Unit* target);
     // How many levels above the bot a creature it attacks or a quest it takes may be (MaxTargetLevelAbove, 2).
     int32 MaxLevelAbove();
     // Our provisions: Emberfall's food and drink spells use the categories 2 and 3 (content/data/spells/consumables.yaml),

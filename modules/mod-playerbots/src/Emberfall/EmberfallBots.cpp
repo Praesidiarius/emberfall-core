@@ -62,6 +62,8 @@ namespace EmberfallBots
         float s_pullCrowdPenalty = 20.0f;
         float s_escapeBelow = 0.0f;                           // bot deaths: run from a lost fight (0: off)
         float s_defensiveCrowdBonus = 0.0f;                   // bot deaths: defensives earlier against 2+ (0: off)
+        uint32 s_avoidDeathMinutes = 0;                       // bot deaths: no pulls where it just died (0: off)
+        float s_avoidDeathYards = 40.0f;
 
         std::set<uint32> ParseIds(std::string const& text)
         {
@@ -138,6 +140,8 @@ namespace EmberfallBots
         s_pullCrowdPenalty = sConfigMgr->GetOption<float>("Playerbots.Emberfall.PullCrowdPenaltyYards", 20.0f);
         s_escapeBelow = sConfigMgr->GetOption<float>("Playerbots.Emberfall.EscapeBelowPct", 0.0f);
         s_defensiveCrowdBonus = sConfigMgr->GetOption<float>("Playerbots.Emberfall.DefensiveCrowdBonusPct", 0.0f);
+        s_avoidDeathMinutes = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.AvoidDeathSpotMinutes", 0);
+        s_avoidDeathYards = sConfigMgr->GetOption<float>("Playerbots.Emberfall.AvoidDeathSpotYards", 40.0f);
         for (char const* t : {"ef_bot_spec", "ef_bot_routine", "ef_bot_talent", "ef_bot_name", "ef_bot_character"})
             if (!TableExists(t))
             {
@@ -396,6 +400,11 @@ namespace EmberfallBots
     float PullCrowdPenalty() { return s_pullCrowdPenalty; }
     float EscapeBelowPct() { return s_escapeBelow; }
     float DefensiveCrowdBonusPct() { return s_defensiveCrowdBonus; }
+
+    bool AvoidAsPull(Player* bot, Unit* target)
+    {
+        return s_avoidDeathMinutes > 0 && EmberfallFights::NearRecentDeath(bot, target, s_avoidDeathYards, s_avoidDeathMinutes);
+    }
 
     uint32 IdleCrowd(Player* bot, Unit* target, float yards)
     {

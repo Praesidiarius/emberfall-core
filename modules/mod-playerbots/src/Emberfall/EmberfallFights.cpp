@@ -75,6 +75,14 @@ namespace EmberfallFights
         std::unordered_map<uint64, Fight> s_fights;
         std::unordered_map<uint64, Losses> s_losses;
 
+        struct DeathSpot
+        {
+            uint32 map = 0;
+            float x = 0.0f, y = 0.0f;
+            uint32 ms = 0;  // when (getMSTime)
+        };
+        std::unordered_map<uint64, DeathSpot> s_deathSpots;
+
         bool IsEfBot(Player* player)
         {
             return player && EmberfallBots::Enabled() && GET_PLAYERBOT_AI(player) != nullptr;
@@ -280,6 +288,8 @@ namespace EmberfallFights
                 }
                 Emit(player, *f, true);
                 s_fights.erase(player->GetGUID().GetRawValue());
+                s_deathSpots[player->GetGUID().GetRawValue()] = {player->GetMapId(), player->GetPositionX(),
+                                                                 player->GetPositionY(), getMSTime()};
             }
         };
 
@@ -359,6 +369,18 @@ namespace EmberfallFights
         std::lock_guard<std::mutex> guard(s_lock);
         Fight* f = Find(bot);
         return f && f->escaped;
+    }
+
+    bool NearRecentDeath(Player* bot, Unit* unit, float yards, uint32 minutes)
+    {
+        std::lock_guard<std::mutex> guard(s_lock);
+        auto it = s_deathSpots.find(bot->GetGUID().GetRawValue());
+        if (it == s_deathSpots.end())
+            return false;
+        DeathSpot const& d = it->second;
+        if (getMSTimeDiff(d.ms, getMSTime()) > minutes * MINUTE * IN_MILLISECONDS || d.map != unit->GetMapId())
+            return false;
+        return unit->GetExactDist2d(d.x, d.y) <= yards;
     }
 
     float LastLossPct(Player* bot, bool mana)

@@ -19,6 +19,7 @@
 #include "Define.h"
 
 class Player;
+class Unit;
 
 namespace EmberfallFights
 {
@@ -27,6 +28,9 @@ namespace EmberfallFights
     // The bot ran from the fight (EmberfallStrategy's escape); Escaping: it has in this fight.
     void NoteEscape(Player* bot);
     bool Escaping(Player* bot);
+    // The unit stands within `yards` of where the bot last died, less than `minutes` ago (bot deaths: a bot that died at
+    // a camp went back and died there again in nearly half its next fights).
+    bool NearRecentDeath(Player* bot, Unit* unit, float yards, uint32 minutes);
     // The health (or mana) share the bot's last fights lived cost it: the larger of the last two, in percent.
     float LastLossPct(Player* bot, bool mana);
     // The fight so far says the bot dies before its foes: its health over the damage it takes a second against the
