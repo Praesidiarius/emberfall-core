@@ -144,7 +144,8 @@ namespace EmberfallBots
             }
 
         if (QueryResult r = PlayerbotsDatabase.Query(
-                "SELECT spec_id, class_id, spec_key, ranged, weight, weapons, offhand, shield, prespec_ranged FROM ef_bot_spec"))
+                "SELECT spec_id, class_id, spec_key, ranged, weight, weapons, offhand, shield, prespec_ranged, stat_weights "
+                "FROM ef_bot_spec"))
         {
             do
             {
@@ -159,6 +160,15 @@ namespace EmberfallBots
                 s.offhand = ParseIds(f[6].Get<std::string>());
                 s.shield = f[7].Get<uint8>() != 0;
                 s.prespecRanged = f[8].Get<uint8>() != 0;
+                std::string const weights = f[9].Get<std::string>();
+                for (std::string_view part : Acore::Tokenize(weights, ',', false))
+                {
+                    size_t const eq = part.find('=');
+                    if (eq == std::string_view::npos)
+                        continue;
+                    if (Optional<float> w = Acore::StringTo<float>(part.substr(eq + 1)))
+                        s.statWeights.emplace_back(std::string(part.substr(0, eq)), *w);
+                }
                 s_classSpecs[s.classId].push_back(s.id);
                 s_specs.emplace(s.id, std::move(s));
             } while (r->NextRow());

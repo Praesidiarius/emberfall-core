@@ -58,6 +58,9 @@ namespace EmberfallBots
         std::set<uint32> offhand;   // weapon subclasses in the off hand (dual wield); empty: no off-hand weapon
         bool shield = false;        // may carry a shield in the off hand
         bool prespecRanged = false; // keeps its distance before the spec choice (levels 1-9: the hunter's shots)
+        // gear: the stat weights for the module's item scores (strength, agility, intellect, spirit, stamina,
+        // spell_power, attack_power); empty: the module's stock weights
+        std::vector<std::pair<std::string, float>> statWeights;
         std::vector<RoutineStep> steps;
         std::vector<std::pair<uint32, uint32>> talents; // (node, rank) in buying order, class tree and spec tree
     };
