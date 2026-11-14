@@ -22,8 +22,9 @@
 //
 //   spell_ef_kit_potions          the potion rule (a spec passive): effect 1 value = the vials, misc B = how many recharge
 //                                 at once; effect 2 value = ms a vial recharges (never haste); effect 3 misc = the marker
-//                                 aura kept while no potion can be spent (a spell_ef_kit_cast_override helper: Restorative
-//                                 Flask's button is Arcane Restoration). The player's potions live in the module (full at
+//                                 aura kept while the potions of the spell it swaps (the marker's effect 1 misc) cannot be
+//                                 paid (a spell_ef_kit_cast_override helper: Restorative Flask's button is Arcane
+//                                 Restoration; feedback #529: the flask costs 2). The player's potions live in the module (full at
 //                                 the rule's arrival, gone with it); every player tick runs the recharges, in and out
 //                                 of combat alike (feedback #338). The client is told in EFPOT messages (EfInfuseLogic.h): at
 //                                 every change and every 5 s
@@ -153,13 +154,27 @@ namespace
         player->SendDirectMessage(&data);
     }
 
+    // The potions of the spell whose button the marker swaps (the marker's effect 1 misc: Restorative Flask; its dummy on
+    // the caster naming the potion rule, as spell_ef_kit_potion_cost reads it); 1 when it names none.
+    uint32 SwapCost(Unit* unit, PotionState const& st)
+    {
+        SpellInfo const* marker = sSpellMgr->GetSpellInfo(st.marker);
+        SpellInfo const* spell = marker ? sSpellMgr->GetSpellInfo(uint32(std::max(0, marker->Effects[EFFECT_0].MiscValue))) : nullptr;
+        if (!spell || !st.rule)
+            return 1;
+        for (SpellEffectInfo const& eff : spell->Effects)
+            if (eff.Effect == SPELL_EFFECT_DUMMY && eff.TargetA.GetTarget() == TARGET_UNIT_CASTER && uint32(eff.MiscValue) == st.rule)
+                return uint32(std::max(1, eff.CalcValue(unit)));
+        return 1;
+    }
+
     // The marker follows the potions, the client is told what changed.
     void Sync(Player* player, PotionState& st, bool force = false)
     {
         uint32 const every = FormulaEvery(player, st.rule);
         if (st.marker)
         {
-            bool const depleted = IL::Depleted(st.potions, every);
+            bool const depleted = IL::Depleted(st.potions, every, SwapCost(player, st));
             bool const has = player->HasAura(st.marker, player->GetGUID());
             if (depleted && !has)
                 player->AddAura(st.marker, player);
