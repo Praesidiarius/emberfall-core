@@ -1,4 +1,10 @@
 /*
+ * This file is part of the mod-playerbots module for AzerothCore. See AUTHORS file for Copyright
+ * information; released under GNU GPL v2 license, redistribute/modify under version 2 of the License,
+ * or (at your option) any later version. Emberfall's part of the module (Copyright Emberfall / Tales of Orrin).
+ */
+
+/*
  * Emberfall's part of mod-playerbots (the playerbots pilot): see EmberfallBots.h. Released under GNU GPL v2 or later.
  */
 

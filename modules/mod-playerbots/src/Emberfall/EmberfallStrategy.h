@@ -1,4 +1,10 @@
 /*
+ * This file is part of the mod-playerbots module for AzerothCore. See AUTHORS file for Copyright
+ * information; released under GNU GPL v2 license, redistribute/modify under version 2 of the License,
+ * or (at your option) any later version. Emberfall's part of the module (Copyright Emberfall / Tales of Orrin).
+ */
+
+/*
  * Emberfall's part of mod-playerbots (the playerbots pilot): the one fight routine for every damage spec, read from the
  * ef_bot_routine table (EmberfallBots.h). "ef": in a fight, the first step of the spec's table whose conditions hold
  * and that the bot can cast; "ef nc": out of a fight, the companion and the self buffs. Released under GNU GPL v2 or

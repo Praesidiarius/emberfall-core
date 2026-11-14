@@ -1,4 +1,10 @@
 /*
+ * This file is part of the mod-playerbots module for AzerothCore. See AUTHORS file for Copyright
+ * information; released under GNU GPL v2 license, redistribute/modify under version 2 of the License,
+ * or (at your option) any later version. Emberfall's part of the module (Copyright Emberfall / Tales of Orrin).
+ */
+
+/*
  * Emberfall's part of mod-playerbots (the playerbots pilot, Emberfall docs/design/playerbots-pilot.md): random bots on
  * Emberfall's own data. A bot gets a class and one of that class's damage specs (never a tank or healer spec), names
  * of its tribe, the spec's talents by the talent tree v2 rules through mod-emberfall's talent system, and a fight

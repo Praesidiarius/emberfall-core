@@ -1,4 +1,10 @@
 /*
+ * This file is part of the mod-playerbots module for AzerothCore. See AUTHORS file for Copyright
+ * information; released under GNU GPL v2 license, redistribute/modify under version 2 of the License,
+ * or (at your option) any later version. Emberfall's part of the module (Copyright Emberfall / Tales of Orrin).
+ */
+
+/*
  * Emberfall's part of mod-playerbots (bot step 2, Emberfall docs/design/playerbots-pilot.md §10): the quest kinds the
  * stock bot never finished on Emberfall's content.
  *   - use an object (a quest's goober: RequiredNpcOrGo < 0): the bot walks to the nearest one it can see (the same
