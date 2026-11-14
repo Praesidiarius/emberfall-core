@@ -87,6 +87,26 @@ public:
     bool Execute(Event event) override;
 };
 
+// Group play (bot step 2): a bot a player invited leaves the group by itself when its leader has been away (offline,
+// another map, over 300 yd) for Playerbots.Emberfall.GroupAwayMinutes (10), or after GroupMaxMinutes (180).
+class EmberfallGroupTrigger : public Trigger
+{
+public:
+    EmberfallGroupTrigger(PlayerbotAI* botAI) : Trigger(botAI, "ef group", 10) {}
+    bool IsActive() override;
+
+private:
+    uint32 joinedAt = 0;   // s
+    uint32 awaySince = 0;  // s, 0: the leader is near
+};
+
+class EmberfallGroupLeaveAction : public Action
+{
+public:
+    EmberfallGroupLeaveAction(PlayerbotAI* botAI) : Action(botAI, "ef group leave") {}
+    bool Execute(Event event) override;
+};
+
 class EmberfallStrategyContext : public NamedObjectContext<Strategy>
 {
 public:
@@ -110,6 +130,7 @@ public:
         creators["ef prepare"] = &EmberfallActionContext::prepare;
         creators["ef quest"] = &EmberfallActionContext::quest;
         creators["ef rest"] = &EmberfallActionContext::rest;
+        creators["ef group leave"] = &EmberfallActionContext::group_leave;
     }
 
 private:
@@ -117,6 +138,7 @@ private:
     static Action* prepare(PlayerbotAI* botAI) { return new EmberfallPrepareAction(botAI); }
     static Action* quest(PlayerbotAI* botAI) { return new EmberfallQuestAction(botAI); }
     static Action* rest(PlayerbotAI* botAI) { return new EmberfallRestAction(botAI); }
+    static Action* group_leave(PlayerbotAI* botAI) { return new EmberfallGroupLeaveAction(botAI); }
 };
 
 class EmberfallTriggerContext : public NamedObjectContext<Trigger>
@@ -127,12 +149,14 @@ public:
         creators["ef prepare"] = &EmberfallTriggerContext::prepare;
         creators["ef quest"] = &EmberfallTriggerContext::quest;
         creators["ef rest"] = &EmberfallTriggerContext::rest;
+        creators["ef group"] = &EmberfallTriggerContext::group;
     }
 
 private:
     static Trigger* prepare(PlayerbotAI* botAI) { return new EmberfallPrepareTrigger(botAI); }
     static Trigger* quest(PlayerbotAI* botAI) { return new EmberfallQuestTrigger(botAI); }
     static Trigger* rest(PlayerbotAI* botAI) { return new EmberfallRestTrigger(botAI); }
+    static Trigger* group(PlayerbotAI* botAI) { return new EmberfallGroupTrigger(botAI); }
 };
 
 #endif

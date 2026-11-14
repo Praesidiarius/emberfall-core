@@ -11,13 +11,18 @@
 
 #include "EmberfallStrategy.h"
 
+#include "Config.h"
 #include "EmberfallBots.h"
+#include "Group.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "Playerbots.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "Timer.h"
+
+#include <ctime>
 
 std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
 {
@@ -36,6 +41,54 @@ void EmberfallNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& trigger
     triggers.push_back(new TriggerNode("ef prepare", {NextAction("ef prepare", ACTION_HIGH)}));
     // the quest kinds the stock quest walk never finishes (EmberfallQuests.h): above the rpg walk (3.0)
     triggers.push_back(new TriggerNode("ef quest", {NextAction("ef quest", 4.0f)}));
+    // a player's group: leave by itself when the leader has been away long enough
+    triggers.push_back(new TriggerNode("ef group", {NextAction("ef group leave", ACTION_HIGH + 2)}));
+}
+
+namespace
+{
+    // The group's leader when it is a real player (a player invited this bot), else null.
+    Player* PlayerLeader(PlayerbotAI* botAI)
+    {
+        Player* bot = botAI->GetBot();
+        if (!bot->GetGroup())
+            return nullptr;
+        Player* leader = ObjectAccessor::FindConnectedPlayer(bot->GetGroup()->GetLeaderGUID());
+        if (leader && GET_PLAYERBOT_AI(leader))
+            return nullptr;
+        return leader ? leader : bot;  // an offline leader counts as a player away
+    }
+}
+
+bool EmberfallGroupTrigger::IsActive()
+{
+    if (!EmberfallBots::Enabled() || !bot->GetGroup())
+    {
+        joinedAt = awaySince = 0;
+        return false;
+    }
+    Player* leader = PlayerLeader(botAI);
+    if (!leader)
+        return false;
+    uint32 const now = static_cast<uint32>(std::time(nullptr));
+    if (!joinedAt)
+        joinedAt = now;
+    bool const away = leader == bot || !leader->IsInWorld() || leader->GetMapId() != bot->GetMapId() ||
+                      bot->GetDistance(leader) > 300.0f;
+    if (!away)
+        awaySince = 0;
+    else if (!awaySince)
+        awaySince = now;
+    uint32 const awayLimit = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.GroupAwayMinutes", 10) * 60;
+    uint32 const maxTime = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.GroupMaxMinutes", 180) * 60;
+    return (awaySince && now - awaySince >= awayLimit) || now - joinedAt >= maxTime;
+}
+
+bool EmberfallGroupLeaveAction::Execute(Event /*event*/)
+{
+    LOG_DEBUG("playerbots", "Emberfall group: {} leaves its group", bot->GetName());
+    botAI->LeaveOrDisbandGroup();
+    return true;
 }
 
 namespace

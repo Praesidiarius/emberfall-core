@@ -100,7 +100,8 @@ namespace EmberfallBots
 
 bool EmberfallQuestTrigger::IsActive()
 {
-    if (!EmberfallBots::Enabled() || !bot->IsAlive() || bot->IsInCombat() || bot->IsInFlight())
+    // (in a player's group the bot follows its leader: no quest walks of its own)
+    if (!EmberfallBots::Enabled() || !bot->IsAlive() || bot->IsInCombat() || bot->IsInFlight() || bot->GetGroup())
         return false;
     for (uint16 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
     {
