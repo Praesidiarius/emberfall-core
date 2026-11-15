@@ -21,18 +21,18 @@
 // (tests/classkit_infuse_tests.cpp).
 //
 //   spell_ef_kit_potions          the potion rule (a spec passive): effect 1 value = the vials, misc B = how many recharge
-//                                 at once; effect 2 value = ms a vial recharges (never haste); effect 3 misc = the marker
-//                                 aura kept while the potions of the spell it swaps (the marker's effect 1 misc) cannot be
-//                                 paid (a spell_ef_kit_cast_override helper: Restorative Flask's button is Arcane
-//                                 Restoration; feedback #529: the flask costs 2). The player's potions live in the module (full at
-//                                 the rule's arrival, gone with it); every player tick runs the recharges, in and out
-//                                 of combat alike (feedback #338). The client is told in EFPOT messages (EfInfuseLogic.h): at
-//                                 every change and every 5 s
+//                                 at once; effect 2 value = ms a vial recharges (never haste). The player's potions live in
+//                                 the module (full at the rule's arrival, gone with it); every player tick runs the
+//                                 recharges, in and out of combat alike (feedback #338). The client is told in EFPOT
+//                                 messages (EfInfuseLogic.h): at every change and every 5 s. (Until ankarna's update of
+//                                 2026-11-14 an effect 3 named a marker aura kept while Restorative Flask's potions could not
+//                                 be paid, its button then Arcane Restoration; the Flask went, Arcane Restoration is a button
+//                                 of its own, and the marker with it.)
 //   spell_ef_kit_potion_cost      a spender: a dummy on the caster with misc = the potion rule, value = the potions. Refused
 //                                 (SPELL_FAILED_NO_POWER) when they are not ready, taken when the cast goes (a triggered cast
 //                                 pays nothing). Perfect Formula (rule _perfect_formula naming the potion rule: every
-//                                 value-th potion spent is free) counts every potion; Efficient Infusion (rule
-//                                 _potion_refund naming the spell: value % to give misc B of the vials taken back)
+//                                 value-th potion spent is free) counts every potion. (Efficient Infusion's _potion_refund,
+//                                 the Flask's potions back, went with the Flask on 2026-11-14.)
 //   spell_ef_kit_potion_rush      Rapid Synthesis' aura: effect 1 value = ms a vial recharges while it holds, effect 2 value
 //                                 = more vials at once (Expanded Production), effect 3 value = vials restored when it comes
 //                                 (Immediate Preparation; each advances Perfect Formula's count, never past the free one).
@@ -100,7 +100,6 @@ namespace
     {
         IL::Potions potions;
         uint32 rule = 0;          // the potion rule's spell
-        uint32 marker = 0;        // the marker aura while depleted
         int32 rateMs = 0;         // the rate the running recharges run at
         std::string shape;        // what the client was told last
         uint32 sinceSentMs = 0;
@@ -154,33 +153,10 @@ namespace
         player->SendDirectMessage(&data);
     }
 
-    // The potions of the spell whose button the marker swaps (the marker's effect 1 misc: Restorative Flask; its dummy on
-    // the caster naming the potion rule, as spell_ef_kit_potion_cost reads it); 1 when it names none.
-    uint32 SwapCost(Unit* unit, PotionState const& st)
-    {
-        SpellInfo const* marker = sSpellMgr->GetSpellInfo(st.marker);
-        SpellInfo const* spell = marker ? sSpellMgr->GetSpellInfo(uint32(std::max(0, marker->Effects[EFFECT_0].MiscValue))) : nullptr;
-        if (!spell || !st.rule)
-            return 1;
-        for (SpellEffectInfo const& eff : spell->Effects)
-            if (eff.Effect == SPELL_EFFECT_DUMMY && eff.TargetA.GetTarget() == TARGET_UNIT_CASTER && uint32(eff.MiscValue) == st.rule)
-                return uint32(std::max(1, eff.CalcValue(unit)));
-        return 1;
-    }
-
-    // The marker follows the potions, the client is told what changed.
+    // The client is told what changed.
     void Sync(Player* player, PotionState& st, bool force = false)
     {
         uint32 const every = FormulaEvery(player, st.rule);
-        if (st.marker)
-        {
-            bool const depleted = IL::Depleted(st.potions, every, SwapCost(player, st));
-            bool const has = player->HasAura(st.marker, player->GetGUID());
-            if (depleted && !has)
-                player->AddAura(st.marker, player);
-            else if (!depleted && has)
-                player->RemoveAurasDueToSpell(st.marker, player->GetGUID());
-        }
         std::string const shape = IL::Shape(st.potions, every);
         if (force || shape != st.shape || st.sinceSentMs >= kResendMs)
         {
@@ -215,7 +191,7 @@ namespace
         Sync(player, *st);
     }
 
-    // Spent vials ready again at once (Arcane Recovery, Reclaimed Essence, Efficient Infusion, Immediate Preparation).
+    // Spent vials ready again at once (Arcane Recovery, Immediate Preparation).
     uint32 RestorePotions(Unit* unit, uint32 count)
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
@@ -289,7 +265,6 @@ class spell_ef_kit_potions : public AuraScript
         PotionState* st = player->CustomData.GetDefault<PotionState>(kPotionsKey);
         st->potions = IL::Full(uint32(std::clamp(aurEff->GetAmount(), 1, 20)));
         st->rule = GetId();
-        st->marker = uint32(std::max(0, GetSpellInfo()->Effects[EFFECT_2].MiscValue));
         st->rateMs = RateAndLimit(player).first;
         st->shape.clear();
         Sync(player, *st, true);
@@ -301,8 +276,6 @@ class spell_ef_kit_potions : public AuraScript
         PotionState* st = StateOf(player);
         if (!st)
             return;
-        if (st->marker)
-            player->RemoveAurasDueToSpell(st->marker);
         player->CustomData.Erase(kPotionsKey);
         Send(player, IL::OffMessage());
     }
@@ -352,12 +325,7 @@ class spell_ef_kit_potion_cost : public SpellScript
             return;
         Retime(player, *st);
         auto const [rate, limit] = RateAndLimit(player);
-        uint32 const paid = IL::Spend(st->potions, cost, FormulaEvery(player, st->rule), limit, rate);
-        // Efficient Infusion: a chance to give a vial taken back (a free potion took none: nothing to give back)
-        if (paid)
-            for (AuraEffect const* eff : Emberfall::ClassKit::Rules(player, "spell_ef_kit_rule_potion_refund", GetSpellInfo()->Id))
-                if (roll_chance_i(eff->GetAmount()))
-                    IL::Restore(st->potions, std::min<uint32>(paid, uint32(std::max(1, eff->GetMiscValueB()))), limit, rate);
+        IL::Spend(st->potions, cost, FormulaEvery(player, st->rule), limit, rate);
         Sync(player, *st);
     }
 
@@ -786,7 +754,7 @@ void AddEmberfallClassKitInfuseScripts()
     RegisterSpellAndAuraScriptPairWithArgs(spell_ef_kit_vapor, spell_ef_kit_vapor_aura, "spell_ef_kit_vapor");
     RegisterSpellScript(spell_ef_kit_chain_heal);
     RegisterSpellScript(spell_ef_kit_chain_heal_jump);
-    for (char const* name : { "spell_ef_kit_rule_potion_refund", "spell_ef_kit_rule_potion_on_crit",
+    for (char const* name : { "spell_ef_kit_rule_potion_on_crit",
                               "spell_ef_kit_rule_potion_on_kill", "spell_ef_kit_rule_perfect_formula",
                               "spell_ef_kit_rule_mana_back", "spell_ef_kit_rule_chain_hits", "spell_ef_kit_rule_impact_field",
                               "spell_ef_kit_rule_twin_heal", "spell_ef_kit_rule_chain_momentum",
