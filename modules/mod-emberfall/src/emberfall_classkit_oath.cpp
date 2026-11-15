@@ -407,12 +407,13 @@ class spell_ef_kit_cast_override : public AuraScript
     void Register() override { }
 };
 
-namespace
+namespace Emberfall::ClassKit
 {
     char const* const CAST_OVERRIDE = "spell_ef_kit_cast_override";
 
     // The spell a request for `spellId` is cast as: the trigger of a dummy of the player's own whose misc is it, on an
-    // aura bound to spell_ef_kit_cast_override; 0: as asked.
+    // aura bound to spell_ef_kit_cast_override; 0: as asked (EfClassKit.h; the Pyromancer's Solar Collapse over Supernova
+    // reads it too, src/emberfall_classkit_heat.cpp).
     uint32 CastOverride(Player* player, uint32 spellId)
     {
         if (!player || !spellId)
@@ -441,7 +442,7 @@ public:
     void ValidateSpellAtCastSpell(Player* player, uint32& /*oldSpellId*/, uint32& spellId, uint8& /*castCount*/,
                                   uint8& /*castFlags*/) override
     {
-        if (uint32 const instead = CastOverride(player, spellId))
+        if (uint32 const instead = Emberfall::ClassKit::CastOverride(player, spellId))
             spellId = instead;
     }
 };
