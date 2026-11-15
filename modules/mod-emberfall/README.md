@@ -624,6 +624,28 @@ helper (TAME_CREATURE and the class quests' credit).
 Tests: `tests/taming_tests.cpp` (the messages' round trips and fuzz, the bars, arrows, decay, claim, sleep cap, food by
 family and band, the eating order, the slots).
 
+## The Class Journeys (Emberfall `docs/design/class-journeys/README.md`, `hunter.md`)
+
+`Emberfall.Journeys.Enable` (1; with `Emberfall.OwnData`). Class quest lines that teach utility abilities outside the
+talent trees. A step is done when its mark (a learned spell) is known; the step's first quests are offered by the world
+DB's conditions (the step before's mark known, its own not), so the module only teaches, credits and gates.
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_journeys_player` | `PlayerScript` | login: once per character (`ef_character_migration` `class_journeys`) the steps' `existing` rules (at or above the step's level; a hunter with Beastcraft or a companion), then a step whose last quest is rewarded gets its spells back if lost; a step's last quest rewarded (`OnPlayerCompleteQuest`): its mark and second spell; a cast (`OnPlayerSpellCast`) of an `ef_journey_cast` spell inside its zone or area, with the quest in the log: the row's kill credit |
+| `Journeys::TameGateLevel`, `CreditTame` | the taming's | Drowse Shot refuses an elite, rare or rare elite without its step's mark (the step's own quest in the log opens it) with `SMSG_PET_TAME_FAILURE` reason 100 + the step's level; a tame gives `ef_journey_tame_credit`'s credits by rank and level |
+| `Journeys::BotSteps` | mod-playerbots (`EmberfallBots::ApplyTalents`) | a bot: every step at or below its level |
+| `spell_ef_journey_heel` | `SpellScript` (Beast at Heel) | the next stabled beast walks at heel (`npc_ef_journey_heel`, the stabled beast's look); again, it goes back; not with the companion out, not in dungeons or battlegrounds |
+| `npc_ef_journey_heel` | `CreatureScript` | follows its hunter at his speed, never fights; hidden while he fights, has his companion out or is in a dungeon; gone with him; `emberfall_journeys_hunter_player` brings it along to another map |
+| `spell_ef_journey_call` | `SpellScript` (Call from the Stable, its whistle) | the next stabled beast swaps with the companion (the stable keeper's swap, no keeper); with no companion out it walks at heel; not in dungeons |
+| `spell_ef_journey_stable` | `SpellScript` (Stable at Hand, its book) | refused in dungeons; the spell's open-stable aura does the rest (the core) |
+| `emberfall_journeys_commands` | `CommandScript` (GM) | `.efjourney state`, `.efjourney done N` (steps 1..N), `.efjourney reload` |
+
+`data/sql/db-world/mod_emberfall_2026_11_15_00_journeys.sql`: `ef_journey_step`, `ef_journey_quest`, `ef_journey_cast`,
+`ef_journey_tame_credit` (Emberfall's compiler writes the rows: `tools/py/emberfall_content/journeys.py`). Tests:
+`tests/journeys_tests.cpp` (the steps owed to bots and old characters, the gates, the tame credits, the places, the
+stable's cycle).
+
 ## The seam guard (Emberfall `docs/design/kindred-map-split.md` §3.4 item 4)
 
 The Kindred is two maps, 1 north and 754 south. Each draws a one-tile margin of the other half, purely visual, whose

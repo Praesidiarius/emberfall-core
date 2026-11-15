@@ -42,6 +42,10 @@
 #include "EfTalents.h"
 #define EF_BOTS_HAVE_TALENTS 1
 #endif
+#if __has_include("journeys/EfJourneys.h")
+#include "journeys/EfJourneys.h"   // mod-emberfall's Class Journeys: a bot counts every step of its level as done
+#define EF_BOTS_HAVE_JOURNEYS 1
+#endif
 
 namespace EmberfallBots
 {
@@ -311,6 +315,9 @@ namespace EmberfallBots
         int32 const bought = Emberfall::Talents::BotBuild(bot, spec->id, spec->talents, out);
         if (bought < 0)
             LOG_DEBUG("playerbots", "Emberfall bots: {}", out);
+#ifdef EF_BOTS_HAVE_JOURNEYS
+        Emberfall::Journeys::BotSteps(bot);
+#endif
 #else
         (void)bot;
 #endif
