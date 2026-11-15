@@ -39,10 +39,12 @@
 //                                 A running recharge keeps its share done when the rate changes [proposal]
 //   spell_ef_kit_split_stacks     a damage over time whose every application is a stack with its own timer (Volatile
 //                                 Flask): the tick deals the amount x the stacks, a stack goes when its time is up, the aura
-//                                 when the last one does. When the enemy dies under it, the caster's _potion_on_kill rules
-//                                 naming it restore their value in potions, once a death (Reclaimed Essence)
+//                                 when the last one does. (Reclaimed Essence's _potion_on_kill, a potion when an enemy died
+//                                 under it, went with ankarna's update of 2026-11-14.)
 //   spell_ef_kit_infuse_rules     the caster's rules for the ability, once a cast: on its own target struck, an enemy:
 //                                 _mana_back (value % of base mana), _potion_on_crit (a crit: value potions restored),
+//                                 _crit_hit_cut (a crit: minus value ms off trigger's cooldown, at the hit, so a bolt in
+//                                 flight counts; never below 0: Accelerated Infusion),
 //                                 _chain_hits (a buff's rule: trigger at up to value other enemies within misc B yards of
 //                                 the target, the buff spent: Chain Reaction); an ally healed: _twin_heal (trigger from the
 //                                 target at the most injured other ally within misc B yards of it, the caster included: Twin
@@ -191,7 +193,7 @@ namespace
         Sync(player, *st);
     }
 
-    // Spent vials ready again at once (Arcane Recovery, Immediate Preparation).
+    // Spent vials ready again at once (Arcane Recovery).
     uint32 RestorePotions(Unit* unit, uint32 count)
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
@@ -423,26 +425,9 @@ private:
         Follow(left);
     }
 
-    // Reclaimed Essence: the enemy died under it
-    void Gone(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-    {
-        if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_DEATH)
-            return;
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-        int32 potions = 0;
-        for (AuraEffect const* eff : Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_potion_on_kill", GetId()))
-            potions += std::max(0, eff->GetAmount());
-        if (potions > 0)
-            RestorePotions(caster, uint32(potions));
-    }
-
     void Register() override
     {
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_ef_kit_split_stacks_aura::Tick, EFFECT_ALL, SPELL_AURA_PERIODIC_DAMAGE);
-        AfterEffectRemove += AuraEffectRemoveFn(spell_ef_kit_split_stacks_aura::Gone, EFFECT_ALL, SPELL_AURA_PERIODIC_DAMAGE,
-            AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -481,10 +466,16 @@ class spell_ef_kit_infuse_rules : public SpellScript
         for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_mana_back", id))
             if (int32 const mana = int32(caster->GetCreateMana()) * eff->GetAmount() / 100; mana > 0)
                 caster->EnergizeBySpell(caster, id, uint32(mana), POWER_MANA);
-        // Arcane Recovery: a crit restores potions
+        // Arcane Recovery: a crit restores potions; Accelerated Infusion: a crit takes time off a cooldown (what is left of
+        // it, never below 0)
         if (HitCrit(GetSpell(), target))
+        {
             for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_potion_on_crit", id))
                 RestorePotions(caster, uint32(std::max(0, eff->GetAmount())));
+            for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_crit_hit_cut", id))
+                if (uint32 const trigger = TriggerOf(eff); trigger && eff->GetAmount() < 0)
+                    ShortenCooldown(caster, trigger, -eff->GetAmount());
+        }
         // Chain Reaction: a buff's rule, spent by this hit
         struct Chain { uint32 trigger; int32 count; float yards; uint32 aura; };
         std::vector<Chain> chains;
@@ -754,8 +745,8 @@ void AddEmberfallClassKitInfuseScripts()
     RegisterSpellAndAuraScriptPairWithArgs(spell_ef_kit_vapor, spell_ef_kit_vapor_aura, "spell_ef_kit_vapor");
     RegisterSpellScript(spell_ef_kit_chain_heal);
     RegisterSpellScript(spell_ef_kit_chain_heal_jump);
-    for (char const* name : { "spell_ef_kit_rule_potion_on_crit",
-                              "spell_ef_kit_rule_potion_on_kill", "spell_ef_kit_rule_perfect_formula",
+    for (char const* name : { "spell_ef_kit_rule_potion_on_crit", "spell_ef_kit_rule_crit_hit_cut",
+                              "spell_ef_kit_rule_perfect_formula",
                               "spell_ef_kit_rule_mana_back", "spell_ef_kit_rule_chain_hits", "spell_ef_kit_rule_impact_field",
                               "spell_ef_kit_rule_twin_heal", "spell_ef_kit_rule_chain_momentum",
                               "spell_ef_kit_rule_chain_rebound", "spell_ef_kit_rule_field_start", "spell_ef_kit_rule_field_end" })
