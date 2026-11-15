@@ -24,7 +24,8 @@ class Player;
 
 namespace EmberfallPower
 {
-    // The spec's own power or the class's again (mod-emberfall's ClassKit::ApplySpecPower); nothing without it.
+    // The spec's own power or the class's again (mod-emberfall's ClassKit::ApplySpecPower); nothing without it, or with
+    // Playerbots.Emberfall.KeepSpecPower 0 (default 1; 0 only to show the old fault).
     void Apply(Player* bot);
     // The power type the bot's active spec runs on (-1 when mod-emberfall's class kits are not in the build).
     int32 Expected(Player* bot);
