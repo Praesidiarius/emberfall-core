@@ -1673,7 +1673,8 @@ void PlayerbotAI::DoNextAction(bool min)
     }
     else if (bot->m_movementInfo.HasMovementFlag(MOVEMENTFLAG_WALKING))
         bot->m_movementInfo.RemoveMovementFlag(MOVEMENTFLAG_WALKING);
-    else if ((nextAICheckDelay < 1000) && bot->IsSitState())
+    // EMBERFALL (bot idle): not a bot that rests (it eats, drinks or is not rested enough); standing ends the food
+    else if ((nextAICheckDelay < 1000) && bot->IsSitState() && !EmberfallBots::KeepsSeat(bot))
         bot->SetStandState(UNIT_STAND_STATE_STAND);
 
     bool hasMountAura = bot->HasAuraType(SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED) ||
