@@ -16,6 +16,7 @@
 #include "EmberfallBots.h"
 #include "EmberfallFights.h"
 #include "EmberfallFollow.h"
+#include "EmberfallPower.h"
 #include "PlayerbotsDatabase.h"
 #include <mysqld_error.h>
 #include "AllMapScript.h"
@@ -554,6 +555,7 @@ public:
         PlayerbotWorldThreadProcessor::instance().Update(diff);
         sRandomPlayerbotMgr.UpdateAI(diff);  // World thread only
         EmberfallFollow::Update(diff);       // EMBERFALL: the bots follow a player (EmberfallFollow.h)
+        EmberfallPower::Update(diff);        // EMBERFALL: the spec power checks after login and level up
     }
 
     // Runs before the sessions are kicked on server shutdown
@@ -638,6 +640,7 @@ void AddPlayerbotsScripts()
     new PlayerbotsWorldScript();
     new PlayerBotsBGScript();
     EmberfallFights::AddScripts(); // EMBERFALL: the bots' fight records (deaths measurements, EmberfallFights.h)
+    EmberfallPower::AddScripts();  // EMBERFALL: the bots' spec power checks (EmberfallPower.h)
     AddPlayerbotsSecureLoginScripts();
     AddPlayerbotsSelfBotAfkScripts();
     AddPlayerbotsCommandscripts();
