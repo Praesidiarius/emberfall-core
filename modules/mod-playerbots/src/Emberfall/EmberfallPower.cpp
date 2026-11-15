@@ -10,6 +10,7 @@
 
 #include "EmberfallPower.h"
 
+#include "Config.h"
 #include "DBCStores.h"
 #include "EmberfallBots.h"
 #include "Log.h"
@@ -72,7 +73,9 @@ namespace EmberfallPower
     void Apply(Player* bot)
     {
 #ifdef EF_BOTS_HAVE_SPEC_POWER
-        Emberfall::ClassKit::ApplySpecPower(bot);
+        // Playerbots.Emberfall.KeepSpecPower 0: the old path (for the before and after check of docs §16)
+        if (sConfigMgr->GetOption<bool>("Playerbots.Emberfall.KeepSpecPower", true))
+            Emberfall::ClassKit::ApplySpecPower(bot);
 #else
         (void)bot;
 #endif
