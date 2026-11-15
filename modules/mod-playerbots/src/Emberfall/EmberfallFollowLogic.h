@@ -108,6 +108,10 @@ namespace EmberfallFollow::Logic
         bool vehicle = false;
         bool travelling = false; // on a flight path or in a teleport
         bool Any() const { return grouped || combat || dead || seen || dungeon || vehicle || travelling; }
+        // what lasts: the plan keeps such a bot out (it is not counted on); a fight, a death or a journey is over in a
+        // minute, so such a bot stays in the plan and is tried again later in the pass (the pilot: a quarter of the
+        // bots were fighting at any moment)
+        bool Lasting() const { return grouped || seen || dungeon || vehicle; }
     };
 
     struct Bot
@@ -324,6 +328,23 @@ namespace EmberfallFollow::Logic
         }
         return best;
     }
+
+    // The window's levels to try for a re-level: the planned one first, then the others nearest to it (ties: the
+    // lower). A level whose fitting zones have no place for the bot is skipped by the pass (a band with no inn,
+    // flight master or quest giver of that level for its side).
+    inline std::vector<uint8_t> LevelsToTry(Window const& w, uint8_t planned)
+    {
+        std::vector<uint8_t> out;
+        for (int l = w.lo; l <= w.hi; ++l)
+            out.push_back(uint8_t(l));
+        std::stable_sort(out.begin(), out.end(), [planned](uint8_t a, uint8_t b)
+                         { return std::abs(int(a) - int(planned)) < std::abs(int(b) - int(planned)); });
+        return out;
+    }
+
+    // A bot busy at its turn (a fight, dead, a journey, or anything at all): tried again after this many ms, as long
+    // as the pass is younger than its retry time.
+    constexpr uint32_t RETRY_AFTER_MS = 15000;
 
     // How many orders a pass carries out by now: one every 1000 / perSecond ms (perSecond 0: 1).
     inline uint32_t Due(uint64_t elapsedMs, uint32_t perSecond)

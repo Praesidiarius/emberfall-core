@@ -57,6 +57,7 @@ namespace EmberfallFollow
         uint32 s_perSecond = 2;
         uint32 s_maxPerZone = 0;
         uint32 s_waitLoginMinutes = 10;            // at most this long for the bots to be logged in before a pass
+        uint32 s_retryMinutes = 5;                 // a busy bot (a fight, dead, a journey) is tried again this long
         std::vector<L::Zone> s_zones;
 
         // the state (world thread only)
@@ -74,6 +75,7 @@ namespace EmberfallFollow
             bool active = false;
             L::Plan plan;
             size_t next = 0;        // the next order
+            uint32 carried = 0;     // orders and retries taken up (the pace)
             uint32 done = 0;        // orders taken up (carried out or skipped)
             uint32 elapsedMs = 0;
             uint32 startMs = 0;
@@ -81,7 +83,8 @@ namespace EmberfallFollow
             std::string name;
             std::map<uint32, uint32> zoneCounts;                  // zone -> online bots there
             std::set<std::tuple<uint32, uint8, uint8>> noPlace;   // (zone, level, race): no place found
-            uint32 relevelled = 0, placed = 0, exempt = 0, gone = 0, fallback = 0, noZone = 0;
+            uint32 relevelled = 0, placed = 0, exempt = 0, gone = 0, fallback = 0, noZone = 0, retried = 0, otherLevel = 0;
+            std::vector<std::pair<uint32, L::Order>> retries;    // (pass ms when due, order): busy at its turn
             uint32 slowestMs = 0;
         };
         Pass s_pass;
@@ -284,7 +287,17 @@ namespace EmberfallFollow
             botAI->Reset(true);
         }
 
-        void Carry(L::Order const& order)
+        // whether a fitting zone may still have a place for a bot of `race` and `side` at `level` (none found there yet)
+        bool MayPlace(uint8 level, uint8 side, uint8 race)
+        {
+            std::set<uint32> excluded;
+            for (auto const& [zone, lv, rc] : s_pass.noPlace)
+                if (lv == level && rc == race)
+                    excluded.insert(zone);
+            return L::PickZone(s_zones, s_pass.zoneCounts, level, side, s_maxPerZone, excluded) != 0;
+        }
+
+        void Carry(L::Order order)
         {
             Player* bot = ObjectAccessor::FindPlayer(ObjectGuid::Create<HighGuid::Player>(order.guid));
             if (!bot || !bot->IsInWorld() || !sRandomPlayerbotMgr.IsRandomBot(bot))
@@ -294,6 +307,13 @@ namespace EmberfallFollow
             }
             if (L::Exemptions const e = ExemptionsOf(bot); e.Any())
             {
+                // busy now: again in a little while, as long as the pass is young enough
+                if (s_pass.elapsedMs + L::RETRY_AFTER_MS < s_retryMinutes * MINUTE * IN_MILLISECONDS)
+                {
+                    s_pass.retries.emplace_back(s_pass.elapsedMs + L::RETRY_AFTER_MS, order);
+                    ++s_pass.retried;
+                    return;
+                }
                 ++s_pass.exempt;
                 LOG_DEBUG("playerbots", "Emberfall follow: {} left for a later pass (group {} fight {} dead {} seen {} instance {} "
                           "vehicle {} travel {})", bot->GetName(), e.grouped, e.combat, e.dead, e.seen, e.dungeon, e.vehicle,
@@ -304,6 +324,15 @@ namespace EmberfallFollow
             uint32 const oldZone = bot->GetZoneId();
             if (order.kind == L::Move::Relevel)
             {
+                // a window level whose zones have a place for it (the planned one first)
+                for (uint8 level : L::LevelsToTry(s_pass.plan.window, order.level))
+                    if (MayPlace(level, SideOf(bot), bot->getRace()))
+                    {
+                        if (level != order.level)
+                            ++s_pass.otherLevel;
+                        order.level = level;
+                        break;
+                    }
                 Relevel(bot, order.level);
                 ++s_pass.relevelled;
             }
@@ -334,12 +363,12 @@ namespace EmberfallFollow
             return Acore::StringFormat(
                 "pass for {} (level {}, window {}-{}): Accord {} bots, target {}, fitting {}, orders {}, kept outside {}; "
                 "Kindred {} bots, target {}, fitting {}, orders {}, kept outside {}; carried out {} of {} in {} s: "
-                "re-levelled {}, new place only {}, left for later (exempt) {}, logged out {}, module placement {}, no zone {}; "
-                "slowest bot {} ms",
+                "re-levelled {} ({} at another window level: no place at the planned one), new place only {}, busy and tried again {}, "
+                "left for a later pass {}, logged out {}, module placement {}, no zone {}; slowest bot {} ms",
                 s_pass.name, s_pass.level, p.window.lo, p.window.hi, p.accord.bots, p.accord.target, p.accord.fit,
                 p.accord.orders, p.accord.reserve, p.kindred.bots, p.kindred.target, p.kindred.fit, p.kindred.orders,
-                p.kindred.reserve, s_pass.done, p.orders.size(), s_pass.elapsedMs / 1000, s_pass.relevelled, s_pass.placed,
-                s_pass.exempt, s_pass.gone, s_pass.fallback, s_pass.noZone, s_pass.slowestMs);
+                p.kindred.reserve, s_pass.done, p.orders.size(), s_pass.elapsedMs / 1000, s_pass.relevelled, s_pass.otherLevel,
+                s_pass.placed, s_pass.retried, s_pass.exempt, s_pass.gone, s_pass.fallback, s_pass.noZone, s_pass.slowestMs);
         }
 
         void Start(Player* followed)
@@ -358,7 +387,8 @@ namespace EmberfallFollow
                 b.side = SideOf(bot);
                 b.level = bot->GetLevel();
                 b.zone = bot->GetZoneId();
-                b.exempt = ExemptionsOf(bot).Any();
+                // only what lasts keeps a bot out of the plan; a busy one is tried again in the pass
+                b.exempt = ExemptionsOf(bot).Lasting();
                 bots.push_back(b);
                 ++s_pass.zoneCounts[b.zone];
             }
@@ -412,6 +442,7 @@ namespace EmberfallFollow
         s_perSecond = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.FollowBotsPerSecond", 2));
         s_maxPerZone = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.FollowMaxPerZone", 0);
         s_waitLoginMinutes = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.FollowWaitLoginMinutes", 10);
+        s_retryMinutes = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.FollowRetryMinutes", 5);
 
         s_zones.clear();
         std::map<uint32, uint8> sides;
@@ -459,19 +490,36 @@ namespace EmberfallFollow
 
         if (s_pass.active)
         {
-            uint32 const before = s_pass.done;
             s_pass.elapsedMs += diff;
-            uint32 const due = std::min<uint32>(L::Due(s_pass.elapsedMs, s_perSecond), uint32(s_pass.plan.orders.size()));
-            // at most a few a tick, whatever the tick's length
-            uint32 const limit = std::min<uint32>(due, before + std::max<uint32>(1, s_perSecond));
-            while (s_pass.done < limit && s_pass.next < s_pass.plan.orders.size())
+            // FollowBotsPerSecond: the plan's orders in turn, then the busy bots whose retry is due; no saving up while
+            // nothing is due (no burst after a wait), at most that many in one tick
+            uint32 const due = L::Due(s_pass.elapsedMs, s_perSecond);
+            uint32 steps = 0;
+            while (s_pass.carried < due && steps < std::max<uint32>(1, s_perSecond))
             {
+                L::Order order;
+                if (s_pass.next < s_pass.plan.orders.size())
+                {
+                    order = s_pass.plan.orders[s_pass.next++];
+                    ++s_pass.done;
+                }
+                else if (!s_pass.retries.empty() && s_pass.retries.front().first <= s_pass.elapsedMs)
+                {
+                    order = s_pass.retries.front().second;
+                    s_pass.retries.erase(s_pass.retries.begin());
+                }
+                else
+                {
+                    s_pass.carried = due;
+                    break;
+                }
                 uint32 const t0 = getMSTime();
-                Carry(s_pass.plan.orders[s_pass.next++]);
-                ++s_pass.done;
+                Carry(order);
                 s_pass.slowestMs = std::max(s_pass.slowestMs, GetMSTimeDiffToNow(t0));
+                ++s_pass.carried;
+                ++steps;
             }
-            if (s_pass.next >= s_pass.plan.orders.size())
+            if (s_pass.next >= s_pass.plan.orders.size() && s_pass.retries.empty())
                 Finish("");
         }
 

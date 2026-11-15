@@ -24,6 +24,8 @@
  */
 
 #include "EmberfallBots.h"
+#include "Log.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotFactory.h"

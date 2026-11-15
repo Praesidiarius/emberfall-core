@@ -317,6 +317,26 @@ namespace
         check(plan.orders.empty(), "every bot exempt: nothing changes");
     }
 
+    void TestLasting()
+    {
+        Exemptions e;
+        e.combat = e.dead = e.travelling = true;
+        check(e.Any() && !e.Lasting(), "a fight, a death, a journey: busy now, planned and tried again in the pass");
+        for (int i = 0; i < 4; ++i)
+        {
+            Exemptions x;
+            bool* flags[] = {&x.grouped, &x.seen, &x.dungeon, &x.vehicle};
+            *flags[i] = true;
+            check(x.Lasting(), "a group, a player in sight, an instance, a vehicle keep a bot out of the plan (" +
+                                   std::to_string(i) + ")");
+        }
+        std::vector<uint8_t> const l = LevelsToTry(WindowFor(22, 3, 60), 19);
+        check(l.size() == 7 && l[0] == 19 && l[1] == 20 && l[2] == 21 && l.back() == 25,
+              "levels to try: the planned one, then the nearest");
+        std::vector<uint8_t> const m = LevelsToTry(WindowFor(22, 3, 60), 22);
+        check(m[0] == 22 && m[1] == 21 && m[2] == 23, "ties: the lower first");
+    }
+
     void TestPace()
     {
         check(Due(0, 2) == 0 && Due(499, 2) == 0 && Due(500, 2) == 1 && Due(60000, 2) == 120, "two bots a second");
@@ -333,6 +353,7 @@ int main()
     TestReserveStaysSpread();
     TestLeftAloneAndPlaces();
     TestExemptions();
+    TestLasting();
     TestPace();
     if (g_failed)
     {
