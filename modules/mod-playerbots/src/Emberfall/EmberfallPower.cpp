@@ -51,7 +51,8 @@ namespace EmberfallPower
 
         void Queue(Player* player, char const* when)
         {
-            if (!IsEfBot(player))
+            // at the login hook a bot has no AI yet (PlayerbotHolder adds it after the login): its spec says it is one
+            if (!player || !EmberfallBots::Enabled() || !EmberfallBots::SpecOf(player))
                 return;
             std::lock_guard<std::mutex> guard(s_lock);
             s_pending.push_back({player->GetGUID(), getMSTime() + 3000, when});
