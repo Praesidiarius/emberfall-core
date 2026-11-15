@@ -33,7 +33,9 @@
 # client's verbatim copies, and EfTameLogic.h: the bars, the arrows, Drowse, the claim, the sleep, the food, the slots)
 # and the seam guard tests (tests/seam_tests.cpp: src/seam/EfSeamLogic.h, which area is beyond the seam, back or home)
 # and the sun tests (tests/sun_tests.cpp: src/sun/EfSunLogic.h and EfSunTime.h (the client's verbatim copy): the day's
-# sunrise and sunset, the modes, the sun clock, the parts of the day, EFSUN, the daylight event's window).
+# sunrise and sunset, the modes, the sun clock, the parts of the day, EFSUN, the daylight event's window)
+# and the bot follow tests (tests/botfollow_tests.cpp: mod-playerbots' src/Emberfall/EmberfallFollowLogic.h, the bots
+# that follow a player's level: who is followed, the window, the share per side, the spread rest, the exemptions).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -102,7 +104,8 @@ encounters ../src/encounters encounter_tests.cpp
 fishing ../src/fishing:../src/encounters fishing_tests.cpp
 taming ../src/taming:../src/encounters taming_tests.cpp
 seam ../src/seam seam_tests.cpp
-sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp"
+sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp
+botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp"
 
 if ! printf '%s\n' "$TESTS" | xargs -P "$JOBS" -n 3 sh "$HERE/run_tests.sh" --compile; then
     echo "run_tests.sh: a test program did not compile" >&2
