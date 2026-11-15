@@ -100,12 +100,7 @@ namespace
                           f[5].Get<uint8>(), f[6].Get<uint8>()};
                 for (uint32 spell : {s.spell, s.spell2})
                     if (spell)
-                    {
-                        if (!sSpellMgr->GetSpellInfo(spell))
-                            LOG_ERROR("server.loading", ">> Emberfall journeys: class {} step {} names spell {}, not in Spell.dbc",
-                                      s.cls, s.step, spell);
-                        spells.insert(spell);
-                    }
+                        spells.insert(spell);   // checked against Spell.dbc at the world's start (CheckSpells)
                 steps.push_back(s);
             } while (r->NextRow());
         if (QueryResult r = WorldDatabase.Query("SELECT `quest`, `class`, `step`, `last` FROM `ef_journey_quest`"))
@@ -138,6 +133,18 @@ namespace
     }
 
     bool On() { return s_enable && Emberfall::OwnData(); }
+
+    // The custom tables load before the spells (World::SetInitialWorldSettings): the steps' spells are checked once the
+    // world has started.
+    void CheckSpells()
+    {
+        std::shared_lock<std::shared_mutex> guard(s_lock);
+        for (J::Step const& s : s_steps)
+            for (uint32 spell : {s.spell, s.spell2})
+                if (spell && !sSpellMgr->GetSpellInfo(spell))
+                    LOG_ERROR("server.loading", ">> Emberfall journeys: class {} step {} names spell {}, not in Spell.dbc",
+                              s.cls, s.step, spell);
+    }
 
     std::vector<J::Step> StepsOf(uint8 cls)
     {
@@ -217,7 +224,10 @@ namespace
     {
     public:
         emberfall_journeys_world()
-            : WorldScript("emberfall_journeys_world", { WORLDHOOK_ON_AFTER_CONFIG_LOAD, WORLDHOOK_ON_LOAD_CUSTOM_DATABASE_TABLE }) { }
+            : WorldScript("emberfall_journeys_world", { WORLDHOOK_ON_AFTER_CONFIG_LOAD, WORLDHOOK_ON_LOAD_CUSTOM_DATABASE_TABLE,
+                WORLDHOOK_ON_STARTUP }) { }
+
+        void OnStartup() override { CheckSpells(); }
 
         void OnAfterConfigLoad(bool /*reload*/) override
         {
@@ -343,6 +353,7 @@ namespace
         static bool HandleReload(ChatHandler* handler)
         {
             Load();
+            CheckSpells();
             handler->SendSysMessage("EFJOURNEY reloaded");
             return true;
         }
