@@ -304,7 +304,7 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
     engine->addStrategy("formation", false);
 
     if (efSpec)
-        engine->addStrategiesNoInit("ef", "dps assist", efSpec->ranged ? "ranged" : "close", nullptr);
+        engine->addStrategiesNoInit("ef", "dps assist", EmberfallBots::FightsRanged(player) ? "ranged" : "close", nullptr);
     else
     switch (player->getClass())
     {

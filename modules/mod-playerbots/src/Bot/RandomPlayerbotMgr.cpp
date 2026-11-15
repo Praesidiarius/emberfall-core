@@ -8,11 +8,13 @@
 #include "PlayerbotsDatabase.h"
 #include "AiFactory.h"
 #include "EmberfallBots.h"
+#include "EmberfallFollow.h"
 #include "Battleground.h"
 #include "BattlegroundMgr.h"
 #include "Cell.h"
 #include "CellImpl.h"
 #include "ChannelMgr.h"
+#include "Chat.h"
 #include "Common.h"
 #include "DBCStores.h"
 #include "DBCStructure.h"
@@ -2702,7 +2704,7 @@ void RandomPlayerbotMgr::SetValue(Player* bot, std::string const& type, uint32 v
     SetValue(bot->GetGUID().GetCounter(), type, value, data);
 }
 
-bool RandomPlayerbotMgr::HandlePlayerbotConsoleCommand(ChatHandler* /*handler*/, char const* args)
+bool RandomPlayerbotMgr::HandlePlayerbotConsoleCommand(ChatHandler* handler, char const* args)
 {
     if (!sPlayerbotAIConfig.Enabled)
     {
@@ -2724,6 +2726,17 @@ bool RandomPlayerbotMgr::HandlePlayerbotConsoleCommand(ChatHandler* /*handler*/,
     {
         EmberfallBots::SetPaused(cmd == "off");
         LOG_INFO("playerbots", "Random bots switched {} ({} online now)", cmd, sRandomPlayerbotMgr.GetPlayerbotsCount());
+        return true;
+    }
+
+    // EMBERFALL: the bots follow a player (src/Emberfall/EmberfallFollow.h): `follow` runs a pass now, `follow status`
+    // tells the settings and the last pass
+    if (cmd == "follow" || cmd == "follow status")
+    {
+        std::string const answer = cmd == "follow" ? EmberfallFollow::RunNow() : EmberfallFollow::Status();
+        LOG_INFO("playerbots", "{}", answer);
+        if (handler)
+            handler->SendSysMessage(answer);
         return true;
     }
 

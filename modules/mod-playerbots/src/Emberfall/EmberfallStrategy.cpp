@@ -13,7 +13,9 @@
 
 #include "Config.h"
 #include "EmberfallBots.h"
+#include "EmberfallFights.h"
 #include "Group.h"
+#include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -31,12 +33,64 @@ std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
     // The routine first; a melee spec swings when nothing in its table can go, a ranged spec with a bow keeps its Auto
     // Shot going (a caster waits for its power).
     std::vector<NextAction> actions = {NextAction("ef rotation", ACTION_DEFAULT + 0.5f)};
-    EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(botAI->GetBot());
-    if (!spec || !spec->ranged)
+    if (!EmberfallBots::FightsRanged(botAI->GetBot()))
         actions.push_back(NextAction("melee", ACTION_DEFAULT));
     else
+    {
         actions.push_back(NextAction("ef auto shot", ACTION_DEFAULT + 0.2f));
+        // a ranged spec with claws (the Ranger after its leap): white swings while a foe is in reach, without walking in
+        if (EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(botAI->GetBot()); spec && spec->swing)
+            actions.push_back(NextAction("ef swing", ACTION_DEFAULT + 0.1f));
+    }
     return actions;
+}
+
+void EmberfallCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
+{
+    // above everything of the fight: a lost fight is left (EmberfallStrategy.h)
+    triggers.push_back(new TriggerNode("ef escape", {NextAction("ef escape", ACTION_EMERGENCY + 5)}));
+}
+
+bool EmberfallEscapeTrigger::IsActive()
+{
+    float const below = EmberfallBots::EscapeBelowPct();
+    if (below <= 0.0f || !bot->IsAlive() || !bot->IsInCombat() || bot->GetGroup())
+        return false;
+    if (EmberfallFights::Escaping(bot))
+        return true;
+    if (bot->GetHealthPct() >= below)
+        return false;
+    float toKill = 0.0f, toDie = 0.0f;
+    if (!EmberfallFights::Losing(bot, &toKill, &toDie))
+        return false;
+    LOG_DEBUG("playerbots", "Emberfall escape: {} (level {}) runs at {}% health: {:.1f} s to die, {:.1f} s to kill",
+              bot->GetName(), bot->GetLevel(), uint32(bot->GetHealthPct()), toDie, toKill);
+    EmberfallFights::NoteEscape(bot);
+    return true;
+}
+
+bool EmberfallEscapeAction::Execute(Event /*event*/)
+{
+    // away from the nearest foe, a long stride at a time; while the stride lasts the bot keeps running
+    Unit* nearest = nullptr;
+    float best = 0.0f;
+    for (auto const& [guid, ref] : bot->GetCombatManager().GetPvECombatRefs())
+        if (Unit* other = ref->GetOther(bot))
+        {
+            float const d = bot->GetDistance(other);
+            if (!nearest || d < best)
+            {
+                nearest = other;
+                best = d;
+            }
+        }
+    if (!nearest)
+        return false;
+    if (bot->IsNonMeleeSpellCast(false))
+        bot->InterruptNonMeleeSpells(false);
+    if (bot->isMoving() && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+        return true;
+    return MoveAway(nearest, 25.0f);
 }
 
 void EmberfallNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
@@ -166,7 +220,11 @@ uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** 
         // a defensive: only with the bot's own health low, on itself when the ability has no range
         if (step.selfBelowPct)
         {
-            if (bot->GetHealthPct() >= float(step.selfBelowPct))
+            // with two or more creatures on it the bot does not wait as long (DefensiveCrowdBonusPct, bot deaths)
+            float below = float(step.selfBelowPct);
+            if (EmberfallBots::DefensiveCrowdBonusPct() > 0.0f && bot->getAttackers().size() >= 2)
+                below += EmberfallBots::DefensiveCrowdBonusPct();
+            if (bot->GetHealthPct() >= below)
                 continue;
             if (info->GetMaxRange(false, bot) <= 0.0f)
                 on = bot;
@@ -212,6 +270,13 @@ bool EmberfallRotationAction::Execute(Event /*event*/)
     // next steps get their turn for 10 s
     if (!ok)
         backoff[spell] = getMSTime() + 10000;
+    else if (EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(bot))
+        for (EmberfallBots::RoutineStep const& step : spec->steps)
+            if (step.spell == spell && step.selfBelowPct)
+            {
+                EmberfallFights::NoteDefensive(bot);
+                break;
+            }
     // the pilot's trace (Playerbots.log at debug): what each bot presses
     LOG_DEBUG("playerbots", "Emberfall rotation: {} (level {}) casts {} on {}: {}", bot->GetName(), bot->GetLevel(), spell,
               on->GetName(), ok ? "ok" : "failed");
@@ -243,6 +308,19 @@ bool EmberfallAutoShotAction::Execute(Event /*event*/)
 {
     Unit* target = GetTarget();
     return target && botAI->CastSpell(SPELL_AUTO_SHOT, target);
+}
+
+bool EmberfallSwingAction::isPossible()
+{
+    Unit* target = GetTarget();
+    return target && target->IsAlive() && bot->IsWithinMeleeRange(target) &&
+           !(bot->GetVictim() == target && bot->HasUnitState(UNIT_STATE_MELEE_ATTACKING));
+}
+
+bool EmberfallSwingAction::Execute(Event /*event*/)
+{
+    Unit* target = GetTarget();
+    return target && bot->Attack(target, true);
 }
 
 bool EmberfallPrepareAction::isPossible() { return EmberfallPickStep(botAI, nullptr, true, nullptr) != 0; }

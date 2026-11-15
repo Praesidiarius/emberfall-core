@@ -41,6 +41,9 @@ void AutoMaintenanceOnLevelupAction::AutoPickTalents()
     if (EmberfallBots::Enabled())
     {
         EmberfallBots::ApplyTalents(bot);
+        // the spec choice: a spec whose range differs from its pre-spec range (the Ranger) moves the other way now
+        if (bot->GetLevel() == EmberfallBots::PRESPEC_LEVELS_END)
+            botAI->ResetStrategies();
         return;
     }
     bool const isRandomBot = sRandomPlayerbotMgr.IsRandomBot(bot);

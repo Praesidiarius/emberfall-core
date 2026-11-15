@@ -10,6 +10,12 @@
 
 #include "EmberfallBots.h"
 #include "EmberfallQuests.h"
+#include "EmberfallFights.h"
+#include "EmberfallFollow.h"
+
+#include "CellImpl.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 
 #include "CharacterDatabase.h"
 #include "Config.h"
@@ -51,6 +57,15 @@ namespace EmberfallBots
         std::shared_mutex s_botSpecLock;                      // bots update in the map threads
         float s_restHealth = 60.0f, s_restMana = 40.0f, s_restUntil = 90.0f;
         int32 s_maxLevelAbove = 2;
+        // bot deaths (Emberfall docs/design/playerbots-pilot.md §13): the measured run's settings are the defaults
+        float s_restMargin = 25.0f;                           // rest for the last fights' cost (0: off)
+        float s_pullCrowdYards = 12.0f;                       // idle creatures round a pull (0: off)
+        uint32 s_pullCrowdMax = 1;
+        float s_pullCrowdPenalty = 20.0f;
+        float s_escapeBelow = 0.0f;                           // bot deaths: run from a lost fight (0: off)
+        float s_defensiveCrowdBonus = 0.0f;                   // bot deaths: defensives earlier against 2+ (0: off)
+        uint32 s_avoidDeathMinutes = 10;                      // bot deaths: no pulls where it just died (0: off)
+        float s_avoidDeathYards = 40.0f;
 
         std::set<uint32> ParseIds(std::string const& text)
         {
@@ -121,6 +136,14 @@ namespace EmberfallBots
         s_restMana = sConfigMgr->GetOption<float>("Playerbots.Emberfall.RestManaPct", 40.0f);
         s_restUntil = sConfigMgr->GetOption<float>("Playerbots.Emberfall.RestUntilPct", 90.0f);
         s_maxLevelAbove = sConfigMgr->GetOption<int32>("Playerbots.Emberfall.MaxTargetLevelAbove", 2);
+        s_restMargin = sConfigMgr->GetOption<float>("Playerbots.Emberfall.RestMarginPct", 25.0f);
+        s_pullCrowdYards = sConfigMgr->GetOption<float>("Playerbots.Emberfall.PullCrowdYards", 12.0f);
+        s_pullCrowdMax = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.PullCrowdMax", 1);
+        s_pullCrowdPenalty = sConfigMgr->GetOption<float>("Playerbots.Emberfall.PullCrowdPenaltyYards", 20.0f);
+        s_escapeBelow = sConfigMgr->GetOption<float>("Playerbots.Emberfall.EscapeBelowPct", 0.0f);
+        s_defensiveCrowdBonus = sConfigMgr->GetOption<float>("Playerbots.Emberfall.DefensiveCrowdBonusPct", 0.0f);
+        s_avoidDeathMinutes = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.AvoidDeathSpotMinutes", 10);
+        s_avoidDeathYards = sConfigMgr->GetOption<float>("Playerbots.Emberfall.AvoidDeathSpotYards", 40.0f);
         for (char const* t : {"ef_bot_spec", "ef_bot_routine", "ef_bot_talent", "ef_bot_name", "ef_bot_character"})
             if (!TableExists(t))
             {
@@ -129,7 +152,8 @@ namespace EmberfallBots
             }
 
         if (QueryResult r = PlayerbotsDatabase.Query(
-                "SELECT spec_id, class_id, spec_key, ranged, weight, weapons, offhand, shield FROM ef_bot_spec"))
+                "SELECT spec_id, class_id, spec_key, ranged, weight, weapons, offhand, shield, prespec_ranged, stat_weights, "
+                "swing FROM ef_bot_spec"))
         {
             do
             {
@@ -143,6 +167,17 @@ namespace EmberfallBots
                 s.weapons = ParseIds(f[5].Get<std::string>());
                 s.offhand = ParseIds(f[6].Get<std::string>());
                 s.shield = f[7].Get<uint8>() != 0;
+                s.prespecRanged = f[8].Get<uint8>() != 0;
+                s.swing = f[10].Get<uint8>() != 0;
+                std::string const weights = f[9].Get<std::string>();
+                for (std::string_view part : Acore::Tokenize(weights, ',', false))
+                {
+                    size_t const eq = part.find('=');
+                    if (eq == std::string_view::npos)
+                        continue;
+                    if (Optional<float> w = Acore::StringTo<float>(part.substr(eq + 1)))
+                        s.statWeights.emplace_back(std::string(part.substr(0, eq)), *w);
+                }
                 s_classSpecs[s.classId].push_back(s.id);
                 s_specs.emplace(s.id, std::move(s));
             } while (r->NextRow());
@@ -208,6 +243,8 @@ namespace EmberfallBots
         s_enabled = !s_specs.empty();
         if (s_enabled)
             LoadQuests();
+        if (s_enabled)
+            EmberfallFollow::Load();
         size_t steps = 0;
         for (auto const& [id, s] : s_specs)
             steps += s.steps.size();
@@ -216,6 +253,14 @@ namespace EmberfallBots
     }
 
     bool HasSpecs(uint8 classId) { return s_classSpecs.count(classId) > 0; }
+
+    bool FightsRanged(Player* bot)
+    {
+        Spec const* spec = SpecOf(bot);
+        if (!spec)
+            return false;
+        return bot->GetLevel() < PRESPEC_LEVELS_END ? spec->prespecRanged : spec->ranged;
+    }
 
     Spec const* SpecOf(Player* bot)
     {
@@ -331,14 +376,52 @@ namespace EmberfallBots
         }
     }
 
+    namespace
+    {
+        // the share a pull needs: the fixed threshold, or what the last fights cost plus a margin (RestMarginPct),
+        // as a player who eats when a fight like the last would leave too little
+        float NeedPct(Player* bot, bool mana)
+        {
+            float const fixed = mana ? s_restMana : s_restHealth;
+            if (s_restMargin <= 0.0f || (mana && bot->GetMaxPower(POWER_MANA) <= 0))
+                return fixed;
+            return std::max(fixed, std::min(99.0f, EmberfallFights::LastLossPct(bot, mana) + s_restMargin));
+        }
+    }
+
     bool NeedsRest(Player* bot)
     {
-        return bot->GetHealthPct() < s_restHealth || ManaPct(bot) < s_restMana;
+        return bot->GetHealthPct() < NeedPct(bot, false) || ManaPct(bot) < NeedPct(bot, true);
     }
 
     bool RestedEnough(Player* bot)
     {
-        return bot->GetHealthPct() >= s_restUntil && ManaPct(bot) >= s_restUntil;
+        return bot->GetHealthPct() >= std::max(s_restUntil, NeedPct(bot, false)) &&
+               ManaPct(bot) >= std::max(s_restUntil, NeedPct(bot, true));
+    }
+
+    float PullCrowdYards() { return s_pullCrowdYards; }
+    uint32 PullCrowdMax() { return s_pullCrowdMax; }
+    float PullCrowdPenalty() { return s_pullCrowdPenalty; }
+    float EscapeBelowPct() { return s_escapeBelow; }
+    float DefensiveCrowdBonusPct() { return s_defensiveCrowdBonus; }
+
+    bool AvoidAsPull(Player* bot, Unit* target)
+    {
+        return s_avoidDeathMinutes > 0 && EmberfallFights::NearRecentDeath(bot, target, s_avoidDeathYards, s_avoidDeathMinutes);
+    }
+
+    uint32 IdleCrowd(Player* bot, Unit* target, float yards)
+    {
+        std::list<Unit*> units;
+        Acore::AnyUnfriendlyUnitInObjectRangeCheck check(target, bot, yards);
+        Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(target, units, check);
+        Cell::VisitObjects(target, searcher, yards);
+        uint32 n = 0;
+        for (Unit* u : units)
+            if (u != target && u->IsCreature() && !u->IsInCombat() && !u->IsCritter() && bot->IsHostileTo(u))
+                ++n;
+        return n;
     }
 
     int32 MaxLevelAbove() { return s_maxLevelAbove; }

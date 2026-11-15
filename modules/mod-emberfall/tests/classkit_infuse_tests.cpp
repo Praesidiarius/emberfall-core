@@ -115,21 +115,18 @@ int main()
         empty.ready = 0;
         empty.queued = 10;
         empty.pf = 4;
-        check(CanPay(empty, 1, 5) && !CanPay(empty, 2, 5) && !Depleted(empty, 5), "at 0 ready a free 1-potion cast goes");
+        check(CanPay(empty, 1, 5) && !CanPay(empty, 2, 5), "at 0 ready a free 1-potion cast goes, a 2-potion one does not");
         empty.pf = 3;
-        check(Depleted(empty, 5) && Depleted(empty, 0), "no free potion: Arcane Restoration");
-        // a 2-potion flask (Emberfall feedback #529): the swap while its two cannot be paid
-        Potions one = Full(10);
+        check(!CanPay(empty, 1, 5) && !CanPay(empty, 1, 0), "at 0 ready, the next not free: nothing goes");
+        // a 2-potion cast with one ready: only when the next is free
+        Potions one = Full(8);
         one.ready = 1;
-        one.queued = 9;
-        check(Depleted(one, 0, 2) && !Depleted(one, 0, 1), "1 ready: a 2-potion flask swaps, a 1-potion one does not");
+        one.queued = 7;
+        check(!CanPay(one, 2, 0) && CanPay(one, 1, 0), "1 ready: a 2-potion cast waits, a 1-potion one goes");
         one.pf = 4;
-        check(!Depleted(one, 5, 2), "1 ready and the next free: the 2-potion flask goes");
+        check(CanPay(one, 2, 5), "1 ready and the next free: the 2-potion cast goes");
         one.ready = 0;
-        check(Depleted(one, 5, 2), "0 ready, the next free: the other potion still needs a vial");
-        one.ready = 2;
-        one.pf = 0;
-        check(!Depleted(one, 0, 2) && !Depleted(one, 5, 2), "2 ready: the flask");
+        check(!CanPay(one, 2, 5), "0 ready, the next free: the other potion still needs a vial");
         check(AdvanceFormula(1, 2, 5) == 3 && AdvanceFormula(3, 2, 5) == 4 && AdvanceFormula(4, 2, 5) == 4,
               "restores advance the count, never past the free one");
         check(AdvanceFormula(2, 2, 0) == 0, "no Perfect Formula: no count");

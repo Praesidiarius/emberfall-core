@@ -7,6 +7,7 @@
 #include "StatsWeightCalculator.h"
 #include "AiFactory.h"
 #include "DBCStores.h"
+#include "EmberfallBots.h"
 #include "Item.h"
 #include "ItemEnchantmentMgr.h"
 #include "ItemTemplate.h"
@@ -20,6 +21,7 @@
 #include "StatsCollector.h"
 #include "Unit.h"
 #include <memory>
+#include <unordered_map>
 
 namespace
 {
@@ -286,6 +288,21 @@ void StatsWeightCalculator::GenerateWeights(Player* player)
     GenerateBasicWeights(player);
     GenerateAdditionalWeights(player);
     ApplyWeightFinetune(player);
+    // EMBERFALL (bot deaths): an Emberfall spec's own weights for the primary stats (ef_bot_spec.stat_weights, from the
+    // game repo's content/data/bots/specs.yaml): the stock weights are the stock classes' and talent tabs'
+    if (EmberfallBots::Spec const* spec = EmberfallBots::Enabled() ? EmberfallBots::SpecOf(player) : nullptr;
+        spec && !spec->statWeights.empty())
+    {
+        static std::unordered_map<std::string, StatsType> const names = {
+            {"strength", STATS_TYPE_STRENGTH}, {"agility", STATS_TYPE_AGILITY}, {"intellect", STATS_TYPE_INTELLECT},
+            {"spirit", STATS_TYPE_SPIRIT}, {"stamina", STATS_TYPE_STAMINA}, {"spell_power", STATS_TYPE_SPELL_POWER},
+            {"attack_power", STATS_TYPE_ATTACK_POWER}};
+        for (auto const& [name, type] : names)
+            stats_weights_[type] = 0.0f;
+        for (auto const& [name, weight] : spec->statWeights)
+            if (auto it = names.find(name); it != names.end())
+                stats_weights_[it->second] = weight;
+    }
 }
 
 void StatsWeightCalculator::GenerateBasicWeights(Player* player)
