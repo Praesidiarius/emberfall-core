@@ -157,6 +157,18 @@ namespace Emberfall::ClassKit::Logic
         return first ? gain * 2 : gain;
     }
 
+    // A build out of a fight under its ceiling (the build effect's `ooc_max`, Emberfall feedback #592: the Pyromancer's
+    // Flashpoint lifts Heat to 30 at most out of combat): of `gain` stored units, what the power at `now` may still take
+    // without passing `ceiling` (stored units); nothing once it stands at or above it. No ceiling (0): all of it.
+    constexpr int32_t GainBelowCeiling(int32_t gain, int32_t now, int32_t ceiling)
+    {
+        if (gain <= 0)
+            return 0;
+        if (ceiling <= 0)
+            return gain;
+        return std::clamp(ceiling - now, 0, gain);
+    }
+
     // Heavy Rend's overspend: of `want` more points, what the caster still holds beyond the spell's own cost (`have` and
     // `cost` in stored units, `scale` stored units per point): whole points only.
     constexpr int32_t Overspend(int32_t want, int32_t have, int32_t cost, int32_t scale)
