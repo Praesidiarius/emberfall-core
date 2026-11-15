@@ -105,6 +105,11 @@ namespace EmberfallBots
     // that margin (capped at 99), and it rests at least up to that.
     bool NeedsRest(Player* bot);
     bool RestedEnough(Player* bot);
+    // Bot idle (docs §15): a seated bot out of a fight stays seated while it eats or drinks (the aura is on) or is not
+    // rested enough. The module's own think stands every seated bot without a master up again 1-3 s after it sat, and
+    // standing ends the food and drink auras: the bots ate in sips and rested standing. Playerbots.Emberfall.RestSeated
+    // (default 1; 0: the stock stand-up).
+    bool KeepsSeat(Player* bot);
     // Pulling (bot deaths): a grind target with idle hostile creatures within PullCrowdYards (12; 0: off) counts
     // PullCrowdPenaltyYards (20) farther a creature, and more than PullCrowdMax (1) of them rule it out.
     float PullCrowdYards();

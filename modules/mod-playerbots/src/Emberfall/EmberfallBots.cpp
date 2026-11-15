@@ -12,6 +12,8 @@
 #include "EmberfallQuests.h"
 #include "EmberfallFights.h"
 #include "EmberfallFollow.h"
+#include "EmberfallIdle.h"
+#include "EmberfallRestLogic.h"
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -70,6 +72,7 @@ namespace EmberfallBots
         float s_defensiveCrowdBonus = 0.0f;                   // bot deaths: defensives earlier against 2+ (0: off)
         uint32 s_avoidDeathMinutes = 10;                      // bot deaths: no pulls where it just died (0: off)
         float s_avoidDeathYards = 40.0f;
+        bool s_restSeated = true;                             // bot idle: no stand-up while resting (0: stock)
 
         std::set<uint32> ParseIds(std::string const& text)
         {
@@ -148,6 +151,7 @@ namespace EmberfallBots
         s_defensiveCrowdBonus = sConfigMgr->GetOption<float>("Playerbots.Emberfall.DefensiveCrowdBonusPct", 0.0f);
         s_avoidDeathMinutes = sConfigMgr->GetOption<uint32>("Playerbots.Emberfall.AvoidDeathSpotMinutes", 10);
         s_avoidDeathYards = sConfigMgr->GetOption<float>("Playerbots.Emberfall.AvoidDeathSpotYards", 40.0f);
+        s_restSeated = sConfigMgr->GetOption<bool>("Playerbots.Emberfall.RestSeated", true);
         for (char const* t : {"ef_bot_spec", "ef_bot_routine", "ef_bot_talent", "ef_bot_name", "ef_bot_character"})
             if (!TableExists(t))
             {
@@ -249,6 +253,8 @@ namespace EmberfallBots
             LoadQuests();
         if (s_enabled)
             EmberfallFollow::Load();
+        if (s_enabled)
+            EmberfallIdle::Load();
         size_t steps = 0;
         for (auto const& [id, s] : s_specs)
             steps += s.steps.size();
@@ -405,6 +411,20 @@ namespace EmberfallBots
     {
         return bot->GetHealthPct() >= std::max(s_restUntil, NeedPct(bot, false)) &&
                ManaPct(bot) >= std::max(s_restUntil, NeedPct(bot, true));
+    }
+
+    bool KeepsSeat(Player* bot)
+    {
+        if (!s_enabled || !bot->IsSitState())
+            return false;
+        EmberfallRest::Logic::SeatState s;
+        s.on = s_restSeated && SpecOf(bot) != nullptr;
+        s.seated = true;
+        s.inCombat = bot->IsInCombat();
+        s.eating = bot->HasAuraType(SPELL_AURA_MOD_REGEN);
+        s.drinking = bot->HasAuraType(SPELL_AURA_MOD_POWER_REGEN);
+        s.restedEnough = RestedEnough(bot);
+        return EmberfallRest::Logic::KeepsSeat(s);
     }
 
     float PullCrowdYards() { return s_pullCrowdYards; }

@@ -14,6 +14,7 @@
 #include "CombatManager.h"
 #include "Creature.h"
 #include "EmberfallBots.h"
+#include "EmberfallIdle.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
 #include "Log.h"
@@ -272,6 +273,7 @@ namespace EmberfallFights
                 l.health[0] = std::max(0.0f, f->hp0 - player->GetHealthPct());
                 l.mana[0] = std::max(0.0f, f->mp0 - ManaPct(player));
                 s_fights.erase(player->GetGUID().GetRawValue());
+                EmberfallIdle::FightEnded(player);  // the idle trace (off by default)
             }
 
             void OnPlayerJustDied(Player* player) override
