@@ -23,6 +23,9 @@
 //   server -> client   STATE;<skill>;<earned>;<spent>;<ranks>   (sent after HELLO, APPLY, a reset, a skill set/unset)
 //                      GONE;<skill>                          the profession was unlearned: its ranks are gone
 //                      RESET;<skill>;<tree>;<points>;<copper>  a tree was reset at the trainer
+//                      FREE;<skill>;<points>                 the profession's trees were reset for free: the trees changed
+//                                                            (the talents v2 migration) or the skill fell below what the
+//                                                            spent points need (a specialisation given up, professions.md §28)
 //                      NODES;<scan>;<part>;<total>;<lock,x,y,skill|...>   tracked nodes beyond sight (minimap range)
 //                      OK;<seq>  ERR;<seq>;<code>;<detail>
 // Error codes: DATA (hash), DECODE, SKILL (no such profession or not learned), RANK, PATH, GATE (TalentRules.h),
@@ -30,6 +33,7 @@
 
 #include "EfProfSpecs.h"
 #include "EfProfModel.h"
+#include "EfProfText.h"
 #include "../talents/EftProtocol.h"
 
 #include "CellImpl.h"
@@ -59,6 +63,7 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 
+#include <array>
 #include <chrono>
 #include <memory>
 
@@ -72,6 +77,12 @@ namespace Emberfall::ProfSpecs
         constexpr std::string_view kPrefix = "EFP\t";
         constexpr char const* kStateKey = "emberfall_profspecs";
         constexpr uint32 kGossipSender = 0x45465052; // "EFPR": our reset lines in a trainer's menu
+        constexpr uint32 kPickSender = 0x45465053;   // "EFPS": pick a specialisation (action: its spell)
+        constexpr uint32 kDropSender = 0x45465044;   // "EFPD": give the specialisation up (action: the craft's skill)
+        // ef_character_migration: every character's talents reset once, free, when the trees shrank to rank 3's budget
+        constexpr char const* kTalentsV2 = "prof_talents_v2";
+        // ef_prof_text kinds: a tree's name, a specialisation's name and its text (what it makes)
+        constexpr uint32 kTextTree = 1, kTextSpecName = 2, kTextSpecWhat = 3;
         constexpr uint32 kScanMs = 3000;              // far nodes for the minimap
         constexpr uint32 kSkillHerbalism = 182, kSkillMining = 186;
         constexpr uint32 kLockHerbalism = 2, kLockMining = 3;
@@ -86,6 +97,30 @@ namespace Emberfall::ProfSpecs
         // hooks skip all others at once.
         std::map<uint32, uint32> s_itemSpellFamily;
         std::set<uint32> s_potencySpells;
+        // ef_prof_text: (kind, id) -> enUS, frFR, deDE (the Lang order); an empty translation reads English
+        std::map<std::pair<uint32, uint32>, std::array<std::string, 3>> s_texts;
+
+        using text::Lang;
+        Lang LangOf(Player* player)
+        {
+            return Emberfall::Professions::LangOf(player->GetSession() ? uint32(player->GetSession()->GetSessionDbcLocale()) : 0);
+        }
+        std::string Text(uint32 kind, uint32 id, Lang lang, std::string const& fallback)
+        {
+            auto const it = s_texts.find({kind, id});
+            if (it == s_texts.end())
+                return fallback;
+            std::string const& t = it->second[static_cast<size_t>(lang)];
+            return !t.empty() ? t : !it->second[0].empty() ? it->second[0] : fallback;
+        }
+        std::string CraftLabel(uint32 skill, Lang lang)
+        {
+            std::string name = Emberfall::Professions::CraftName(skill, lang);
+            if (name.empty())
+                if (SkillLineEntry const* line = sSkillLineStore.LookupEntry(skill))
+                    name = line->name[0];
+            return name;
+        }
 
         uint64 NowMs()
         {
@@ -106,6 +141,15 @@ namespace Emberfall::ProfSpecs
             eft::RateLimit limit{20, 10000};
             uint32 scanTimer = 0, scanId = 0;
             std::string lastNodes;
+            // a craft's specialisation (its spell, 0: none) and how often it was given up (the price ladder's step)
+            struct Spec
+            {
+                uint32 spell = 0, unlearns = 0;
+            };
+            std::map<uint32, Spec> specs;   // skill -> its specialisation
+            // free resets the client has not been told about yet (skill, points back): sent with the next HELLO
+            std::vector<std::pair<uint32, uint32>> freeResets;
+            uint64 lastSpecRefusal = 0;   // the last "needs the specialisation" line (one every few seconds)
         };
 
         uint32 SkillOfLock(uint32 lockType) { return lockType == kLockHerbalism ? kSkillHerbalism : lockType == kLockMining ? kSkillMining : 0; }
@@ -144,7 +188,7 @@ namespace Emberfall::ProfSpecs
         void SendState(Player* player, PlayerState const& st, Model const& m, uint32 skill)
         {
             uint32 const value = player->HasSkill(skill) ? player->GetPureSkillValue(skill) : 0;
-            SendBody(player, eft::body(0, "STATE", {std::to_string(skill), std::to_string(m.Budget(value)),
+            SendBody(player, eft::body(0, "STATE", {std::to_string(skill), std::to_string(m.Budget(skill, value)),
                 std::to_string(m.Spent(skill, st.ranks)), m.Encode(skill, st.ranks)}));
         }
 
@@ -165,6 +209,48 @@ namespace Emberfall::ProfSpecs
         {
             if (trans->GetSize())
                 CharacterDatabase.CommitTransaction(trans);
+        }
+
+        void SaveSpec(CharacterDatabaseTransaction trans, uint32 guid, uint32 skill, PlayerState::Spec const& sp)
+        {
+            trans->Append("REPLACE INTO `ef_character_prof_spec` (`guid`, `skill_line`, `spell`, `unlearns`) VALUES ({}, {}, {}, {})", guid,
+                skill, sp.spell, sp.unlearns);
+        }
+
+        // The specialisation spells match the stored pick: the active one known, the craft's others not (a spell
+        // learned by hand or left from a pick undone is taken away; a craft not known has none).
+        void ReconcileSpecs(Player* player, PlayerState& st, Model const& m)
+        {
+            for (auto const& [spell, sp] : m.specs)
+            {
+                auto const it = st.specs.find(sp.skill);
+                bool const want = it != st.specs.end() && it->second.spell == spell && player->HasSkill(sp.skill);
+                if (want && !player->HasSpell(spell))
+                    player->learnSpell(spell);
+                else if (!want && player->HasSpell(spell))
+                {
+                    player->removeSpell(spell, SPEC_MASK_ALL, false);
+                    player->RemoveAurasDueToSpell(spell);
+                }
+            }
+        }
+
+        // Wipes a profession's trees for free and remembers to tell the client (FREE); the points it took back.
+        uint32 FreeReset(PlayerState& st, Model const& m, uint32 skill)
+        {
+            uint32 back = 0;
+            for (Tree const* t : m.TreesOf(skill))
+                back += m.WipeTree(t->id, st.ranks);
+            if (back)
+                st.freeResets.emplace_back(skill, back);
+            return back;
+        }
+
+        void SendFreeResets(Player* player, PlayerState& st)
+        {
+            for (auto const& [skill, points] : st.freeResets)
+                SendBody(player, eft::body(0, "FREE", {std::to_string(skill), std::to_string(points)}));
+            st.freeResets.clear();
         }
 
         // The rank spells the ranks teach, learned and unlearned to match (only spells the module taught are taken).
@@ -243,13 +329,34 @@ namespace Emberfall::ProfSpecs
                 do
                     st.granted.insert(r->Fetch()[0].Get<uint32>());
                 while (r->NextRow());
+            st.specs.clear();
+            if (QueryResult r = CharacterDatabase.Query("SELECT `skill_line`, `spell`, `unlearns` FROM `ef_character_prof_spec` WHERE `guid` = {}", guid))
+                do
+                {
+                    Field* f = r->Fetch();
+                    st.specs[f[0].Get<uint32>()] = {f[1].Get<uint32>(), f[2].Get<uint32>()};
+                } while (r->NextRow());
             st.loaded = true;
             st.generation = s_generation;
             CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-            if (Revalidate(player, st, m))
+            // The talents v2 migration (professions.md §28): the trees shrank (35 -> 21 points, points from rank 3's
+            // skill on), so no spend from before still fits; every profession's trees are reset once, free.
+            bool changed = false;
+            if (!CharacterDatabase.Query("SELECT 1 FROM `ef_character_migration` WHERE `guid` = {} AND `name` = '{}'", guid, kTalentsV2))
+            {
+                for (uint32 skill : m.Skills())
+                    if (uint32 const back = FreeReset(st, m, skill))
+                    {
+                        changed = true;
+                        LOG_INFO("module", "Emberfall profspecs: {} skill {}: talents v2, {} points back", player->GetName(), skill, back);
+                    }
+                trans->Append("INSERT IGNORE INTO `ef_character_migration` (`guid`, `name`) VALUES ({}, '{}')", guid, kTalentsV2);
+            }
+            if (Revalidate(player, st, m) || changed)
                 for (uint32 skill : m.Skills())
                     SaveProfession(trans, guid, m, skill, st.ranks);
             Reconcile(player, st, m, trans);
+            ReconcileSpecs(player, st, m);
             Commit(trans);
         }
 
@@ -400,6 +507,7 @@ namespace Emberfall::ProfSpecs
         ++s_generation;
         s_model.reset();
         s_discoveries.clear();
+        s_texts.clear();
         if (!s_enabled)
         {
             LOG_INFO("server.loading", ">> Emberfall profession specialisations: off (Emberfall.ProfSpecs.Enable = 0)");
@@ -428,6 +536,24 @@ namespace Emberfall::ProfSpecs
                     m->pointsPerSkill = static_cast<uint32>(std::stoul(value));
                 else if (name == "reset_fee_per_point")
                     m->feePerPoint = static_cast<uint32>(std::stoul(value));
+                // per profession: `points_from:<skill>`, `points_per_skill:<skill>` (talents from rank 3, §28)
+                else if (name.rfind("points_from:", 0) == 0)
+                    m->pointsFrom[static_cast<uint32>(std::stoul(name.substr(12)))] = static_cast<uint32>(std::stoul(value));
+                else if (name.rfind("points_per_skill:", 0) == 0)
+                    m->stepOf[static_cast<uint32>(std::stoul(name.substr(17)))] = static_cast<uint32>(std::stoul(value));
+                // the specialisations' unlearn prices in copper, comma-separated (the last one repeats)
+                else if (name == "spec_unlearn_copper")
+                {
+                    size_t pos = 0;
+                    while (pos < value.size())
+                    {
+                        size_t const end = value.find(',', pos);
+                        m->unlearnCopper.push_back(static_cast<uint32>(std::stoul(value.substr(pos, end - pos))));
+                        if (end == std::string::npos)
+                            break;
+                        pos = end + 1;
+                    }
+                }
             } while (r->NextRow());
         if (QueryResult r = WorldDatabase.Query("SELECT `id`, `skill_line`, `sort`, `name` FROM `ef_prof_tree`"))
             do
@@ -513,6 +639,41 @@ namespace Emberfall::ProfSpecs
                 Field* f = r->Fetch();
                 m->trainers[f[0].Get<uint32>()] = f[1].Get<uint32>();
             } while (r->NextRow());
+        // The crafts' specialisations and the trainer lines' names (professions.md §28; the 2026-11-14 tables: a world
+        // without them has no specialisations, the rest works)
+        uint32 rework = 0;
+        if (QueryResult r = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN "
+            "('ef_prof_specialisation', 'ef_prof_text')"))
+            rework = static_cast<uint32>(r->Fetch()[0].Get<uint64>());
+        if (rework == 2)
+        {
+            if (QueryResult r = WorldDatabase.Query("SELECT `spell`, `skill_line`, `sort`, `back_to`, `needs_cap`, `key` FROM `ef_prof_specialisation`"))
+                do
+                {
+                    Field* f = r->Fetch();
+                    Specialisation sp;
+                    sp.spell = f[0].Get<uint32>();
+                    sp.skill = f[1].Get<uint32>();
+                    sp.sort = f[2].Get<uint32>();
+                    sp.backTo = f[3].Get<uint32>();
+                    sp.needsCap = f[4].Get<uint32>();
+                    sp.key = f[5].Get<std::string>();
+                    if (!sSpellMgr->GetSpellInfo(sp.spell))
+                        problems.push_back("specialisation " + std::to_string(sp.spell) + " is not in Spell.dbc");
+                    m->specs[sp.spell] = sp;
+                } while (r->NextRow());
+            if (QueryResult r = WorldDatabase.Query("SELECT `kind`, `id`, `locale`, `text` FROM `ef_prof_text`"))
+                do
+                {
+                    Field* f = r->Fetch();
+                    std::string const loc = f[2].Get<std::string>();
+                    size_t const slot = loc == "frFR" ? size_t(Lang::Fr) : loc == "deDE" ? size_t(Lang::De) : size_t(Lang::En);
+                    s_texts[{f[0].Get<uint32>(), f[1].Get<uint32>()}][slot] = f[3].Get<std::string>();
+                } while (r->NextRow());
+        }
+        else
+            LOG_WARN("server.loading", ">> Emberfall profession specialisations: ef_prof_specialisation or ef_prof_text missing "
+                "(mod_emberfall_2026_11_14_00_prof_rework.sql); no specialisations at the last rank");
         m->Index();
         for (std::string const& p : m->Problems())
             problems.push_back(p);
@@ -560,8 +721,9 @@ namespace Emberfall::ProfSpecs
         size_t nodeCount = 0;
         for (auto const& [id, t] : m->trees)
             nodeCount += t.nodes.size();
-        LOG_INFO("server.loading", ">> Emberfall profession specialisations: {} trees, {} nodes, {} recipes, {} trainers (data {})",
-            m->trees.size(), nodeCount, m->recipes.size(), m->trainers.size(), m->hash);
+        LOG_INFO("server.loading", ">> Emberfall profession specialisations: {} trees, {} nodes, {} recipes, {} trainers, {} last-rank "
+            "specialisations, unlearn ladder {} steps (data {})", m->trees.size(), nodeCount, m->recipes.size(), m->trainers.size(),
+            m->specs.size(), m->unlearnCopper.size(), m->hash);
         s_model = m;
         return true;
     }
@@ -602,6 +764,7 @@ namespace Emberfall::ProfSpecs
             for (uint32 skill : m->Skills())
                 if (player->HasSkill(skill))
                     SendState(player, *st, *m, skill);
+            SendFreeResets(player, *st);
             SendOk(player, req.seq);
             return;
         }
@@ -657,13 +820,21 @@ namespace Emberfall::ProfSpecs
             return;
         if (newValue == 0)
         {
-            if (m->Spent(skill, st->ranks))
+            auto const spec = st->specs.find(skill);
+            bool const hadSpec = spec != st->specs.end() && spec->second.spell;
+            if (m->Spent(skill, st->ranks) || hadSpec)
             {
                 for (Tree const* t : m->TreesOf(skill))
                     m->WipeTree(t->id, st->ranks);
                 CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
                 SaveProfession(trans, player->GetGUID().GetCounter(), *m, skill, st->ranks);
                 Reconcile(player, *st, *m, trans);
+                if (hadSpec)   // the profession unlearned: its specialisation goes too (the price ladder's count stays)
+                {
+                    spec->second.spell = 0;
+                    SaveSpec(trans, player->GetGUID().GetCounter(), skill, spec->second);
+                    ReconcileSpecs(player, *st, *m);
+                }
                 Commit(trans);
             }
             SendBody(player, eft::body(0, "GONE", {std::to_string(skill)}));
@@ -893,6 +1064,8 @@ namespace Emberfall::ProfSpecs
             Scan(player, *st, *s_model);
     }
 
+    // The trainer's own menu, then ours: an unlearn line per talent tree with points, and for a craft at its last rank
+    // the specialisation lines (pick one, or give the active one up; professions.md §28), in the client's language.
     bool OnGossipHello(Player* player, Creature* creature)
     {
         std::shared_ptr<Model const> const m = s_model;
@@ -902,27 +1075,140 @@ namespace Emberfall::ProfSpecs
         if (trainer == m->trainers.end())
             return false;
         PlayerState* st = State(player);
-        if (!st || !m->Spent(trainer->second, st->ranks))
+        if (!st)
             return false;
-        player->PrepareGossipMenu(creature, creature->GetGossipMenuId(), true);
-        for (Tree const* t : m->TreesOf(trainer->second))
+        uint32 const skill = trainer->second;
+        Lang const lang = LangOf(player);
+        struct Line
+        {
+            uint32 sender, action, money;
+            std::string text, box;
+        };
+        std::vector<Line> lines;
+        for (Tree const* t : m->TreesOf(skill))
         {
             uint32 const spent = m->SpentInTree(t->id, st->ranks);
             if (!spent)
                 continue;
-            uint32 const fee = spent * m->feePerPoint;
-            std::string const text = "Unlearn " + t->name + " (" + std::to_string(spent) + (spent == 1 ? " point)" : " points)");
-            std::string const box = "This takes back all " + std::to_string(spent) + " points spent in " + t->name +
-                ". The other trees keep theirs; a tree is unlearned whole, never a node.";
-            player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TRAINER, text, kGossipSender, t->id, box, fee, false);
+            std::string const name = Text(kTextTree, t->id, lang, t->name);
+            lines.push_back({kGossipSender, t->id, spent * m->feePerPoint, text::UnlearnTreeLine(lang, name, spent),
+                             text::UnlearnTreeBox(lang, name, spent)});
         }
+        if (player->HasSkill(skill))
+        {
+            auto const own = st->specs.find(skill);
+            uint32 const active = own == st->specs.end() ? 0 : own->second.spell;
+            if (Specialisation const* sp = active ? m->Spec(active) : nullptr)
+            {
+                std::string const name = Text(kTextSpecName, sp->spell, lang, sp->key);
+                uint32 const price = m->UnlearnCopper(own->second.unlearns);
+                lines.push_back({kDropSender, skill, price, text::DropLine(lang, name),
+                                 text::DropBox(lang, name, CraftLabel(skill, lang), price, sp->backTo)});
+            }
+            else
+                for (Specialisation const* sp : m->SpecsOf(skill))
+                    if (Model::CanPick(*sp, player->GetPureMaxSkillValue(skill), 0))
+                        lines.push_back({kPickSender, sp->spell, 0, text::PickLine(lang, Text(kTextSpecName, sp->spell, lang, sp->key)),
+                                         text::PickBox(lang, Text(kTextSpecWhat, sp->spell, lang, ""))});
+        }
+        if (lines.empty())
+            return false;
+        player->PrepareGossipMenu(creature, creature->GetGossipMenuId(), true);
+        for (Line const& l : lines)
+            player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TRAINER, l.text, l.sender, l.action, l.box, l.money, false);
         player->SendPreparedGossip(creature);
         return true;
     }
 
+    namespace
+    {
+        void ResetTree(Player* player, Creature* creature, PlayerState& st, Model const& m, uint32 skill, uint32 tree)
+        {
+            auto const t = m.trees.find(tree);
+            if (t == m.trees.end() || t->second.skill != skill)
+                return;
+            uint32 const spent = m.SpentInTree(tree, st.ranks);
+            uint32 const fee = spent * m.feePerPoint;
+            if (!spent)
+                return;
+            if (!player->HasEnoughMoney(fee))
+            {
+                player->SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, creature, 0, 0);
+                return;
+            }
+            player->ModifyMoney(-static_cast<int32>(fee));
+            m.WipeTree(tree, st.ranks);
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            SaveProfession(trans, player->GetGUID().GetCounter(), m, skill, st.ranks);
+            Reconcile(player, st, m, trans);
+            Commit(trans);
+            st.lastNodes = "?";
+            LOG_INFO("module", "Emberfall profspecs: {} reset tree {} ({} points, {} copper)", player->GetName(), tree, spent, fee);
+            SendBody(player, eft::body(0, "RESET", {std::to_string(skill), std::to_string(tree), std::to_string(spent), std::to_string(fee)}));
+            SendState(player, st, m, skill);
+        }
+
+        void PickSpec(Player* player, PlayerState& st, Model const& m, uint32 skill, uint32 spell)
+        {
+            Specialisation const* sp = m.Spec(spell);
+            PlayerState::Spec& own = st.specs[skill];
+            if (!sp || sp->skill != skill || !player->HasSkill(skill) || !Model::CanPick(*sp, player->GetPureMaxSkillValue(skill), own.spell))
+                return;
+            own.spell = spell;
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            SaveSpec(trans, player->GetGUID().GetCounter(), skill, own);
+            Commit(trans);
+            ReconcileSpecs(player, st, m);
+            Lang const lang = LangOf(player);
+            ChatHandler(player->GetSession()).SendSysMessage(text::Picked(lang, Text(kTextSpecName, spell, lang, sp->key)));
+            LOG_INFO("module", "Emberfall profspecs: {} picked specialisation {} ({}) of skill {}", player->GetName(), spell, sp->key, skill);
+        }
+
+        // Giving the specialisation up: the price ladder's next step, the spell gone, the skill back to the rank's
+        // start, and the talent trees reset for free when their spend no longer fits the lower skill's budget.
+        void DropSpec(Player* player, Creature* creature, PlayerState& st, Model const& m, uint32 skill)
+        {
+            auto const own = st.specs.find(skill);
+            Specialisation const* sp = own == st.specs.end() ? nullptr : m.Spec(own->second.spell);
+            if (!sp || sp->skill != skill)
+                return;
+            uint32 const price = m.UnlearnCopper(own->second.unlearns);
+            Lang const lang = LangOf(player);
+            if (!player->HasEnoughMoney(price))
+            {
+                player->SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, creature, 0, 0);
+                ChatHandler(player->GetSession()).SendSysMessage(text::NotEnoughMoney(lang, price));
+                return;
+            }
+            player->ModifyMoney(-static_cast<int32>(price));
+            std::string const name = Text(kTextSpecName, sp->spell, lang, sp->key);
+            own->second.spell = 0;
+            ++own->second.unlearns;
+            ReconcileSpecs(player, st, m);
+            if (player->HasSkill(skill) && player->GetPureSkillValue(skill) > sp->backTo)
+                player->SetSkill(skill, player->GetSkillStep(skill), sp->backTo, player->GetPureMaxSkillValue(skill));
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            uint32 const value = player->HasSkill(skill) ? player->GetPureSkillValue(skill) : 0;
+            if (m.Spent(skill, st.ranks) > m.Budget(skill, value))
+            {
+                FreeReset(st, m, skill);
+                SaveProfession(trans, player->GetGUID().GetCounter(), m, skill, st.ranks);
+                Reconcile(player, st, m, trans);
+                st.lastNodes = "?";
+            }
+            SaveSpec(trans, player->GetGUID().GetCounter(), skill, own->second);
+            Commit(trans);
+            SendFreeResets(player, st);
+            SendState(player, st, m, skill);
+            ChatHandler(player->GetSession()).SendSysMessage(text::Dropped(lang, name, CraftLabel(skill, lang), price, value));
+            LOG_INFO("module", "Emberfall profspecs: {} gave up specialisation {} of skill {} for {} copper (unlearn {}), skill now {}",
+                player->GetName(), sp->spell, skill, price, own->second.unlearns, value);
+        }
+    }
+
     bool OnGossipSelect(Player* player, Creature* creature, uint32 sender, uint32 action)
     {
-        if (sender != kGossipSender)
+        if (sender != kGossipSender && sender != kPickSender && sender != kDropSender)
             return false;
         std::shared_ptr<Model const> const m = s_model;
         PlayerState* st = State(player);
@@ -930,29 +1216,36 @@ namespace Emberfall::ProfSpecs
         if (!m || !st || !creature)
             return true;
         auto const trainer = m->trainers.find(creature->GetEntry());
-        auto const tree = m->trees.find(action);
-        if (trainer == m->trainers.end() || tree == m->trees.end() || tree->second.skill != trainer->second)
+        if (trainer == m->trainers.end())
             return true;
-        uint32 const spent = m->SpentInTree(action, st->ranks);
-        uint32 const fee = spent * m->feePerPoint;
-        if (!spent)
-            return true;
-        if (!player->HasEnoughMoney(fee))
-        {
-            player->SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, creature, 0, 0);
-            return true;
-        }
-        player->ModifyMoney(-static_cast<int32>(fee));
-        m->WipeTree(action, st->ranks);
-        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-        SaveProfession(trans, player->GetGUID().GetCounter(), *m, trainer->second, st->ranks);
-        Reconcile(player, *st, *m, trans);
-        Commit(trans);
-        st->lastNodes = "?";
-        LOG_INFO("module", "Emberfall profspecs: {} reset tree {} ({} points, {} copper)", player->GetName(), action, spent, fee);
-        SendBody(player, eft::body(0, "RESET", {std::to_string(trainer->second), std::to_string(action), std::to_string(spent), std::to_string(fee)}));
-        SendState(player, *st, *m, trainer->second);
+        if (sender == kGossipSender)
+            ResetTree(player, creature, *st, *m, trainer->second, action);
+        else if (sender == kPickSender)
+            PickSpec(player, *st, *m, trainer->second, action);
+        else if (action == trainer->second)
+            DropSpec(player, creature, *st, *m, trainer->second);
         return true;
+    }
+
+    void OnCheckCast(Spell* spell, SpellCastResult& res)
+    {
+        std::shared_ptr<Model const> const m = s_model;
+        if (!m || m->specs.empty() || !spell || res != SPELL_CAST_OK)
+            return;
+        SpellInfo const* info = spell->GetSpellInfo();
+        Specialisation const* sp = info && info->CasterAuraSpell ? m->Spec(info->CasterAuraSpell) : nullptr;
+        Player* player = sp && spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr;
+        if (!player || player->HasAura(sp->spell))
+            return;
+        res = SPELL_FAILED_CASTER_AURASTATE;
+        PlayerState* st = State(player);
+        uint64 const now = NowMs();
+        if (st && now - st->lastSpecRefusal < 3000)
+            return;
+        if (st)
+            st->lastSpecRefusal = now;
+        Lang const lang = LangOf(player);
+        ChatHandler(player->GetSession()).SendSysMessage(text::NeedsSpec(lang, Text(kTextSpecName, sp->spell, lang, sp->key)));
     }
 
     void Dump(Player* player, std::vector<std::string>& out)
@@ -971,7 +1264,13 @@ namespace Emberfall::ProfSpecs
         {
             uint32 const value = player->HasSkill(skill) ? player->GetPureSkillValue(skill) : 0;
             out.push_back("  skill " + std::to_string(skill) + (player->HasSkill(skill) ? "" : " (not learned)") + ": " + std::to_string(value) +
-                ", points " + std::to_string(m->Spent(skill, st->ranks)) + "/" + std::to_string(m->Budget(value)) + ", ranks " + m->Encode(skill, st->ranks));
+                ", points " + std::to_string(m->Spent(skill, st->ranks)) + "/" + std::to_string(m->Budget(skill, value)) + ", ranks " + m->Encode(skill, st->ranks));
+        }
+        for (auto const& [skill, sp] : st->specs)
+        {
+            Specialisation const* spec = m->Spec(sp.spell);
+            out.push_back("  specialisation of skill " + std::to_string(skill) + ": " + (spec ? spec->key + " (" + std::to_string(sp.spell) + ")" : std::string("none")) +
+                ", given up " + std::to_string(sp.unlearns) + " time(s), next costs " + std::to_string(m->UnlearnCopper(sp.unlearns)) + " copper");
         }
         out.push_back("  effects: yield " + std::to_string(m->Sum(st->ranks, Effect::Yield)) + ", minimap range " +
             std::to_string(m->Sum(st->ranks, Effect::MinimapRange)) + ", rarest first " + std::to_string(m->Sum(st->ranks, Effect::RarestFirst)) +
