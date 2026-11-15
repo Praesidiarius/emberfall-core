@@ -15,6 +15,7 @@
 #include "DatabaseEnv.h"
 #include "EmberfallBots.h"
 #include "EmberfallFights.h"
+#include "EmberfallFollow.h"
 #include "PlayerbotsDatabase.h"
 #include <mysqld_error.h>
 #include "AllMapScript.h"
@@ -552,6 +553,7 @@ public:
         sRandomPlayerbotMgr.UpdateSessions();  // Per-bot packet queues, world thread only
         PlayerbotWorldThreadProcessor::instance().Update(diff);
         sRandomPlayerbotMgr.UpdateAI(diff);  // World thread only
+        EmberfallFollow::Update(diff);       // EMBERFALL: the bots follow a player (EmberfallFollow.h)
     }
 
     // Runs before the sessions are kicked on server shutdown
