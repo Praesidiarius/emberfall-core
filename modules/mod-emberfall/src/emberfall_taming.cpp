@@ -78,6 +78,7 @@
 #include "UnitScript.h"
 #include "WorldScript.h"
 #include "encounters/EfEncounterMgr.h"
+#include "petsize/EfPetSize.h"
 #include "journeys/EfJourneyLogic.h"
 #include "journeys/EfJourneys.h"
 #include "taming/EfTameLogic.h"
@@ -805,7 +806,10 @@ namespace
                 efenc::Message ok = efenc::MakeMessage(E::NextSeq(player), efenc::kTaming, "OK");
                 E::Send(player, efenc::Encode(ok));
                 if (player->getClass() == CLASS_HUNTER)
+                {
                     SendKnown(player);   // the compendium's food lines (§16)
+                    Emberfall::PetSize::SendGrowth(player);   // every companion's growth (§17)
+                }
             }
             else if (msg.cmd == "OPEN")
                 HandleOpen(player, msg);

@@ -17,6 +17,7 @@
 
 #include "Creature.h"
 #include "BattlegroundMgr.h"
+#include "EmberfallPetSize.h" // EMBERFALL: the companion's size (PATCHES.md #40)
 #include "CellImpl.h"
 #include "Common.h"
 #include "CreatureAI.h"
@@ -3605,6 +3606,14 @@ void Creature::SetObjectScale(float scale)
         combatReach = DEFAULT_COMBAT_REACH;
 
     SetFloatValue(UNIT_FIELD_COMBATREACH, combatReach * scale);
+
+    // EMBERFALL: #40 the companion's reach and radius follow its size within limits (EmberfallPetSize.h)
+    if (IsPet())
+        if (float reach = 0.0f, radius = 0.0f; Emberfall::PetSize::Reach(ToPet(), scale, reach, radius))
+        {
+            SetFloatValue(UNIT_FIELD_BOUNDINGRADIUS, radius);
+            SetFloatValue(UNIT_FIELD_COMBATREACH, reach);
+        }
 }
 
 void Creature::SetDisplayFromModel(uint32 modelIdx)

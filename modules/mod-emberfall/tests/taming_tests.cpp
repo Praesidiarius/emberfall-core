@@ -339,6 +339,27 @@ namespace
     }
 }
 
+// GROW (hunter-taming.md §18): a companion's growth stage, round trip; a stage past the last, no pet or unknown flags refuse.
+static void TestGrow()
+{
+    namespace W = eftame::wire;
+    W::Grow const g{4321, 1, 4, 9000, 12600, W::kOut};
+    std::string const body = W::EncodeGrow(7, g);
+    auto m = efenc::Decode(body);
+    auto d = m ? W::DecodeGrow(*m) : std::nullopt;
+    check(d && d->pet == 4321 && d->stage == 1 && d->stages == 4 && d->seconds == 9000 && d->next == 12600 && d->flags == W::kOut,
+          "GROW round trip");
+    check(W::EncodeGrow(1, W::Grow{4321, 4, 4, 0, 0, 0}).empty() && W::EncodeGrow(1, W::Grow{0, 0, 4, 0, 0, 0}).empty(),
+          "GROW refuses a stage past the last and no pet");
+    for (char const* fields : {"4321;4;4;0;0;0", "0;0;4;0;0;0", "4321;0;4;0;0;9", "4321;0;4;0;0"})
+    {
+        efenc::Message bad = efenc::MakeMessage(1, efenc::kTaming, "GROW");
+        for (std::string_view f : efenc::Split(fields, ';'))
+            bad.fields.emplace_back(f);
+        check(!W::DecodeGrow(bad), std::string("GROW refuses '") + fields + "'");
+    }
+}
+
 // The sleeping beast's peace (feedback #436, #536-#538): any tie to a fight asks for peace, the AI's engagement alone too.
 static void TestPeace()
 {
@@ -360,6 +381,7 @@ int main()
     TestFood();
     TestPace();
     TestKnown();
+    TestGrow();
     std::cout << "taming tests: " << g_checks - g_failed << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
 }

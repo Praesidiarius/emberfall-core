@@ -624,6 +624,37 @@ helper (TAME_CREATURE and the class quests' credit).
 Tests: `tests/taming_tests.cpp` (the messages' round trips and fuzz, the bars, arrows, decay, claim, sleep cap, food by
 family and band, the eating order, the slots).
 
+## A new companion's name (Emberfall `docs/design/hunter-taming.md` §17; feedback #579)
+
+Any data. The core names a tamed beast after its CreatureFamily (the companion kinds), so a fell goat became "Boar".
+`emberfall_petname_pet` (`PetScript::OnPetAddToWorld`: a companion called or loaded) and `emberfall_petname_player`
+(`OnPlayerAfterGuardianInitStatsForLevel`: a tame, before the core saves it; `OnPlayerLogin`: every companion the hunter keeps, out, stabled or sent off) give a hunter's
+companion that still carries a kind's name (any language) and was never renamed its creature's name in the hunter's
+language, each word capitalised (`src/petname/EfPetNameLogic.h`: "fell goat" -> "Fell Goat"; over the 21 characters of
+`character_pet.name`, its last words that fit), in `character_pet` too. Tests: `tests/petname_tests.cpp`.
+
+## The companion's size and growth (Emberfall `docs/design/hunter-taming.md` §18; feedback #571, #572)
+
+`Emberfall.PetSize.Enable` (1; without the `ef_pet_size_*` world rows, a stock world, it stays off). A companion's size
+comes from its kind (CreatureFamily), not from the wild beast it was, and it grows in stages with the time it is out with
+its hunter (`src/petsize/EfPetSizeLogic.h`, pure and tested). The core asks for a hunter pet's native scale and its reach
+(PATCHES.md #40, `EmberfallPetSize.h`), so every path that scales a pet keeps the size.
+
+| Script | Hook | What |
+|---|---|---|
+| `emberfall_petsize_world` | `WorldScript` | the config; the `ef_pet_size_*` tables (boot line `>> Emberfall pet size: on (K kinds, S stages, D displays)`); sets the core's two functions |
+| `HookScale`, `HookReach` | the core's (#40) | a hunter pet: its kind's size at its stage over its display's own size (the object scale, within the rule's limits); its combat reach and bounding radius from the size drawn, within limits |
+| `emberfall_petsize_player` | `PlayerScript` | load (before the pet): a hunter's `ef_character_pet_growth` rows; each update: a companion that came out (a tame, a call, a swap) gets `GROW` with `kOut`; with a living companion out: its time out, in steps of 10 s; a new stage rescales it (`RecalculateObjectScale`) and sends `GROW` with `kGrew` (the client's chat line); `GROW` every minute it is out; save and logout write the changed rows (logout forgets them); delete |
+| `Emberfall::PetSize::SendGrowth` | the taming HELLO | `GROW` for every companion the hunter has (out, stabled, sent off) |
+| `Emberfall::PetSize::ScaleForPet` | the beast at heel | the stabled beast stands at its own size and stage |
+| `emberfall_petsize_commands` | `CommandScript` (GM) | `.efpet` / `.efpet info` (the companion out: stage, time, sizes, scale, reach), `.efpet grow <hours>`, `.efpet stage <n>` (1 as tamed) |
+
+`data/sql/db-world/mod_emberfall_2026_11_15_01_pet_size.sql`: `ef_pet_size_rule`, `ef_pet_size_kind`, `ef_pet_size_stage`,
+`ef_pet_size_display` (Emberfall's compiler writes the rows from `content/data/pets.yaml` `size` and
+`content/data/taming/model_sizes.yaml`); `data/sql/db-characters/mod_emberfall_2026_11_15_01_pet_growth.sql`:
+`ef_character_pet_growth`. Tests: `tests/petsize_tests.cpp` (the stages, the size by kind and stage, the scale for a
+display, the reach and radius limits), `tests/taming_tests.cpp` (`GROW`'s round trip).
+
 ## The Class Journeys (Emberfall `docs/design/class-journeys/README.md`, `hunter.md`)
 
 `Emberfall.Journeys.Enable` (1; with `Emberfall.OwnData`). Class quest lines that teach utility abilities outside the
@@ -635,7 +666,7 @@ DB's conditions (the step before's mark known, its own not), so the module only 
 | `emberfall_journeys_player` | `PlayerScript` | login: once per character (`ef_character_migration` `class_journeys`) the steps' `existing` rules (at or above the step's level; a hunter with Beastcraft or a companion), then a step whose last quest is rewarded gets its spells back if lost; a step's last quest rewarded (`OnPlayerCompleteQuest`): its mark and second spell; a cast (`OnPlayerSpellCast`) of an `ef_journey_cast` spell inside its zone or area, with the quest in the log: the row's kill credit |
 | `Journeys::TameGateLevel`, `CreditTame` | the taming's | Drowse Shot refuses an elite, rare or rare elite without its step's mark (the step's own quest in the log opens it) with `SMSG_PET_TAME_FAILURE` reason 100 + the step's level; a tame gives `ef_journey_tame_credit`'s credits by rank and level |
 | `Journeys::BotSteps` | mod-playerbots (`EmberfallBots::ApplyTalents`) | a bot: every step at or below its level |
-| `spell_ef_journey_heel` | `SpellScript` (Beast at Heel) | the next stabled beast walks at heel (`npc_ef_journey_heel`, the stabled beast's look); again, it goes back; not with the companion out, not in dungeons or battlegrounds |
+| `spell_ef_journey_heel` | `SpellScript` (Beast at Heel) | the next stabled beast walks at heel (`npc_ef_journey_heel`, the stabled beast's look, size and growth stage); again, it goes back; not with the companion out, not in dungeons or battlegrounds |
 | `npc_ef_journey_heel` | `CreatureScript` | follows its hunter at his speed, never fights; hidden while he fights, has his companion out or is in a dungeon; gone with him; `emberfall_journeys_hunter_player` brings it along to another map |
 | `spell_ef_journey_call` | `SpellScript` (Call from the Stable, its whistle) | the next stabled beast swaps with the companion (the stable keeper's swap, no keeper); with no companion out it walks at heel; not in dungeons |
 | `spell_ef_journey_stable` | `SpellScript` (Stable at Hand, its book) | refused in dungeons; the spell's open-stable aura does the rest (the core) |
