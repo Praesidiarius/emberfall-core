@@ -45,8 +45,11 @@
 //                                 _mana_back (value % of base mana), _potion_on_crit (a crit: value potions restored),
 //                                 _crit_hit_cut (a crit: minus value ms off trigger's cooldown, at the hit, so a bolt in
 //                                 flight counts; never below 0: Accelerated Infusion),
-//                                 _chain_hits (a buff's rule: trigger at up to value other enemies within misc B yards of
-//                                 the target, the buff spent: Chain Reaction); an ally healed: _twin_heal (trigger from the
+//                                 _field_hits (a buff's rule: trigger at every other enemy standing in the caster's ground
+//                                 effect that the buff's effect 2 misc names, its radius as placed, no cap; the buff
+//                                 spent: Chain Reaction since ankarna's update of 2026-11-14, Lingering Reaction's
+//                                 puddle; _chain_hits, up to value enemies near the target, before); an ally healed:
+//                                 _twin_heal (trigger from the
 //                                 target at the most injured other ally within misc B yards of it, the caster included: Twin
 //                                 Infusion); after the cast: _impact_field (trigger at the cast's destination: Lingering
 //                                 Reaction)
@@ -236,6 +239,25 @@ namespace
                 best = unit;
         }
         return best;
+    }
+
+    // The enemies of `caster` standing in its ground effect of spell `field` now (the dynamic object as placed: its own
+    // radius, so a talent's wider area counts), `skip` left out; none while it has none.
+    std::vector<Unit*> EnemiesInField(Unit* caster, uint32 field, Unit const* skip)
+    {
+        std::vector<Unit*> out;
+        DynamicObject* dyn = caster ? caster->GetDynObject(field) : nullptr;
+        if (!dyn || !dyn->IsInWorld() || dyn->GetMap() != caster->GetMap())
+            return out;
+        float const radius = dyn->GetRadius();
+        std::list<Unit*> near;
+        Acore::AnyUnfriendlyUnitInObjectRangeCheck check(dyn, caster, radius);
+        Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(dyn, near, check);
+        Cell::VisitObjects(dyn, searcher, radius);
+        for (Unit* unit : near)
+            if (unit != skip && caster->IsValidAttackTarget(unit))
+                out.push_back(unit);
+        return out;
     }
 
     bool HitCrit(Spell* spell, Unit* target)
@@ -476,26 +498,18 @@ class spell_ef_kit_infuse_rules : public SpellScript
                 if (uint32 const trigger = TriggerOf(eff); trigger && eff->GetAmount() < 0)
                     ShortenCooldown(caster, trigger, -eff->GetAmount());
         }
-        // Chain Reaction: a buff's rule, spent by this hit
-        struct Chain { uint32 trigger; int32 count; float yards; uint32 aura; };
+        // Chain Reaction: a buff's rule, spent by this hit: every other enemy in the caster's ground effect now
+        struct Chain { uint32 trigger; uint32 field; uint32 aura; };
         std::vector<Chain> chains;
-        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_chain_hits", id))
+        for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_field_hits", id))
             if (uint32 const trigger = TriggerOf(eff); trigger && !eff->GetBase()->IsPassive())
-                chains.push_back({ trigger, eff->GetAmount(), float(std::max(1, eff->GetMiscValueB())), eff->GetId() });
+                if (AuraEffect const* field = eff->GetBase()->GetEffect(EFFECT_1); field && field->GetMiscValue() > 0)
+                    chains.push_back({ trigger, uint32(field->GetMiscValue()), eff->GetId() });
         for (Chain const& c : chains)
         {
             caster->RemoveAurasDueToSpell(c.aura, caster->GetGUID());
-            std::list<Unit*> near;
-            Acore::AnyUnfriendlyUnitInObjectRangeCheck check(target, caster, c.yards);
-            Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(target, near, check);
-            Cell::VisitObjects(target, searcher, c.yards);
-            std::vector<Unit*> others;
-            for (Unit* unit : near)
-                if (unit != target && unit->IsAlive() && caster->IsValidAttackTarget(unit) && target->IsWithinLOSInMap(unit))
-                    others.push_back(unit);
-            std::sort(others.begin(), others.end(), [target](Unit* a, Unit* b) { return target->GetExactDist(a) < target->GetExactDist(b); });
-            for (int32 i = 0; i < c.count && i < int32(others.size()); ++i)
-                caster->CastSpell(others[i], c.trigger, true);
+            for (Unit* unit : EnemiesInField(caster, c.field, target))
+                caster->CastSpell(unit, c.trigger, true);
         }
     }
 
@@ -747,7 +761,7 @@ void AddEmberfallClassKitInfuseScripts()
     RegisterSpellScript(spell_ef_kit_chain_heal_jump);
     for (char const* name : { "spell_ef_kit_rule_potion_on_crit", "spell_ef_kit_rule_crit_hit_cut",
                               "spell_ef_kit_rule_perfect_formula",
-                              "spell_ef_kit_rule_mana_back", "spell_ef_kit_rule_chain_hits", "spell_ef_kit_rule_impact_field",
+                              "spell_ef_kit_rule_mana_back", "spell_ef_kit_rule_field_hits", "spell_ef_kit_rule_impact_field",
                               "spell_ef_kit_rule_twin_heal", "spell_ef_kit_rule_chain_momentum",
                               "spell_ef_kit_rule_chain_rebound", "spell_ef_kit_rule_field_start", "spell_ef_kit_rule_field_end" })
         RegisterSpellScriptWithArgs(spell_ef_kit_infuse_rule, name);
