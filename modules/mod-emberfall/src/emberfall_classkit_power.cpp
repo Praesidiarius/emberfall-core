@@ -33,7 +33,9 @@
 //                                 misc B enemies struck), spell_ef_kit_rule_build_floor at least its value while the caster
 //                                 carries its trigger's aura (EfClassKit.h Rules); spell_ef_kit_rule_build_pct (the
 //                                 Barbarian's Primal Fury, src/emberfall_classkit_lust.cpp) value percent more, a missile's
-//                                 build too.
+//                                 build too. The build effect's item type column (a dummy has no use for it; the kit's
+//                                 `ooc_max`): out of a fight the build lifts the power to that many points at most and gives
+//                                 nothing once it stands there (feedback #592: Flashpoint, 30 Heat; in a fight unchanged).
 //   spell_ef_kit_power_spender    a spender of the spec power (its Spell.dbc cost; damage, or since the Warlock healing:
 //                                 Bequest and Dole, whose overspend and echo heal and which may target the caster): a dummy on the caster with misc = a
 //                                 talent the caster knows (or = the spell itself: always, the Warlock's Spoil) spends up to
@@ -158,6 +160,9 @@ namespace
 
     // the miss rules (#146): a builder that strikes others builds only for the enemies it struck
     bool NeedsHit(SpellInfo const* info) { return Emberfall::ClassKit::StrikesOthers(info); }
+
+    // The build's ceiling out of a fight in points (the kit's `ooc_max`, carried in the build effect's item type), 0: none.
+    int32 OutOfCombatMax(SpellEffectInfo const& eff) { return int32(eff.ItemType); }
 }
 
 class spell_ef_kit_build_power : public SpellScript
@@ -219,7 +224,7 @@ class spell_ef_kit_build_power : public SpellScript
             return;
         int32 const gain = BuildPct(caster, GetSpellInfo()->Id, eff.CalcValue(caster));
         if (gain > 0)
-            Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id);
+            Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id, OutOfCombatMax(eff));
     }
 
     void Finish()
@@ -236,7 +241,7 @@ class spell_ef_kit_build_power : public SpellScript
                                                                                          _hits, NeedsHit(GetSpellInfo()), first)));
         if (gain <= 0)
             return;
-        if (Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id) > 0 && first)
+        if (Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id, OutOfCombatMax(eff)) > 0 && first)
             caster->CastSpell(caster, eff.TriggerSpell, true);
     }
 

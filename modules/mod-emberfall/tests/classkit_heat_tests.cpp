@@ -115,6 +115,30 @@ int main()
         check(Heat::Lengthen(0, 15000, 4000).leftMs == 0, "Overheat already gone: nothing");
         check(Heat::LastTick(6, 6) && !Heat::LastTick(5, 6), "only the last of six ticks counts");
     }
+    // Flashpoint out of a fight (feedback #592, Nathanael 2026-11-15): Heat to 30 at most (300 stored, ooc_max 30 x 10);
+    // pressed every 10 s while walking (the bar drains 1 a second: 100 stored between presses) it never passes 30
+    {
+        int32_t const ceiling = 30 * 10;
+        int32_t heat = 0, most = 0;
+        for (int press = 0; press < 4; ++press)
+        {
+            heat += Logic::GainBelowCeiling(300, heat, ceiling);
+            most = std::max(most, heat);
+            heat = std::max(0, heat - 100);
+        }
+        check(most == 300, "four presses out of a fight: Heat ends at 30, never above");
+        check(Logic::GainBelowCeiling(300, 0, ceiling) == 300, "from empty: the opener's full 30");
+        check(Logic::GainBelowCeiling(400, 0, ceiling) == 300, "Empowered Flashpoint's 40: still 30 at most");
+        check(Logic::GainBelowCeiling(300, 250, ceiling) == 50, "at 25: up to 30");
+        check(Logic::GainBelowCeiling(300, 300, ceiling) == 0 && Logic::GainBelowCeiling(300, 900, ceiling) == 0,
+              "at 30 or more: no Heat (the charge and the cooldown are the spell's own, unchanged)");
+        // in a fight the module passes no ceiling: 30 each press, up to the bar's maximum
+        int32_t fight = 0;
+        for (int press = 0; press < 4; ++press)
+            fight += Logic::GainBelowCeiling(300, fight, 0);
+        check(fight == 1200, "in a fight: 30 a press, four presses 120");
+        check(Logic::GainBelowCeiling(0, 0, ceiling) == 0 && Logic::GainBelowCeiling(-5, 0, 0) == 0, "nothing to give: nothing");
+    }
     // Final Incineration: the final tick 100 % more, the rest as they were
     {
         check(Logic::RampTick(100, 10, 6, true, 100) == 2 * Logic::RampTick(100, 10, 6, false, 0), "the final tick doubled");
