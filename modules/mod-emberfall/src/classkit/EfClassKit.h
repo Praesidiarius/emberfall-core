@@ -303,6 +303,20 @@ namespace Emberfall::ClassKit
     // The charge aura of a spell with charges (its spell_ef_kit_charges dummy's trigger, the stacking aura whose effect 1
     // misc names the spell), or 0. ShortenCooldown cuts the charge recharging through it (the Spirit Caller's v2.0).
     uint32 ChargeAuraOf(uint32 spell);
+    // Sets the player's spec power to its maximum (nothing while its power is the class's): Flash Ignition as Overheat
+    // starts (spell_ef_kit_power_hold with a spell_ef_kit_rule_fill_power rule naming it).
+    void FillSpecPower(Unit* owner);
+
+    // ---- Shared by several kits since the Pyromancer's DEV handoff (2026-11-15) ----
+    // The spell a cast of `spellId` becomes through a cast override on one of the player's own auras (an aura bound to
+    // spell_ef_kit_cast_override with a dummy misc = `spellId`, trigger = the other: Echo Ready, Focused Shatter's form,
+    // Solar Collapse over Supernova), or 0 (src/emberfall_classkit_oath.cpp).
+    uint32 CastOverride(Player* player, uint32 spellId);
+    // The spend rules naming `spellId` (spell_ef_kit_rule_spend_cut: misc or class mask the spenders, trigger the spell
+    // whose remaining cooldown shortens, value minus the ms a point): `points` of spec power really spent take value ms a
+    // point off each rule's trigger (src/emberfall_classkit_lust.cpp: the Barbarian's Bloodthirsty Berserker, the
+    // Pyromancer's Undying Flame on Phoenix's Fury).
+    void SpendCuts(Unit* caster, uint32 spellId, int32 points);
 
     // ---- A class's own power (Emberfall docs/design/classes/hunter-marksman.md: the Hunter's Focus; EfSpecPower.cpp) ----
     // ef_class_kit_class_power (class, power, max_power, regen_per_second, regen_out_of_combat; optional table): a power
