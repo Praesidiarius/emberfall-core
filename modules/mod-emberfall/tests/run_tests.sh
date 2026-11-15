@@ -32,6 +32,7 @@
 # verbatim copies, the golden vectors) and EfFishLogic.h, the bite roll)
 # and the taming tests (tests/taming_tests.cpp: src/taming/EfTameWire.h and EfEncounterWire.h's BARS/SLOTS/PUT/TAKE, the
 # client's verbatim copies, and EfTameLogic.h: the bars, the arrows, Drowse, the claim, the sleep, the food, the slots)
+# and the companion name tests (tests/petname_tests.cpp: src/petname/EfPetNameLogic.h, a new companion's default name)
 # and the seam guard tests (tests/seam_tests.cpp: src/seam/EfSeamLogic.h, which area is beyond the seam, back or home)
 # and the sun tests (tests/sun_tests.cpp: src/sun/EfSunLogic.h and EfSunTime.h (the client's verbatim copy): the day's
 # sunrise and sunset, the modes, the sun clock, the parts of the day, EFSUN, the daylight event's window)
@@ -106,6 +107,7 @@ encounters ../src/encounters encounter_tests.cpp
 fishing ../src/fishing:../src/encounters fishing_tests.cpp
 taming ../src/taming:../src/encounters taming_tests.cpp
 journeys ../src/journeys journeys_tests.cpp
+petname ../src/petname petname_tests.cpp
 seam ../src/seam seam_tests.cpp
 sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp
 botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp"
