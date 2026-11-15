@@ -15,6 +15,7 @@
 #include "CreatureData.h"
 #include "DBCStores.h"
 #include "EmberfallBots.h"
+#include "EmberfallIdle.h"
 #include "EmoteAction.h"
 #include "Engine.h"
 #include "EventProcessor.h"
@@ -284,6 +285,10 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     }
 
     AllowActivity();
+
+    // EMBERFALL: what a bot does after a fight (the idle trace, Playerbots.Emberfall.IdleTrace; off: nothing)
+    if (EmberfallIdle::Enabled())
+        EmberfallIdle::Tick(bot, nextAICheckDelay, AllowActivity());
 
     // Wake up if combat state changed (unless casting).
     bool isCasting = bot->IsNonMeleeSpellCast(true);
