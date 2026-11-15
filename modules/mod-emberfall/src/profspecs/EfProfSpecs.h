@@ -28,6 +28,7 @@
 
 #include "Define.h"
 #include "ObjectGuid.h"
+#include "SharedDefines.h"
 
 #include <string>
 #include <string_view>
@@ -67,6 +68,9 @@ namespace Emberfall::ProfSpecs
     // The profession trainer's gossip: its own menu plus a "reset" line per tree with points; true when handled.
     bool OnGossipHello(Player* player, Creature* creature);
     bool OnGossipSelect(Player* player, Creature* creature, uint32 sender, uint32 action);
+    // A last-rank recipe without its specialisation (professions.md §28): the core refuses it by its CasterAuraSpell;
+    // this says why in the player's language (at most once every few seconds) and refuses it first.
+    void OnCheckCast(Spell* spell, SpellCastResult& res);
 
     // GM commands (`.efprof ...`).
     void Dump(Player* player, std::vector<std::string>& out);

@@ -24,12 +24,17 @@
  */
 
 #include "EmberfallBots.h"
+#include "Log.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotFactory.h"
 #include "PlayerbotRepository.h"
 #include "Playerbots.h"
 #include "Random.h"
+#include "SpellInfo.h"
+#include "SpellMgr.h"
+#include "Trainer.h"
 
 void PlayerbotFactory::RandomizeEmberfall(bool incremental)
 {
@@ -52,6 +57,32 @@ void PlayerbotFactory::RandomizeEmberfall(bool incremental)
     // the spells of creation stay (no ClearSpells); the skills' own spells and the trainers' up to the level
     bot->LearnDefaultSkills();
     InitAvailableSpells();
+    // a lower level (the bots follow a player, EmberfallFollow.h): the trainers' spells above it go, as no player of
+    // that level has them (the trainer list InitAvailableSpells walked; a spell that teaches others takes those too)
+    if (level < oldLevel)
+    {
+        uint32 removed = 0;
+        for (uint32 trainerId : trainerIdCache[bot->getClass()])
+            if (Trainer::Trainer* trainer = sObjectMgr->GetTrainer(trainerId))
+                for (Trainer::Spell const& spell : trainer->GetSpells())
+                {
+                    if (spell.ReqLevel <= level)
+                        continue;
+                    std::vector<uint32> ids{spell.SpellId};
+                    if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spell.SpellId))
+                        for (SpellEffectInfo const& effect : info->GetEffects())
+                            if (effect.Effect == SPELL_EFFECT_LEARN_SPELL && effect.TriggerSpell)
+                                ids.push_back(effect.TriggerSpell);
+                    for (uint32 id : ids)
+                        if (bot->HasSpell(id))
+                        {
+                            bot->removeSpell(id, SPEC_MASK_ALL, false);
+                            ++removed;
+                        }
+                }
+        LOG_DEBUG("playerbots", "Emberfall bots: {} level {} -> {}: {} trainer spells above the level taken", bot->GetName(),
+                  oldLevel, level, removed);
+    }
 
     // the damage spec, fixed for the bot, and its talents by the talent tree v2 rules (mod-emberfall)
     EmberfallBots::ApplyTalents(bot);

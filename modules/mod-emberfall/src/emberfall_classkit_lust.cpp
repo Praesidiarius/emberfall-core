@@ -511,6 +511,18 @@ class spell_ef_kit_tally_aura : public AuraScript
     }
 };
 
+// Bloodthirsty Berserker, Undying Flame: value ms (negative) a point really spent off the rule's trigger's cooldown
+// (EfClassKit.h SpendCuts; spell_ef_kit_spend_rules for a cost, spell_ef_kit_spend_all for what Falling Sun takes beyond it).
+void Emberfall::ClassKit::SpendCuts(Unit* caster, uint32 spellId, int32 points)
+{
+    if (!caster || points <= 0)
+        return;
+    for (AuraEffect const* rule : Rules(caster, "spell_ef_kit_rule_spend_cut", spellId))
+        if (uint32 const trigger = TriggerOf(rule))
+            if (int32 const cut = LustLogic::SpendCutMs(points, rule->GetAmount()); cut > 0)
+                ShortenCooldown(caster, trigger, cut);
+}
+
 class spell_ef_kit_spend_rules : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_spend_rules);
@@ -521,14 +533,7 @@ class spell_ef_kit_spend_rules : public SpellScript
         if (!caster)
             return;
         int32 const scale = std::max(1, Emberfall::ClassKit::PowerScale(uint8(GetSpellInfo()->PowerType)));
-        int32 const points = GetSpell()->GetPowerCost() / scale;
-        if (points <= 0)
-            return;
-        // Bloodthirsty Berserker: value ms (negative) a point spent off the trigger's cooldown
-        for (AuraEffect const* rule : Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_spend_cut", GetSpellInfo()->Id))
-            if (uint32 const trigger = TriggerOf(rule))
-                if (int32 const cut = LustLogic::SpendCutMs(points, rule->GetAmount()); cut > 0)
-                    Emberfall::ClassKit::ShortenCooldown(caster, trigger, cut);
+        Emberfall::ClassKit::SpendCuts(caster, GetSpellInfo()->Id, GetSpell()->GetPowerCost() / scale);
     }
 
     void Register() override

@@ -13,7 +13,8 @@
 # the Sunwarden's (tests/classkit_sun_tests.cpp: src/classkit/EfClassKitSunLogic.h) and the Barbarian's
 # (tests/classkit_lust_tests.cpp: src/classkit/EfLustLogic.h) and the Spirit Caller's v2.0
 # (tests/classkit_spirit_tests.cpp: src/classkit/EfSpiritLogic.h) and the Infusionist's
-# (tests/classkit_infuse_tests.cpp: src/classkit/EfInfuseLogic.h) and the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates)
+# (tests/classkit_infuse_tests.cpp: src/classkit/EfInfuseLogic.h) and the Pyromancer handoff's (tests/classkit_heat_tests.cpp:
+# src/classkit/EfHeatLogic.h) and the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates)
 # and the quest loot tests (tests/questloot_tests.cpp: src/questloot/EfQuestLootLogic.h, personal quest objects' lockouts)
 # and the test zone tests (tests/testzone_tests.cpp: src/testzone/EfTestZoneLogic.h, `.eftest zone`'s route and plan)
 # and the meter tests (tests/meter_tests.cpp: src/meter/EfMeterLogic.h, the damage meter's fights, attribution, maths, EFM)
@@ -34,7 +35,9 @@
 # client's verbatim copies, and EfTameLogic.h: the bars, the arrows, Drowse, the claim, the sleep, the food, the slots)
 # and the seam guard tests (tests/seam_tests.cpp: src/seam/EfSeamLogic.h, which area is beyond the seam, back or home)
 # and the sun tests (tests/sun_tests.cpp: src/sun/EfSunLogic.h and EfSunTime.h (the client's verbatim copy): the day's
-# sunrise and sunset, the modes, the sun clock, the parts of the day, EFSUN, the daylight event's window).
+# sunrise and sunset, the modes, the sun clock, the parts of the day, EFSUN, the daylight event's window)
+# and the bot follow tests (tests/botfollow_tests.cpp: mod-playerbots' src/Emberfall/EmberfallFollowLogic.h, the bots
+# that follow a player's level: who is followed, the window, the share per side, the spread rest, the exemptions).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -86,6 +89,7 @@ classkitsun ../src/classkit classkit_sun_tests.cpp
 classkitlust ../src/classkit classkit_lust_tests.cpp
 classkitspirit ../src/classkit classkit_spirit_tests.cpp
 classkitinfuse ../src/classkit classkit_infuse_tests.cpp
+classkitheat ../src/classkit classkit_heat_tests.cpp
 gmcommands ../src/gmcommands gmcommand_tests.cpp
 questloot ../src/questloot questloot_tests.cpp
 testzone ../src/testzone testzone_tests.cpp
@@ -103,8 +107,10 @@ questlog ../src/questlog:../../../src/server/game/Entities/Player questlog_tests
 encounters ../src/encounters encounter_tests.cpp
 fishing ../src/fishing:../src/encounters fishing_tests.cpp
 taming ../src/taming:../src/encounters taming_tests.cpp
+journeys ../src/journeys journeys_tests.cpp
 seam ../src/seam seam_tests.cpp
-sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp"
+sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp
+botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp"
 
 if ! printf '%s\n' "$TESTS" | xargs -P "$JOBS" -n 3 sh "$HERE/run_tests.sh" --compile; then
     echo "run_tests.sh: a test program did not compile" >&2

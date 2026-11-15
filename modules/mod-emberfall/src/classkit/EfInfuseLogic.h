@@ -93,17 +93,11 @@ namespace Emberfall::ClassKit::Infuse
         return Paid(cost, p.pf, every) <= p.ready;
     }
 
-    // Whether the next potion is free (Perfect Formula): Restorative Flask stays a flask at 0 ready.
+    // Whether the next potion is free (Perfect Formula). (Depleted, the swap of Restorative Flask's button to Arcane
+    // Restoration while the flask could not be paid, went with the flask: Emberfall's Infusionist update of 2026-11-14.)
     inline bool NextFree(Potions const& p, std::uint32_t every)
     {
         return every >= 2 && p.pf + 1 >= every;
-    }
-
-    // Whether Restorative Flask's button is Arcane Restoration: the flask's `cost` potions cannot be paid now (with a
-    // 1-potion flask: none ready and the next not free; Emberfall feedback #529 made it 2).
-    inline bool Depleted(Potions const& p, std::uint32_t every, std::uint32_t cost = 1)
-    {
-        return !CanPay(p, cost ? cost : 1, every);
     }
 
     // Starts as many queued vials as the free recharge slots allow (`limit` at once) at `rateMs`.

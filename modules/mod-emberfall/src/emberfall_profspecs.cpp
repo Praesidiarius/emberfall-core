@@ -19,6 +19,7 @@
 // src/profspecs/EfProfSpecs.h. Inert unless the ef_prof_* world tables have rows (Emberfall.ProfSpecs.Enable, default 1).
 
 #include "AllCreatureScript.h"
+#include "AllSpellScript.h"
 #include "Chat.h"
 #include "ChatCommand.h"
 #include "CommandScript.h"
@@ -102,6 +103,7 @@ namespace
         {
             trans->Append("DELETE FROM `ef_character_prof_rank` WHERE `guid` = {}", guid);
             trans->Append("DELETE FROM `ef_character_prof_granted` WHERE `guid` = {}", guid);
+            trans->Append("DELETE FROM `ef_character_prof_spec` WHERE `guid` = {}", guid);
         }
     };
 
@@ -140,6 +142,15 @@ namespace
         {
             return Emberfall::ProfSpecs::OnGossipSelect(player, creature, sender, action);
         }
+    };
+
+    // A last-rank recipe without its specialisation (professions.md §28): refused with a line saying why.
+    class emberfall_profspecs_spells : public AllSpellScript
+    {
+    public:
+        emberfall_profspecs_spells() : AllSpellScript("emberfall_profspecs_spells", { ALLSPELLHOOK_ON_SPELL_CHECK_CAST }) { }
+
+        void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override { Emberfall::ProfSpecs::OnCheckCast(spell, res); }
     };
 
     // `.efprof dump|reset [skill]|reload|send BODY`.
@@ -223,5 +234,6 @@ void AddEmberfallProfSpecsScripts()
     new emberfall_profspecs_player();
     new emberfall_profspecs_unit();
     new emberfall_profspecs_trainers();
+    new emberfall_profspecs_spells();
     new emberfall_profspecs_commands();
 }

@@ -24,7 +24,8 @@
 //     at level-up, login, every skill-up and every tame; recipes come with the skill value (the core's
 //     learnSkillRewardedSpells). Gentling (93120, retired) leaves the action bars at login.
 //   - Drowse Shot (spell_ef_drowse_shot): the old Gentling checks (level, tameable, not owned, room in the stable when
-//     a companion is out), someone else's quarry refused; the hit uses the strongest drowse arrow the bags hold that
+//     a companion is out; the Class Journey's gates on elites, rares and rare elites, emberfall_journeys.cpp), someone
+//     else's quarry refused; the hit uses the strongest drowse arrow the bags hold that
 //     the beast's level allows, adds Drowse, renews the beast's leash timer and sends BARS (id 0) to the group.
 //   - Out Cold (99525, spell_ef_out_cold): Drowse full; the beast's combat stops, it lies down, immune, for 60 s.
 //     While it sleeps it lies as dead (UNIT_STAND_STATE_DEAD: the client holds its Death pose, feedback #435) and is
@@ -77,6 +78,8 @@
 #include "UnitScript.h"
 #include "WorldScript.h"
 #include "encounters/EfEncounterMgr.h"
+#include "journeys/EfJourneyLogic.h"
+#include "journeys/EfJourneys.h"
 #include "taming/EfTameLogic.h"
 #include "taming/EfTameWire.h"
 #include <atomic>
@@ -314,6 +317,13 @@ namespace
         if (!target->GetCreatureTemplate()->IsTameable(player->CanTameExoticPets()))
         {
             player->SendTameFailure(PET_TAME_NOT_TAMEABLE);
+            return SPELL_FAILED_DONT_REPORT;
+        }
+        // the Class Journey's gates (Emberfall docs/design/class-journeys/hunter.md §3): elites, rares and rare elites
+        // wait for their step; the refusal names its level (the client's text: kTameFailureJourney + level)
+        if (uint32 const level = Emberfall::Journeys::TameGateLevel(player, target->GetCreatureTemplate()->rank))
+        {
+            player->SendTameFailure(uint8(Emberfall::Journeys::kTameFailureJourney + std::min<uint32>(level, 155)));
             return SPELL_FAILED_DONT_REPORT;
         }
         // a companion out (or waiting) needs a free stall for the tame (§4.3)
@@ -740,6 +750,9 @@ namespace
                 pet->SavePetToDB(PET_SAVE_AS_CURRENT);
                 player->PetSpellInitialize();
                 player->UpdateSkill(kSkillBeastcraft, T::TameSkillPoints(e.s.rank));
+                // the Class Journey's tame credits by rank (an elite's, a rare's, an old beast's)
+                if (CreatureTemplate const* t = sObjectMgr->GetCreatureTemplate(entry))
+                    Emberfall::Journeys::CreditTame(player, t->rank, e.s.level);
             }
             SendResult(player, e, tamed ? W::kTamed : W::kFailed);
             SendBars(beast, e, now, true);
