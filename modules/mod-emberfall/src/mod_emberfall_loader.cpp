@@ -55,6 +55,7 @@ void AddEmberfallSunScripts();
 void AddEmberfallQuestVisibilityScripts();
 void AddEmberfallEscortScripts();
 void AddEmberfallSkillRecipesScripts();
+void AddEmberfallRespawnFloorScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -95,4 +96,5 @@ void Addmod_emberfallScripts()
     AddEmberfallQuestVisibilityScripts();
     AddEmberfallEscortScripts();
     AddEmberfallSkillRecipesScripts();
+    AddEmberfallRespawnFloorScripts();
 }
