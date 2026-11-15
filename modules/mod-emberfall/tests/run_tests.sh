@@ -39,6 +39,7 @@
 # that follow a player's level: who is followed, the window, the share per side, the spread rest, the exemptions).
 # and the bot rest tests (tests/botrest_tests.cpp: mod-playerbots' src/Emberfall/EmberfallRestLogic.h, when a seated
 # bot keeps its seat: while it eats, drinks or is not rested enough, never in a fight).
+# and the escort tests (tests/escort_tests.cpp: src/escorts/EfEscortLogic.h, who sees a walk and its escortee, who sets one off).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -110,6 +111,7 @@ taming ../src/taming:../src/encounters taming_tests.cpp
 journeys ../src/journeys journeys_tests.cpp
 seam ../src/seam seam_tests.cpp
 sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp
+escorts ../src/escorts escort_tests.cpp
 botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp
 botrest ../../mod-playerbots/src/Emberfall botrest_tests.cpp"
 
