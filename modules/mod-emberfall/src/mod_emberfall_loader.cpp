@@ -47,6 +47,8 @@ void AddEmberfallQuestLogScripts();
 void AddEmberfallEncountersScripts();
 void AddEmberfallFishingScripts();
 void AddEmberfallTamingScripts();
+void AddEmberfallJourneysScripts();
+void AddEmberfallJourneysHunterScripts();
 void AddEmberfallSeamScripts();
 void AddEmberfallAccountAchievementsScripts();
 void AddEmberfallSunScripts();
@@ -84,6 +86,8 @@ void Addmod_emberfallScripts()
     AddEmberfallEncountersScripts();
     AddEmberfallFishingScripts();
     AddEmberfallTamingScripts();
+    AddEmberfallJourneysScripts();
+    AddEmberfallJourneysHunterScripts();
     AddEmberfallSeamScripts();
     AddEmberfallAccountAchievementsScripts();
     AddEmberfallSunScripts();

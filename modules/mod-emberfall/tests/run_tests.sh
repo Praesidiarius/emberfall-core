@@ -103,6 +103,7 @@ questlog ../src/questlog:../../../src/server/game/Entities/Player questlog_tests
 encounters ../src/encounters encounter_tests.cpp
 fishing ../src/fishing:../src/encounters fishing_tests.cpp
 taming ../src/taming:../src/encounters taming_tests.cpp
+journeys ../src/journeys journeys_tests.cpp
 seam ../src/seam seam_tests.cpp
 sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp
 botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp"
