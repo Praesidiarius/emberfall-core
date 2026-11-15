@@ -11,8 +11,13 @@
 
 #include "EmberfallStrategy.h"
 
+#include "CellImpl.h"
 #include "Config.h"
 #include "EmberfallBots.h"
+#include "EmberfallRotationLogic.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
+#include "SpellAuras.h"
 #include "EmberfallFights.h"
 #include "Group.h"
 #include "MotionMaster.h"
@@ -26,7 +31,9 @@
 #include "SpellMgr.h"
 #include "Timer.h"
 
+#include <algorithm>
 #include <ctime>
+#include <list>
 
 std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
 {
@@ -174,13 +181,103 @@ namespace
     }
 }
 
-uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** castOn, EmberfallBackoff const* backoff)
+namespace
+{
+    // The bot's and its target's facts for a step's conditions (EmberfallRotationLogic.h), each asked for only when a
+    // condition needs it; the enemies near the target counted once a pick.
+    class BotFacts : public EmberfallRotation::Logic::Facts
+    {
+    public:
+        BotFacts(Player* bot, Unit* target, EmberfallTargetClock* clock) : bot(bot), target(target), clock(clock) {}
+
+        float Power() override
+        {
+            Powers const type = bot->getPowerType();
+            float const scale = (type == POWER_RAGE || type == POWER_RUNIC_POWER) ? 10.0f : 1.0f;
+            return float(bot->GetPower(type)) / scale;
+        }
+        float SelfAuraLeft(uint32_t spell) override { return Left(bot->GetAura(spell)); }
+        float TargetAuraLeft(uint32_t spell) override { return target ? Left(target->GetAura(spell, bot->GetGUID())) : -1.0f; }
+        uint32_t SelfStacks(uint32_t spell) override { return Stacks(bot->GetAura(spell)); }
+        uint32_t TargetStacks(uint32_t spell) override { return target ? Stacks(target->GetAura(spell, bot->GetGUID())) : 0; }
+        float CooldownLeft(uint32_t spell) override
+        {
+            return bot->HasSpell(spell) ? float(bot->GetSpellCooldownDelay(spell)) / 1000.0f : -1.0f;
+        }
+        uint32_t Enemies() override
+        {
+            if (enemies >= 0)
+                return uint32(enemies);
+            enemies = 0;
+            if (target)
+            {
+                std::list<Unit*> units;
+                Acore::AnyUnfriendlyUnitInObjectRangeCheck check(target, bot, 10.0f);
+                Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(target, units, check);
+                Cell::VisitObjects(target, searcher, 10.0f);
+                for (Unit* u : units)
+                    if (u == target || (u->IsAlive() && u->IsInCombat() && !u->IsCritter() && bot->IsHostileTo(u)))
+                        ++enemies;
+                if (std::find(units.begin(), units.end(), target) == units.end())
+                    ++enemies;
+            }
+            return uint32(enemies);
+        }
+        float TimeToLive() override { return clock && target ? clock->TimeToLive(target) : -1.0f; }
+        bool TargetCastsInterruptible() override
+        {
+            if (!target)
+                return false;
+            for (CurrentSpellTypes type : {CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL})
+                if (Spell const* s = target->GetCurrentSpell(type))
+                    if (s->getState() != SPELL_STATE_FINISHED && (s->GetSpellInfo()->InterruptFlags & SPELL_INTERRUPT_FLAG_INTERRUPT) &&
+                        s->GetSpellInfo()->PreventionType != SPELL_PREVENTION_TYPE_NONE)
+                        return true;
+            return false;
+        }
+
+    private:
+        static float Left(Aura const* aura)
+        {
+            if (!aura)
+                return -1.0f;
+            return aura->GetDuration() < 0 ? 3600.0f : float(aura->GetDuration()) / 1000.0f;
+        }
+        static uint32_t Stacks(Aura const* aura)
+        {
+            return aura ? std::max<uint32_t>(aura->GetStackAmount(), aura->GetCharges()) : 0;
+        }
+
+        Player* bot;
+        Unit* target;
+        EmberfallTargetClock* clock;
+        int32 enemies = -1;
+    };
+}
+
+float EmberfallTargetClock::TimeToLive(Unit* target)
+{
+    uint32 const now = getMSTime();
+    if (target->GetGUID() != guid)
+    {
+        guid = target->GetGUID();
+        since = now;
+        health = target->GetHealth();
+    }
+    return EmberfallRotation::Logic::TimeToLive(health, target->GetHealth(), float(getMSTimeDiff(since, now)) / 1000.0f);
+}
+
+uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** castOn, EmberfallBackoff const* backoff,
+                         EmberfallTargetClock* clock)
 {
     uint32 const now = getMSTime();
     Player* bot = botAI->GetBot();
     EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(bot);
     if (!spec)
         return 0;
+    if (clock && target && target->IsAlive())
+        clock->TimeToLive(target);  // starts the clock at the first look at a new target
+    BotFacts facts(bot, target, clock);
     bool const fighting = target && target->IsAlive();
     bool const pull = fighting && !target->IsInCombat();
     for (EmberfallBots::RoutineStep const& step : spec->steps)
@@ -246,6 +343,9 @@ uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** 
             else if (!InReach(bot, target, info))
                 continue;
         }
+        // the step's own conditions (bot rotations, docs §18): its power tier, auras, stacks, cooldowns, enemies, ...
+        if (!step.conds.empty() && !EmberfallRotation::Logic::AllHold(step.conds, facts))
+            continue;
         if (!HasPowerFor(bot, info))
             continue;
         if (!botAI->CanCastSpell(step.spell, on))
@@ -257,12 +357,15 @@ uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** 
     return 0;
 }
 
-bool EmberfallRotationAction::isPossible() { return EmberfallPickStep(botAI, GetTarget(), false, nullptr, &backoff) != 0; }
+bool EmberfallRotationAction::isPossible()
+{
+    return EmberfallPickStep(botAI, GetTarget(), false, nullptr, &backoff, &clock) != 0;
+}
 
 bool EmberfallRotationAction::Execute(Event /*event*/)
 {
     Unit* on = nullptr;
-    uint32 const spell = EmberfallPickStep(botAI, GetTarget(), false, &on, &backoff);
+    uint32 const spell = EmberfallPickStep(botAI, GetTarget(), false, &on, &backoff, &clock);
     if (!spell || !on)
         return false;
     bool const ok = botAI->CastSpell(spell, on);
