@@ -35,6 +35,7 @@
 #include "SpellMgr.h"
 #include "StringFormat.h"
 #include "WorldPacket.h"
+#include "WorldSession.h"
 
 #include <algorithm>
 #include <atomic>
@@ -127,6 +128,8 @@ namespace Emberfall::Talents
             }
 
             bool loaded = false;
+            // the rows are read, the migration and the re-validation wait for the end of the character's load (LoadState)
+            bool settlePending = false;
             uint32 generation = 0;
             uint32 classId = 0;                                    // the player's class (the pre-spec state's)
             uint32 activeSpec = 0;
@@ -547,6 +550,20 @@ namespace Emberfall::Talents
                     "entries) and one talent group kept", player->GetName(), player->GetGUID().GetCounter(), groups, wasActive, talentsBefore);
         }
 
+        // The character is still being loaded (WorldSession::HandlePlayerLoginFromDB until the login hooks).
+        bool IsLoading(Player* player)
+        {
+            return player->GetSession() && player->GetSession()->PlayerLoading();
+        }
+
+        // What follows the rows at a character's first use: the stock talents' migration, the re-validation and the spells.
+        void Settle(Player* player, PlayerState& st, EfTalentModel const& data)
+        {
+            st.settlePending = false;
+            MigrateStock(player, st);
+            Revalidate(player, st, data, false);
+        }
+
         void LoadState(Player* player, PlayerState& st, EfTalentModel const& data)
         {
             uint32 const guid = player->GetGUID().GetCounter();
@@ -608,8 +625,19 @@ namespace Emberfall::Talents
             st.loaded = true;
             st.classId = player->getClass();
             st.generation = s_generation;
-            MigrateStock(player, st);
-            Revalidate(player, st, data, false);
+            // Emberfall docs/design/playerbots-pilot.md §17: the state is first asked for while the character still loads
+            // (Player::LoadFromDB's stat updates ask the spec power for the active spec). A spell learned then is kept
+            // as one the database already has (the core's PLAYERSPELL_UNCHANGED) and never written to character_spell,
+            // and _LoadActions drops every button of a spell not known yet: a granted node a data change added was taught
+            // again at each login, never saved, and its button was gone at each login. So during the load only the rows
+            // are read (the active spec is the stored one); the migration and the re-validation run once the character
+            // is in the world (State, OnLogin), where what they teach is saved.
+            if (IsLoading(player))
+            {
+                st.settlePending = true;
+                return;
+            }
+            Settle(player, st, data);
         }
 
         // The player's state, loaded on first use and re-validated after a data reload. Null when the system is
@@ -622,6 +650,11 @@ namespace Emberfall::Talents
             PlayerState* st = player->CustomData.GetDefault<PlayerState>(kStateKey);
             if (!st->loaded)
                 LoadState(player, *st, *data);
+            else if (st->settlePending)
+            {
+                if (!IsLoading(player))
+                    Settle(player, *st, *data);
+            }
             else if (st->generation != s_generation)
             {
                 st->generation = s_generation;
@@ -1735,6 +1768,11 @@ namespace Emberfall::Talents
             out = "the system is off or the class has no trees";
             return -1;
         }
+        if (st->settlePending)
+        {
+            out = "the character is still loading";
+            return -1;
+        }
         uint32 const level = player->GetLevel();
         if (specId && level >= data->specLevel && st->activeSpec != specId)
         {
@@ -1797,6 +1835,14 @@ namespace Emberfall::Talents
         }
         if (bought)
             ApplyPairs(player, *st, *data, std::move(pairs), true);
+        else
+        {
+            // nothing to buy: the spells still follow the loadout (a granted node the bot lacks for any reason comes
+            // back at the factory's refresh, not only at its next login or level; playerbots-pilot.md §17)
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            Reconcile(player, *st, *data, trans);
+            Commit(trans);
+        }
         out = fmt::format("{}: spec {}, {} node(s) bought", player->GetName(), st->activeSpec, bought);
         return bought;
     }
