@@ -11,6 +11,7 @@
 #include "EmberfallBots.h"
 #include "EmberfallQuests.h"
 #include "EmberfallFights.h"
+#include "EmberfallFollow.h"
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -242,6 +243,8 @@ namespace EmberfallBots
         s_enabled = !s_specs.empty();
         if (s_enabled)
             LoadQuests();
+        if (s_enabled)
+            EmberfallFollow::Load();
         size_t steps = 0;
         for (auto const& [id, s] : s_specs)
             steps += s.steps.size();
