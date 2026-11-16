@@ -24,6 +24,7 @@
  */
 
 #include "EmberfallBots.h"
+#include "EmberfallPower.h"
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "Player.h"
@@ -95,8 +96,12 @@ void PlayerbotFactory::RandomizeEmberfall(bool incremental)
     InitEquipment(incremental, false);
     InitFood();
 
+    // the spec's own power (the Pyromancer's Heat, ...): InitStatsForLevel above put the class's back
+    // (Player::InitDataForForm), and a bot whose level and spec stay as they were gets no level or spec hook to undo it
+    EmberfallPower::Apply(bot);
     bot->SetMoney(urand(level * 200, level * 1000));
     bot->SetFullHealth();
     bot->SetPower(POWER_MANA, bot->GetMaxPower(POWER_MANA));
+    EmberfallPower::Check(bot, "randomize");
     bot->SaveToDB(false, false);
 }

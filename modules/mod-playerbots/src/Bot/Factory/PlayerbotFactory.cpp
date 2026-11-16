@@ -8,6 +8,7 @@
 #include "PlayerbotsDatabase.h"
 #include "AccountMgr.h"
 #include "EmberfallBots.h"
+#include "EmberfallPower.h"
 #include "AiFactory.h"
 #include "AiObjectContext.h"
 #include "ArenaTeam.h"
@@ -1112,6 +1113,7 @@ void PlayerbotFactory::Refresh()
         bot->DurabilityRepairAll(false, 1.0f, false);
         if (bot->isDead())
             bot->ResurrectPlayer(1.0f, false);
+        EmberfallPower::Check(bot, "refresh");
         return;
     }
     InitAttunementQuests();
