@@ -47,6 +47,8 @@ public:
     void FillScript(SmartAIEventList e, WorldObject* obj, AreaTrigger const* at);
 
     void ProcessEventsFor(SMART_EVENT e, Unit* unit = nullptr, uint32 var0 = 0, uint32 var1 = 0, bool bvar = false, SpellInfo const* spell = nullptr, GameObject* gob = nullptr);
+    // Emberfall: a near player of SMART_EVENT_NEAR_PLAYERS(_NEGATION) sees the creature (PATCHES.md)
+    [[nodiscard]] bool NearPlayerSees(Player const* player) const;
     void ProcessEvent(SmartScriptHolder& e, Unit* unit = nullptr, uint32 var0 = 0, uint32 var1 = 0, bool bvar = false, SpellInfo const* spell = nullptr, GameObject* gob = nullptr);
     bool CheckTimer(SmartScriptHolder const& e) const;
     static void RecalcTimer(SmartScriptHolder& e, uint32 min, uint32 max);

@@ -33,6 +33,8 @@
 # and the taming tests (tests/taming_tests.cpp: src/taming/EfTameWire.h and EfEncounterWire.h's BARS/SLOTS/PUT/TAKE, the
 # client's verbatim copies, and EfTameLogic.h: the bars, the arrows, Drowse, the claim, the sleep, the food, the slots)
 # and the seam guard tests (tests/seam_tests.cpp: src/seam/EfSeamLogic.h, which area is beyond the seam, back or home)
+# and the respawn floor tests (tests/respawnfloor_tests.cpp: src/respawnfloor/EfRespawnFloorLogic.h, the enclosed
+# places' floor against the dynamic respawn)
 # and the sun tests (tests/sun_tests.cpp: src/sun/EfSunLogic.h and EfSunTime.h (the client's verbatim copy): the day's
 # sunrise and sunset, the modes, the sun clock, the parts of the day, EFSUN, the daylight event's window)
 # and the bot follow tests (tests/botfollow_tests.cpp: mod-playerbots' src/Emberfall/EmberfallFollowLogic.h, the bots
@@ -42,7 +44,8 @@
 # and the bot rotation tests (tests/botrotation_tests.cpp: mod-playerbots' src/Emberfall/EmberfallRotationLogic.h, a
 # routine step's conditions: power, auras and their time left, stacks, cooldowns, enemies, time to live, casts).
 # and the spec field tests (tests/specfield_tests.cpp: src/talents/EfSpecField.h, the active spec in UNIT_FIELD_BYTES_1
-# for every client in view; the golden value is the client's UnitSpecTests' too).
+# for every client in view; the golden value is the client's VehicleTests' too).
+# and the escort tests (tests/escort_tests.cpp: src/escorts/EfEscortLogic.h, who sees a walk and its escortee, who sets one off).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -113,7 +116,9 @@ fishing ../src/fishing:../src/encounters fishing_tests.cpp
 taming ../src/taming:../src/encounters taming_tests.cpp
 journeys ../src/journeys journeys_tests.cpp
 seam ../src/seam seam_tests.cpp
+respawnfloor ../src/respawnfloor respawnfloor_tests.cpp
 sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp
+escorts ../src/escorts escort_tests.cpp
 botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp
 botrest ../../mod-playerbots/src/Emberfall botrest_tests.cpp
 botrotation ../../mod-playerbots/src/Emberfall botrotation_tests.cpp

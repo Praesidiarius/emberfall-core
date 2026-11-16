@@ -29,9 +29,15 @@
 // the player's next tick (their events), once however many hooks fired, and asks Player::UpdateVisibilityOf for every
 // game object with visibility conditions within the player's sight range (creates the ones that now pass, destroys the
 // ones that no longer do). Objects without conditions are not touched.
+//
+// Creatures too (2026-11-15, feedback #569): a spawn seen only before or after a quest (npcs.yaml `seen`, the same
+// conditions table, SourceGroup 0 with the spawn's GUID) and the creatures of the escort rule (emberfall_escorts.cpp:
+// an escortee's spawn, its walking copy and the copy's ambushers, which also ask for this refresh when a copy comes or
+// goes and when a quest becomes complete).
 
 #include "CellImpl.h"
 #include "ConditionMgr.h"
+#include "Creature.h"
 #include "GameObject.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
@@ -44,6 +50,9 @@
 
 #include <list>
 
+// emberfall_escorts.cpp: the creatures whose visibility the escort rule decides
+bool EmberfallEscortConcerns(Creature const* creature);
+
 namespace
 {
     // The player's pending refresh (one per tick, however many hooks asked).
@@ -51,6 +60,14 @@ namespace
     {
     };
     constexpr char const* kPending = "ef_quest_visibility";
+
+    // Every creature within the range, alive or dead (a fallen escortee's copy too).
+    struct InRange
+    {
+        WorldObject const* from;
+        float range;
+        bool operator()(Creature* creature) const { return from->IsWithinDistInMap(creature, range); }
+    };
 
     void Refresh(Player* player)
     {
@@ -70,8 +87,21 @@ namespace
             player->UpdateVisibilityOf(go);
             ++updated;
         }
-        LOG_DEBUG("scripts", "Emberfall quest visibility: {} - {} conditioned objects of {} in {:.0f} yd updated", player->GetName(),
-                  updated, objects.size(), range);
+        // the creatures: those with visibility conditions (a trail's revealed creature, a spawn's `seen` rows: npcs.yaml)
+        // and those the escort rule decides (emberfall_escorts.cpp: an escortee's spawn, its copy, the copy's ambushers)
+        std::list<Creature*> creatures;
+        InRange inRange{player, range};
+        Acore::CreatureListSearcher<InRange> creatureSearcher(player, creatures, inRange);
+        Cell::VisitObjects(player, creatureSearcher, range);
+        for (Creature* creature : creatures)
+        {
+            if (!EmberfallEscortConcerns(creature) && sConditionMgr->GetConditionsForObjectVisibility(creature).empty())
+                continue;
+            player->UpdateVisibilityOf(creature);
+            ++updated;
+        }
+        LOG_DEBUG("scripts", "Emberfall quest visibility: {} - {} conditioned objects and creatures of {} in {:.0f} yd updated",
+                  player->GetName(), updated, objects.size() + creatures.size(), range);
     }
 
     // Asks for a refresh on the player's next tick (after the hook's change has landed: AddQuest before
@@ -113,6 +143,12 @@ namespace
                 Schedule(unit->ToPlayer());
         }
     };
+}
+
+// For the other scripts whose rules change what a player sees (emberfall_escorts.cpp): refresh on the player's next tick.
+void EmberfallQuestVisibilitySchedule(Player* player)
+{
+    Schedule(player);
 }
 
 void AddEmberfallQuestVisibilityScripts()
