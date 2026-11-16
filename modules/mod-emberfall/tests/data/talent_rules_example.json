@@ -1,5 +1,5 @@
 {
- "schema": 2,
+ "schema": 3,
  "source": "the example trees (tools/py/emberfall_content/talents/vector_trees.py); written by python -m emberfall_content.talents vectors",
  "trees": [
   {
@@ -14,7 +14,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9002,
@@ -25,7 +27,9 @@
      "gate": 0,
      "auto": [],
      "parent": 0,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9003,
@@ -36,7 +40,9 @@
      "gate": 0,
      "auto": [],
      "parent": 1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9004,
@@ -47,7 +53,9 @@
      "gate": 3,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9005,
@@ -58,7 +66,9 @@
      "gate": 3,
      "auto": [],
      "parent": 3,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9006,
@@ -69,7 +79,9 @@
      "gate": 4,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9007,
@@ -80,7 +92,9 @@
      "gate": 4,
      "auto": [],
      "parent": 5,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9008,
@@ -91,7 +105,9 @@
      "gate": 6,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9009,
@@ -102,7 +118,9 @@
      "gate": 6,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     }
    ],
    "groups": []
@@ -121,7 +139,9 @@
       0
      ],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9102,
@@ -132,7 +152,9 @@
      "gate": 0,
      "auto": [],
      "parent": 0,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9103,
@@ -143,7 +165,9 @@
      "gate": 0,
      "auto": [],
      "parent": 1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9104,
@@ -154,7 +178,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9105,
@@ -165,7 +191,9 @@
      "gate": 0,
      "auto": [],
      "parent": 3,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9106,
@@ -176,7 +204,9 @@
      "gate": 6,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9107,
@@ -190,7 +220,9 @@
       4
      ],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     }
    ],
    "groups": []
@@ -214,7 +246,9 @@
       0
      ],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9102,
@@ -225,7 +259,9 @@
      "gate": 0,
      "auto": [],
      "parent": 0,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9103,
@@ -236,7 +272,9 @@
      "gate": 0,
      "auto": [],
      "parent": 1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9104,
@@ -247,7 +285,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9105,
@@ -258,7 +298,9 @@
      "gate": 0,
      "auto": [],
      "parent": 3,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9106,
@@ -269,7 +311,9 @@
      "gate": 6,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 9107,
@@ -283,7 +327,9 @@
       4
      ],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     }
    ],
    "groups": []
@@ -302,7 +348,9 @@
       0
      ],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8302,
@@ -313,7 +361,9 @@
      "gate": 0,
      "auto": [],
      "parent": 0,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8303,
@@ -324,7 +374,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 1
+     "group": 1,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8304,
@@ -335,7 +387,9 @@
      "gate": 0,
      "auto": [],
      "parent": 2,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8305,
@@ -346,7 +400,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 1
+     "group": 1,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8306,
@@ -357,7 +413,9 @@
      "gate": 0,
      "auto": [],
      "parent": 4,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8307,
@@ -368,7 +426,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 2
+     "group": 2,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8308,
@@ -379,7 +439,9 @@
      "gate": 0,
      "auto": [],
      "parent": 6,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8309,
@@ -390,7 +452,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 2
+     "group": 2,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8310,
@@ -401,7 +465,9 @@
      "gate": 0,
      "auto": [],
      "parent": 8,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8311,
@@ -412,7 +478,9 @@
      "gate": 9,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     }
    ],
    "groups": [
@@ -446,7 +514,9 @@
       0
      ],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8302,
@@ -457,7 +527,9 @@
      "gate": 0,
      "auto": [],
      "parent": 0,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8303,
@@ -468,7 +540,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 1
+     "group": 1,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8304,
@@ -479,7 +553,9 @@
      "gate": 0,
      "auto": [],
      "parent": 2,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8305,
@@ -490,7 +566,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 1
+     "group": 1,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8306,
@@ -501,7 +579,9 @@
      "gate": 0,
      "auto": [],
      "parent": 4,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8307,
@@ -512,7 +592,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 2
+     "group": 2,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8308,
@@ -523,7 +605,9 @@
      "gate": 0,
      "auto": [],
      "parent": 6,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8309,
@@ -534,7 +618,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 2
+     "group": 2,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8310,
@@ -545,7 +631,9 @@
      "gate": 0,
      "auto": [],
      "parent": 8,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8311,
@@ -556,7 +644,9 @@
      "gate": 9,
      "auto": [],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     }
    ],
    "groups": [
@@ -590,7 +680,9 @@
       0
      ],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8402,
@@ -601,7 +693,9 @@
      "gate": 0,
      "auto": [],
      "parent": 0,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8403,
@@ -612,7 +706,9 @@
      "gate": 0,
      "auto": [],
      "parent": 1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8404,
@@ -625,7 +721,9 @@
       0
      ],
      "parent": -1,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8405,
@@ -636,7 +734,9 @@
      "gate": 0,
      "auto": [],
      "parent": 3,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8406,
@@ -647,7 +747,9 @@
      "gate": 0,
      "auto": [],
      "parent": 4,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8409,
@@ -658,7 +760,9 @@
      "gate": 0,
      "auto": [],
      "parent": -1,
-     "group": 1
+     "group": 1,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8407,
@@ -669,7 +773,9 @@
      "gate": 0,
      "auto": [],
      "parent": 6,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     },
     {
      "id": 8408,
@@ -680,7 +786,9 @@
      "gate": 0,
      "auto": [],
      "parent": 7,
-     "group": 0
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
     }
    ],
    "groups": [
@@ -691,6 +799,105 @@
      ]
     }
    ]
+  },
+  {
+   "id": 850,
+   "nodes": [
+    {
+     "id": 8501,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [
+      0
+     ],
+     "parent": -1,
+     "group": 0,
+     "reqNode": 9006,
+     "reqOption": 1
+    },
+    {
+     "id": 8502,
+     "kind": 1,
+     "maxRank": 2,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": 0,
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
+    },
+    {
+     "id": 8503,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": 1,
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
+    },
+    {
+     "id": 8504,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": -1,
+     "group": 0,
+     "reqNode": 9004,
+     "reqOption": 0
+    },
+    {
+     "id": 8505,
+     "kind": 2,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": -1,
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
+    },
+    {
+     "id": 8506,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 0,
+     "auto": [],
+     "parent": -1,
+     "group": 0,
+     "reqNode": 8505,
+     "reqOption": 0
+    },
+    {
+     "id": 8507,
+     "kind": 1,
+     "maxRank": 1,
+     "numOptions": 0,
+     "requiredLevel": 0,
+     "gate": 3,
+     "auto": [],
+     "parent": -1,
+     "group": 0,
+     "reqNode": 0,
+     "reqOption": 0
+    }
+   ],
+   "groups": []
   }
  ],
  "cases": [
@@ -1430,6 +1637,139 @@
    "loadout": "000000000.01a000000",
    "code": "BUDGET_S",
    "detail": 0
+  },
+  {
+   "name": "requires: the class choice's option grants the node and opens its row",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "classBudget": 19,
+   "specBudget": 10,
+   "loadout": "11110a000.0210000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "requires: the other option shuts the granted node and its row",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "classBudget": 19,
+   "specBudget": 10,
+   "loadout": "11110b000.0100000",
+   "code": "PATH",
+   "detail": 8502
+  },
+  {
+   "name": "requires: no option chosen shuts it too",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "classBudget": 19,
+   "specBudget": 10,
+   "loadout": "111100000.0100000",
+   "code": "PATH",
+   "detail": 8502
+  },
+  {
+   "name": "requires: a shut granted node's digit is ignored",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "classBudget": 19,
+   "specBudget": 10,
+   "loadout": "11110b000.1000000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "requires: a bought node without the class node it needs",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "classBudget": 19,
+   "specBudget": 10,
+   "loadout": "111000000.0001000",
+   "code": "REQUIRES",
+   "detail": 8504
+  },
+  {
+   "name": "requires: a bought node with the class node at any rank",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "classBudget": 19,
+   "specBudget": 10,
+   "loadout": "111100000.0001000",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "requires: a node of its own tree, not held",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "classBudget": 19,
+   "specBudget": 10,
+   "loadout": "000000000.0000010",
+   "code": "REQUIRES",
+   "detail": 8506
+  },
+  {
+   "name": "requires: a node of its own tree, held",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "classBudget": 19,
+   "specBudget": 10,
+   "loadout": "000000000.0000110",
+   "code": "OK",
+   "detail": 0
+  },
+  {
+   "name": "requires: a shut node's ignored digit pays no gate",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "classBudget": 19,
+   "specBudget": 10,
+   "loadout": "11110b000.1000111",
+   "code": "GATE",
+   "detail": 3
+  }
+ ],
+ "drops": [
+  {
+   "name": "drop: the other option refunds the shut row and the gate its points held",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "loadout": "11110b000.0210101",
+   "expect": "11110b000.0000100"
+  },
+  {
+   "name": "drop: with the option held nothing goes",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "loadout": "11110a000.0210001",
+   "expect": "11110a000.0210001"
+  },
+  {
+   "name": "drop: a node that fails without the requirement stays (the caller's)",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "loadout": "11110b000.0110000",
+   "expect": "11110b000.0010000"
+  },
+  {
+   "name": "drop: a bought node whose class node went",
+   "classTree": 810,
+   "specTree": 850,
+   "level": 30,
+   "loadout": "111000000.0001110",
+   "expect": "111000000.0000110"
   }
  ]
 }

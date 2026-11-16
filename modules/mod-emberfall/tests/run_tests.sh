@@ -21,6 +21,8 @@
 # and the account friend tests (tests/accountfriends_tests.cpp: src/accountfriends/EfAccountFriendsLogic.h, EFF, ADD, limits)
 # and the profession XP tests (tests/professionxp_tests.cpp: src/professions/EfProfessionXp.h, colours and XP)
 # and the one profession tests (tests/oneprofession_tests.cpp: src/professions/EfOneProfession.h, which craft stays, the mail)
+# and the secondary ranks tests (tests/secondaryranks_tests.cpp: src/professions/EfSecondaryRanks.h, the steps' move,
+# the login migration, the talent budget, the login line)
 # and the periodic crit tests (tests/periodiccrit_tests.cpp: the core's src/server/game/Spells/Auras/EmberfallPeriodicCrit.h)
 # and the miss rules tests (tests/missrules_tests.cpp: the core's src/server/game/Spells/EmberfallMissRules.h)
 # and the kit weapon tests (tests/kitweapon_tests.cpp: the core's src/server/game/Spells/EmberfallKitWeapon.h)
@@ -32,6 +34,9 @@
 # verbatim copies, the golden vectors) and EfFishLogic.h, the bite roll)
 # and the taming tests (tests/taming_tests.cpp: src/taming/EfTameWire.h and EfEncounterWire.h's BARS/SLOTS/PUT/TAKE, the
 # client's verbatim copies, and EfTameLogic.h: the bars, the arrows, Drowse, the claim, the sleep, the food, the slots)
+# and the companion size tests (tests/petsize_tests.cpp: src/petsize/EfPetSizeLogic.h, the stages, the size by kind, the
+# scale for a display, the reach and radius limits) and the companion name tests (tests/petname_tests.cpp:
+# src/petname/EfPetNameLogic.h, a new companion's default name)
 # and the seam guard tests (tests/seam_tests.cpp: src/seam/EfSeamLogic.h, which area is beyond the seam, back or home)
 # and the respawn floor tests (tests/respawnfloor_tests.cpp: src/respawnfloor/EfRespawnFloorLogic.h, the enclosed
 # places' floor against the dynamic respawn)
@@ -107,6 +112,7 @@ meter ../src/meter meter_tests.cpp
 accountfriends ../src/accountfriends accountfriends_tests.cpp
 professionxp ../src/professions professionxp_tests.cpp
 oneprofession ../src/professions oneprofession_tests.cpp
+secondaryranks ../src/professions:../src/profspecs secondaryranks_tests.cpp
 periodiccrit ../../../src/server/game/Spells/Auras periodiccrit_tests.cpp
 missrules ../../../src/server/game/Spells missrules_tests.cpp
 kitweapon ../../../src/server/game/Spells kitweapon_tests.cpp
@@ -117,6 +123,8 @@ encounters ../src/encounters encounter_tests.cpp
 fishing ../src/fishing:../src/encounters fishing_tests.cpp
 taming ../src/taming:../src/encounters taming_tests.cpp
 journeys ../src/journeys journeys_tests.cpp
+petsize ../src/petsize petsize_tests.cpp
+petname ../src/petname petname_tests.cpp
 seam ../src/seam seam_tests.cpp
 respawnfloor ../src/respawnfloor respawnfloor_tests.cpp
 sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp

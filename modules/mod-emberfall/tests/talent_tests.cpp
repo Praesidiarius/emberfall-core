@@ -183,6 +183,8 @@ namespace
                     r.autoAt[r.autoCount++] = static_cast<uint32_t>(a.num());
             r.parent = static_cast<int32_t>(n["parent"].num());
             r.group = static_cast<uint8_t>(n["group"].num());
+            r.reqNode = static_cast<uint32_t>(n["reqNode"].num());
+            r.reqOption = static_cast<uint8_t>(n["reqOption"].num());
             tree.nodes.push_back(r);
         }
         tree.groups = groupsOf(t);
@@ -225,6 +227,8 @@ namespace
                 if (n["parent"].num() >= 0)
                     e.parent = ids[static_cast<size_t>(n["parent"].num())];
                 e.group = static_cast<uint32_t>(n["group"].num());
+                e.reqNode = static_cast<uint32_t>(n["reqNode"].num());
+                e.reqOption = static_cast<uint32_t>(n["reqOption"].num());
                 if (e.kind == NodeKind::Choice)
                     for (long long o = 1; o <= n["numOptions"].num(); ++o)
                         e.options.push_back({e.id * 10 + static_cast<uint32_t>(o)});
@@ -357,6 +361,91 @@ namespace
         std::cout << "granted nodes, pre-spec\n";
     }
 
+    // Requirements (Emberfall talents.md §1.3 rule 9, 2026-11-15, feedback #584: Solenne's Mercy only for a paladin who chose
+    // Sunmend) on the vectors' tree 850 over the class tree 810: the granted mercy (8501) needs the class choice 9006 at
+    // option 1 (mend), its row mercy_mod (8502, 2 ranks) -> mercy_end (8503) hangs under it; bulwark (8504) needs the class
+    // tree's barrier (9004); gated (8507) waits for 3 points spent. The vectors' drops through dropUnheld, the grant and the
+    // take-back (Expected), and the login's Refit of a stored loadout that chose kneel holding mercy's row: a clean partial
+    // refund (the row and what its points held go, everything else stays, the strip too), RESET REQUIRES naming mercy.
+    void requireTests(Json const& doc, std::map<long long, RuleTree> const& trees, std::map<long long, Json> const& treeJson)
+    {
+        size_t drops = 0;
+        for (Json const& d : doc["drops"].arr())
+        {
+            ++drops;
+            RuleTree const& ct = trees.at(d["classTree"].num());
+            RuleTree const& st = trees.at(d["specTree"].num());
+            std::string const loadout = d["loadout"].str();
+            size_t const dot = loadout.find('.');
+            auto cls = decodeRanks(ct, loadout.substr(0, dot));
+            auto spec = decodeRanks(st, loadout.substr(dot + 1));
+            check(cls && spec, d["name"].str() + ": decodes");
+            if (!cls || !spec)
+                continue;
+            dropUnheld(ct, *cls, st, *spec, static_cast<uint32_t>(d["level"].num()));
+            std::string const after = encodeRanks(ct, *cls) + "." + encodeRanks(st, *spec);
+            check(after == d["expect"].str(), d["name"].str() + ": expected " + d["expect"].str() + ", got " + after);
+        }
+        check(drops >= 4, "requirement drops in the vectors");
+
+        auto m = model(treeJson.at(810), treeJson.at(850));
+        m->points[0][1] = {99, 99};
+        std::vector<std::string> problems;
+        m->Finish(problems);
+        check(problems.empty(), "require model: " + (problems.empty() ? std::string() : problems[0]));
+        EfSpec const& spec = *m->Spec(91);
+        eft::Pairs const strip = {{9001, {1, 0}}, {9002, {1, 0}}, {9003, {1, 0}}, {9004, {1, 0}}};
+        eft::Pairs mend = strip, kneel = strip;
+        mend[9006] = {1, 1};
+        kneel[9006] = {1, 2};
+        // the grant follows the class choice: mercy's spell with mend, not with kneel (nor before any choice)
+        check(m->Expected(spec, mend, 30).count(85011) && !m->Expected(spec, kneel, 30).count(85011) && !m->Expected(spec, strip, 30).count(85011),
+              "a granted node is taught only while its requirement is held");
+        // a replacing node shut by its requirement replaces nothing: the replaced spell stays
+        for (EfNode& n : m->trees[850].nodes)
+            if (n.id == 8501)
+                n.replaces = 90061; // mend's spell (node 9006 option 1)
+        check(!m->Expected(spec, mend, 30).count(90061) && m->Expected(spec, mend, 30).count(85011),
+              "with mend, mercy takes mend's place");
+        check(m->Replacements(spec, kneel, 30, [](uint32_t) { return false; })[0].by == 0, "with kneel, mercy replaces nothing");
+        // the validator: kneel with mercy's row fails (PATH); the model's Refit keeps everything but the row and the gate
+        // its points held, and names mercy
+        eft::Pairs stored = kneel;
+        stored[8502] = {2, 0};
+        stored[8503] = {1, 0};
+        stored[8505] = {1, 0};
+        stored[8507] = {1, 0};
+        check(m->Validate(spec, m->LoadoutString(spec, stored), 30).code == RuleError::Path, "kneel with mercy's row fails");
+        uint32_t shut = 0;
+        eft::Pairs const refit = m->Refit(spec, stored, 30, &shut);
+        eft::Pairs want = kneel;
+        want[8505] = {1, 0};
+        check(refit == want, "Refit: the row and the gate it held are refunded, the class tree and the rest kept");
+        check(shut == 8501, "Refit names the node whose requirement is not held");
+        check(m->Validate(spec, m->LoadoutString(spec, refit), 30).ok(), "the refit loadout is valid");
+        check(m->PaidIn(m->trees[850], stored) - m->PaidIn(m->trees[850], refit) == 4, "Refit: the row's 3 points and gated's 1 come back");
+        // the same loadout with mend is valid: nothing to refit; Refit of a level failure still keeps the strip (as before)
+        eft::Pairs withMend = stored;
+        withMend[9006] = {1, 1};
+        check(m->Validate(spec, m->LoadoutString(spec, withMend), 30).ok(), "mend with mercy's row is valid");
+        check(!m->DropUnheld(spec, withMend, 30).has_value(), "DropUnheld: nothing while the requirement is held");
+        uint32_t none = 1;
+        eft::Pairs const low = m->Refit(spec, withMend, 3, &none);
+        check(none == 0 && !low.count(9006) && !low.count(8502), "a level loss refits as before (WithKept), no REQUIRES");
+        // the model refuses a requirement of another class's or spec's tree
+        auto bad = model(treeJson.at(810), treeJson.at(850));
+        bad->points[0][1] = {99, 99};
+        for (EfNode& n : bad->trees[850].nodes)
+            if (n.id == 8504)
+                n.reqNode = 4242;
+        problems.clear();
+        bad->Finish(problems);
+        check(!problems.empty(), "a requirement on an unknown node is a structural problem");
+        std::string const json = m->CanonicalJson();
+        check(json.find("\"req_node\":9006,\"req_option\":1") != std::string::npos, "the requirement is hashed");
+        std::cout << "requirements: drops, grant, Refit\n";
+    }
+
     void runVectors(std::string const& path)
     {
         std::ifstream in(path);
@@ -430,6 +519,7 @@ namespace
 
         grantedTests(treeJson);
         pickTests(treeJson);
+        requireTests(doc, trees, treeJson);
         // Remap after a data change: a node removed, a max rank lowered, an option removed.
         auto m = model(treeJson.at(810), treeJson.at(811));
         m->points[0][1] = {99, 99};

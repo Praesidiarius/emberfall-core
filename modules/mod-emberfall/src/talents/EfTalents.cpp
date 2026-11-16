@@ -139,7 +139,8 @@ namespace Emberfall::Talents
             std::vector<Loadout> loadouts;
             std::map<uint32, uint8> granted;                       // spell -> GrantSource
             std::set<uint32> suppressed;                           // spells the core taught that a replacing node took (M6)
-            std::vector<std::pair<uint32, std::string>> resets;    // RESET notices for the next HELLO
+            std::vector<std::pair<uint32, std::string>> resets;    // RESET notices for the next HELLO (spec, reason's fields:
+                                                                   // DATA, LEVEL, GM or REQUIRES;node)
             bool hello = false;                                    // the client said HELLO with our hash
             eft::Reassembly chunks;
             eft::RateLimit requests{kRequestsPerWindow, kRequestWindowMs};
@@ -484,16 +485,21 @@ namespace Emberfall::Talents
                         reason = "DATA";
                     if (!data.Validate(*spec, data.LoadoutString(*spec, l.pairs), level).ok())
                     {
-                        l.pairs = data.Refit(*spec, l.pairs, level); // the strip stays, the class tree's rest is refunded
-                        reason = "DATA";
+                        // only what a requirement no longer held leaves failing is refunded when that is all (RESET
+                        // REQUIRES;node, Emberfall talents.md §3.7, feedback #584); else the strip stays, the class
+                        // tree's rest is refunded
+                        uint32 shut = 0;
+                        l.pairs = data.Refit(*spec, l.pairs, level, &shut);
+                        reason = shut ? "REQUIRES;" + std::to_string(shut) : "DATA";
                     }
                     l.hash = data.dataHash;
                     SaveLoadoutRow(trans, guid, l);
                 }
                 if (!data.Validate(*spec, data.LoadoutString(*spec, l.pairs), level).ok())
                 {
-                    l.pairs = data.Refit(*spec, l.pairs, level);
-                    reason = RevalidateResetReason(st.flags);
+                    uint32 shut = 0;
+                    l.pairs = data.Refit(*spec, l.pairs, level, &shut);
+                    reason = shut ? "REQUIRES;" + std::to_string(shut) : RevalidateResetReason(st.flags);
                     SaveLoadoutRow(trans, guid, l);
                 }
                 if (!reason.empty())
@@ -1374,7 +1380,7 @@ namespace Emberfall::Talents
         }
         std::map<uint32, EfNode> nodes;
         if (QueryResult r = WorldDatabase.Query("SELECT `id`, `tree`, `ord`, `kind`, `max_rank`, `required_level`, `replaces`, `gate`, "
-            "`parent`, `grp` FROM `ef_talent_node`"))
+            "`parent`, `grp`, `req_node`, `req_option` FROM `ef_talent_node`"))
         {
             do
             {
@@ -1393,6 +1399,8 @@ namespace Emberfall::Talents
                 n.gate = f[7].Get<uint8>();
                 n.parent = f[8].Get<uint32>();
                 n.group = f[9].Get<uint8>();
+                n.reqNode = f[10].Get<uint32>();   // a requirement (Emberfall talents.md §1.3 rule 9), 0 = none
+                n.reqOption = f[11].Get<uint8>();
                 nodes[n.id] = n;
             } while (r->NextRow());
         }

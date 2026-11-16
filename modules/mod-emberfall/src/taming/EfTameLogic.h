@@ -84,6 +84,39 @@ namespace Emberfall::Taming
         }
     }
 
+    // A band of ef_tame_points (Emberfall secondary-professions.md §10.7): up to this skill a tame gives these points
+    // (Emberfall's content build stretches 1 / 3 / 5 with each band of the new steps: 1/3/5, 1/4/6, 2/6/10, 2/7/11).
+    struct PointsBand
+    {
+        std::uint32_t upTo = 0, normal = 1, elite = 3, rare = 5;
+    };
+
+    // The points a tame gives a hunter at `skill` (before the tame): the first band (sorted by upTo) that holds the
+    // skill, the last past them all, TameSkillPoints without bands (an older world). None for a beast grey to the hunter
+    // (`beastLevel` at or under `grayLevel`, the level that gives no XP; 0: none is grey): taming what is far below
+    // gives nothing, so the stretched points cannot be farmed on the starting zones' beasts.
+    inline std::uint32_t TamePoints(std::vector<PointsBand> const& bands, Rank r, std::uint32_t skill, std::uint32_t beastLevel,
+                                    std::uint32_t grayLevel)
+    {
+        if (grayLevel && beastLevel <= grayLevel)
+            return 0;
+        if (bands.empty())
+            return TameSkillPoints(r);
+        PointsBand const* b = &bands.back();
+        for (PointsBand const& x : bands)
+            if (skill <= x.upTo)
+            {
+                b = &x;
+                break;
+            }
+        switch (r)
+        {
+            case Rank::Elite: return b->elite;
+            case Rank::Rare: case Rank::RareElite: return b->rare;
+            default: return b->normal;
+        }
+    }
+
     // The bars' maxima, x1000.
     inline std::uint32_t DrowseMax(Rule const& r, std::uint32_t level, Rank rank)
     {
