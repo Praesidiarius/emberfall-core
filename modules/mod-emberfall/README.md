@@ -147,7 +147,7 @@ switch `Emberfall.ProfSpecs.Enable` (default 1, `AC_EMBERFALL_PROFSPECS_ENABLE`)
 | `emberfall_profspecs_world` | `OnAfterConfigLoad`, `OnBeforeWorldInitialized` | the switch; loads and checks the tables (every rank spell in Spell.dbc), `skill_discovery_template`; boot line `>> Emberfall profession specialisations: 9 trees, ...` |
 | `emberfall_profspecs_player` | `OnPlayerLogin` | loads the ranks, drops those that no longer hold, reconciles the rank spells |
 | | `OnPlayerCanUseChat` (whisper) | consumes every `EFP\t` addon whisper; answers the player's own |
-| | `OnPlayerSetSkill` | a profession unlearned loses its ranks (GONE); learned or set: STATE. Not while the character loads (the rank spells set their skills in `LoadFromDB`): the state loads at login, after the login migrations |
+| | `OnPlayerSetSkill` | a profession unlearned loses its ranks (GONE); learned or set: STATE. Not before the state is loaded (the rank spells set their skills in `LoadFromDB`; a login migration moves several skills): the state loads at login, after the login migrations |
 | | `OnPlayerBeforeSendLoot` | yield: a herb or ore node's loot, once per loot generation, `+1` of a node's item on a roll |
 | | `OnPlayerUpdateCraftingSkill` | the steady hand (a second item, the double batch) and the careful reading (one more discovery roll) after a craft |
 | | `OnPlayerUpdate` | Far Sight: every 3 s the tracked nodes within sight + the ranks' yards the client does not have (`NODES`) |
