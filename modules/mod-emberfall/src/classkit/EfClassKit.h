@@ -82,7 +82,9 @@ namespace Emberfall::ClassKit
     void OnLevelChanged(Player* player);
 
     // Mechanics the kits' spell scripts share (src/emberfall_classkit.cpp).
-    // Adds `count` stacks of `stackSpell` (cast by `caster`) to `target`, up to the aura's maximum, refreshing it; then
+    // Adds `count` stacks of `stackSpell` (cast by `caster`) to `target`, up to the aura's maximum (an aura with the marker
+    // script spell_ef_kit_capped_stacks: up to its effect 1 value with the caster's spell mods, Deep Winter's 8 Frost
+    // Stacks instead of 6; never above the maximum), refreshing it; then
     // the caster's threshold passives (a dummy aura effect with misc = stackSpell, misc B = the stacks it needs and a
     // trigger spell: cast on the target with the effect's amount, negated) follow the new count. Returns the stacks.
     uint32 AddStacks(Unit* caster, Unit* target, uint32 stackSpell, int32 count);
@@ -93,8 +95,8 @@ namespace Emberfall::ClassKit
     // stacks shown follow the pool (EfClassKitLogic.h ShellStacks: every started stack counts).
     //   AddShellStacks adds `stacks` stacks' worth to the pool (a worn stack is topped up), at most the cap; the duration
     //   becomes the longest of the remaining and `durationMs` (all stacks share it). The caster's conditional passives
-    //   follow at once.
-    void AddShellStacks(Unit* caster, uint32 shellSpell, int32 stacks, int32 durationMs);
+    //   follow at once. Returns what the gain made beyond the cap (EfFrostLogic.h ShellOverflow: Shattering Overflow).
+    int64 AddShellStacks(Unit* caster, uint32 shellSpell, int32 stacks, int32 durationMs);
     // The shell is absorbing `absorbed` of a blow: its stacks follow what will be left of the pool (spell_ef_kit_shell,
     // after the absorb, before the engine reduces the amount).
     void FollowShell(Aura* shell, int32 absorbed);
