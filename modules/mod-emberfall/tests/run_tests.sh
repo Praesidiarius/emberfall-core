@@ -43,6 +43,8 @@
 # bot keeps its seat: while it eats, drinks or is not rested enough, never in a fight).
 # and the bot rotation tests (tests/botrotation_tests.cpp: mod-playerbots' src/Emberfall/EmberfallRotationLogic.h, a
 # routine step's conditions: power, auras and their time left, stacks, cooldowns, enemies, time to live, casts).
+# and the bot quest tests (tests/botquest_tests.cpp: mod-playerbots' src/Emberfall/EmberfallQuestLogic.h, which quests a
+# bot takes: no escort of ef_escort, no timed quest, an event quest only with an area trigger).
 # and the spec field tests (tests/specfield_tests.cpp: src/talents/EfSpecField.h, the active spec in UNIT_FIELD_BYTES_1
 # for every client in view; the golden value is the client's VehicleTests' too).
 # and the escort tests (tests/escort_tests.cpp: src/escorts/EfEscortLogic.h, who sees a walk and its escortee, who sets one off).
@@ -122,6 +124,7 @@ escorts ../src/escorts escort_tests.cpp
 botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp
 botrest ../../mod-playerbots/src/Emberfall botrest_tests.cpp
 botrotation ../../mod-playerbots/src/Emberfall botrotation_tests.cpp
+botquest ../../mod-playerbots/src/Emberfall botquest_tests.cpp
 specfield ../src/talents specfield_tests.cpp"
 
 if ! printf '%s\n' "$TESTS" | xargs -P "$JOBS" -n 3 sh "$HERE/run_tests.sh" --compile; then
