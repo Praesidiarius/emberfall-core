@@ -27,9 +27,38 @@
 //                                     misc (the shell), the attacker gains value stacks of its trigger (EfClassKit.h
 //                                     AddStacks); the chance and the internal cooldown are the spell_proc row's (Living
 //                                     Glacier: 20 %, once a second for every attacker together)
+//
+// The rework of 2026-11-15 (ankarna's implementation notes, mage-frostguard.md §13; the arithmetic: EfFrostLogic.h):
+//
+//   spell_ef_kit_capped_stacks        a marker on a stacking aura (effect 1 a dummy whose value is the cap): EfClassKit.h
+//                                     AddStacks adds at most that many, the caster's spell mods in (Frost Stacks 6, Deep
+//                                     Winter +2), never above the aura's own maximum (StackAmount)
+//   spell_ef_kit_area_share           an area damage spell: effect 2's value enemies take its damage whole, with more
+//                                     each takes damage x sqrt(that / enemies struck) (Shattering Overflow's burst)
+//   spell_ef_kit_orb_seek             a self button: effect 1 (dummy): trigger = the orb (a spell at a destination with a
+//                                     missile speed whose persistent area aura stands where it lands), value = the line's
+//                                     length, misc B = its half width in yards: the orb flies to the first enemy on the line
+//                                     ahead (in sight; none: the line's end, short of a wall) and stays there; effect 2
+//                                     (dummy): with the talent of its misc known, value % for a second orb (only the pressed
+//                                     cast rolls; no cost, no cooldown, no global cooldown of its own) on a line misc B
+//                                     degrees to one side, then the other, at another enemy (none there: straight ahead);
+//                                     for every orb the caster's spell_ef_kit_rule_orb_collapse rules naming the orb cast
+//                                     their trigger where it stands as its time runs out (Frostbound Orb, Twin Orbs,
+//                                     Shattering Collapse)
+//   spell_ef_kit_frost_rules          the caster's Frostguard rules for this ability: spell_ef_kit_rule_first_contact (value %
+//                                     more on an enemy the mage had not hurt before the cast: no threat from the mage on a
+//                                     creature, not in combat with the mage otherwise; First Contact on Glacial Spear)
+//   spell_ef_kit_rule_shell_overflow  the rule spell_ef_kit_shatter reads (src/emberfall_classkit.cpp): value % of the shell a
+//                                     shatter of its misc made beyond the cap, as the trigger's damage at the caster
+//   spell_ef_kit_rule_*               the rules' own aura scripts: markers (nothing happens in them)
 
 #include "EfClassKit.h"
+#include "EfFrostLogic.h"
 
+#include "CellImpl.h"
+#include "Creature.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -41,6 +70,10 @@
 #include "Unit.h"
 
 #include <algorithm>
+#include <cmath>
+#include <list>
+#include <map>
+#include <vector>
 
 // Takes value % of a blow of its schools, only from an attacker the owner has marked.
 class spell_ef_kit_marked_absorb : public AuraScript
@@ -104,8 +137,203 @@ class spell_ef_kit_proc_attacker_stacks : public AuraScript
     }
 };
 
+// A stacking aura capped by its effect 1 value (EfClassKit.h AddStacks reads it): a marker, nothing happens in it.
+class spell_ef_kit_capped_stacks : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_capped_stacks);
+
+    void Register() override { }
+};
+
+// An area burst whose damage each enemy takes in full while few are struck, a share of it when many are.
+class spell_ef_kit_area_share : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_area_share);
+
+    uint32 _struck = 0;
+
+    void Count(std::list<WorldObject*>& targets)
+    {
+        _struck = uint32(targets.size());
+    }
+
+    void Share()
+    {
+        uint32 const full = uint32(std::max(1, GetSpellInfo()->Effects[EFFECT_1].CalcValue(GetCaster())));
+        if (GetHitDamage() > 0)
+            SetHitDamage(Emberfall::ClassKit::FrostLogic::AreaShare(GetHitDamage(), _struck, full));
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ef_kit_area_share::Count, EFFECT_0, TARGET_UNIT_SRC_AREA_ENEMY);
+        OnHit += SpellHitFn(spell_ef_kit_area_share::Share);
+    }
+};
+
+// Frostbound Orb (2026-11-15): the orb flies ahead to the first enemy on its line and stands there; Twin Orbs, Shattering
+// Collapse.
+class spell_ef_kit_orb_seek : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_orb_seek);
+
+    // Where an orb sent `turn` radians off the caster's facing stops: the first enemy on the line (in sight, not `avoid`),
+    // else the line's end short of a wall. False when no enemy is found and `needEnemy` (a twin's side line).
+    bool Seek(Unit* caster, float turn, float length, float half, bool needEnemy, ObjectGuid avoid, Position& dest,
+              ObjectGuid& found)
+    {
+        std::list<Unit*> units;
+        Acore::AnyUnfriendlyUnitInObjectRangeCheck check(caster, caster, length + 5.0f);
+        Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(caster, units, check);
+        Cell::VisitObjects(caster, searcher, length + 5.0f);
+        float const o = caster->GetOrientation() + turn;
+        float const c = std::cos(o), s = std::sin(o);
+        std::vector<Emberfall::ClassKit::FrostLogic::LineCandidate> line;
+        std::vector<Unit*> who;
+        for (Unit* u : units)
+        {
+            if (!u->IsAlive() || u->GetGUID() == avoid || !caster->IsValidAttackTarget(u) || !caster->IsWithinLOSInMap(u))
+                continue;
+            float const dx = u->GetPositionX() - caster->GetPositionX();
+            float const dy = u->GetPositionY() - caster->GetPositionY();
+            line.push_back({ dx * c + dy * s, -dx * s + dy * c, u->GetCombatReach() });
+            who.push_back(u);
+        }
+        int const at = Emberfall::ClassKit::FrostLogic::FirstOnLine(line, half, length);
+        if (at >= 0)
+        {
+            dest.Relocate(who[at]->GetPositionX(), who[at]->GetPositionY(), who[at]->GetPositionZ());
+            found = who[at]->GetGUID();
+            return true;
+        }
+        if (needEnemy)
+            return false;
+        dest = caster->GetFirstCollisionPosition(length, turn);
+        return true;
+    }
+
+    // One orb to `dest`: the orb spell flies there at its own missile speed and stands; the collapse where it stands as its
+    // time runs out.
+    void Send(Unit* caster, uint32 orb, Position const& dest)
+    {
+        caster->CastSpell(dest.GetPositionX(), dest.GetPositionY(), dest.GetPositionZ(), orb, true);
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(orb);
+        if (!info)
+            return;
+        auto const rules = Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_orb_collapse", orb);
+        if (rules.empty())
+            return;
+        int32 duration = info->GetDuration();
+        if (Player* player = caster->ToPlayer())
+            player->ApplySpellMod(orb, SPELLMOD_DURATION, duration);
+        int32 const delay = Emberfall::ClassKit::FrostLogic::FlightMs(caster->GetExactDist(&dest), info->Speed)
+                            + std::max(0, duration);
+        float const x = dest.GetPositionX(), y = dest.GetPositionY(), z = dest.GetPositionZ();
+        for (AuraEffect const* eff : rules)
+            if (uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell)
+                caster->m_Events.AddEventAtOffset([caster, trigger, x, y, z]()
+                {
+                    if (caster->IsInWorld() && caster->IsAlive())
+                        caster->CastSpell(x, y, z, trigger, true);
+                }, Milliseconds(delay));
+    }
+
+    void Launch()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+        SpellEffectInfo const& orbEff = GetSpellInfo()->Effects[EFFECT_0];
+        SpellEffectInfo const& twinEff = GetSpellInfo()->Effects[EFFECT_1];
+        uint32 const orb = orbEff.TriggerSpell;
+        if (!orb)
+            return;
+        float const length = float(std::max(1, orbEff.CalcValue(caster)));
+        float const half = float(std::max(1, orbEff.MiscValueB));
+        Position dest;
+        ObjectGuid first;
+        Seek(caster, 0.0f, length, half, false, ObjectGuid::Empty, dest, first);
+        Send(caster, orb, dest);
+        // Twin Orbs: only this pressed cast rolls; the second orb is the orb spell itself, cast by the script (no cost, no
+        // cooldown, no global cooldown), and never rolls again
+        bool const talent = twinEff.MiscValue && caster->HasAura(uint32(twinEff.MiscValue));
+        if (!Emberfall::ClassKit::FrostLogic::TwinOrb(false, talent, twinEff.CalcValue(caster), int32(urand(0, 99))))
+            return;
+        float const side = float(std::max(1, twinEff.MiscValueB)) * float(M_PI) / 180.0f;
+        Position twin;
+        ObjectGuid ignored;
+        if (!Seek(caster, side, length, half, true, first, twin, ignored)
+            && !Seek(caster, -side, length, half, true, first, twin, ignored))
+            Seek(caster, 0.0f, length, half, false, ObjectGuid::Empty, twin, ignored);
+        Send(caster, orb, twin);
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_ef_kit_orb_seek::Launch);
+    }
+};
+
+// The Frostguard's rules on an ability (First Contact on Glacial Spear).
+class spell_ef_kit_frost_rules : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_frost_rules);
+
+    std::map<ObjectGuid, bool> _fresh;   // the cast's target: not hurt by the mage before this cast
+
+    static bool Fresh(Unit* caster, Unit* target)
+    {
+        if (target->CanHaveThreatList())
+            return target->GetThreatMgr().GetThreat(caster) <= 0.0f;
+        return !target->IsInCombatWith(caster);
+    }
+
+    // before the cast goes (the combat it starts and the threat of its hit come after)
+    void Before()
+    {
+        Unit* caster = GetCaster();
+        if (Unit* target = GetExplTargetUnit(); caster && target && target != caster)
+            _fresh[target->GetGUID()] = Fresh(caster, target);
+    }
+
+    void HandleHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target || target == caster || GetHitDamage() <= 0)
+            return;
+        auto const it = _fresh.find(target->GetGUID());
+        if (it == _fresh.end() || !it->second)
+            return;
+        int32 pct = 0;
+        for (AuraEffect const* eff : Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_first_contact", GetSpellInfo()->Id))
+            pct += eff->GetAmount();
+        SetHitDamage(Emberfall::ClassKit::FrostLogic::FirstContactDamage(GetHitDamage(), true, pct));
+    }
+
+    void Register() override
+    {
+        BeforeCast += SpellCastFn(spell_ef_kit_frost_rules::Before);
+        OnHit += SpellHitFn(spell_ef_kit_frost_rules::HandleHit);
+    }
+};
+
+// A rule's own script: a marker the rules are found by (EfClassKit.h Rules); nothing happens in it.
+class spell_ef_kit_frost_rule : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_frost_rule);
+
+    void Register() override { }
+};
+
 void AddEmberfallClassKitFrostScripts()
 {
     RegisterSpellScript(spell_ef_kit_marked_absorb);
     RegisterSpellScript(spell_ef_kit_proc_attacker_stacks);
+    RegisterSpellScript(spell_ef_kit_capped_stacks);
+    RegisterSpellScript(spell_ef_kit_area_share);
+    RegisterSpellScript(spell_ef_kit_orb_seek);
+    RegisterSpellScript(spell_ef_kit_frost_rules);
+    for (char const* name : { "spell_ef_kit_rule_shell_overflow", "spell_ef_kit_rule_orb_collapse", "spell_ef_kit_rule_first_contact" })
+        RegisterSpellScriptWithArgs(spell_ef_kit_frost_rule, name);
 }
