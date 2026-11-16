@@ -148,6 +148,20 @@ namespace
         check(TameSkillPoints(Rank::Normal) == 1 && TameSkillPoints(Rank::Elite) == 3 && TameSkillPoints(Rank::Rare) == 5 &&
                   TameSkillPoints(Rank::RareElite) == 5,
               "a tame's skill points");
+        // the points by the band of the hunter's skill (ef_tame_points, Emberfall's stretched 1/3/5), none for a grey beast
+        std::vector<PointsBand> const bands = {{75, 1, 3, 5}, {175, 1, 4, 6}, {325, 2, 6, 10}, {500, 2, 7, 11}};
+        check(TamePoints(bands, Rank::Normal, 1, 10, 0) == 1 && TamePoints(bands, Rank::Rare, 75, 10, 0) == 5, "apprentice: 1 / 5");
+        check(TamePoints(bands, Rank::Elite, 76, 20, 0) == 4 && TamePoints(bands, Rank::Rare, 175, 20, 0) == 6, "tradesman: 4 / 6");
+        check(TamePoints(bands, Rank::Normal, 200, 35, 0) == 2 && TamePoints(bands, Rank::Elite, 325, 35, 0) == 6 &&
+                  TamePoints(bands, Rank::RareElite, 250, 35, 0) == 10,
+              "craftsman: 2 / 6 / 10");
+        check(TamePoints(bands, Rank::Normal, 326, 50, 0) == 2 && TamePoints(bands, Rank::Elite, 400, 50, 0) == 7 &&
+                  TamePoints(bands, Rank::Rare, 499, 50, 0) == 11 && TamePoints(bands, Rank::Rare, 500, 50, 0) == 11,
+              "craftmaster: 2 / 7 / 11");
+        check(TamePoints(bands, Rank::Rare, 600, 50, 0) == 11, "past the last band: the last band's");
+        check(TamePoints(bands, Rank::Elite, 400, 40, 40) == 0 && TamePoints(bands, Rank::Elite, 400, 41, 40) == 7,
+              "a grey beast gives nothing");
+        check(TamePoints({}, Rank::Elite, 400, 50, 0) == 3, "no bands (an older world): 1 / 3 / 5");
         check(BandOfLevel(1) == 1 && BandOfLevel(11) == 1 && BandOfLevel(12) == 2 && BandOfLevel(31) == 3 && BandOfLevel(42) == 5 &&
                   BandOfLevel(60) == 5,
               "the bands");

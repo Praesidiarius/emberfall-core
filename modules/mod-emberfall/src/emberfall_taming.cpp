@@ -67,6 +67,7 @@
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Pet.h"
+#include "Formulas.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
@@ -157,6 +158,7 @@ namespace
     T::Rule s_rule;
     T::Tastes s_tastes;
     std::vector<T::Arrow> s_arrows;
+    std::vector<T::PointsBand> s_points;   // ef_tame_points, by up_to (secondary-professions.md §10.7)
     std::unordered_map<uint32, T::Draught> s_draughts;
     std::unordered_map<uint64, Entry> s_states;      // by the beast's raw GUID
     std::unordered_map<uint32, uint32> s_beasts;     // creature entry -> its beast family (ef_tame_beast, §15)
@@ -221,8 +223,15 @@ namespace
                 Field* f = r->Fetch();
                 s_draughts[f[0].Get<uint32>()] = {f[0].Get<uint32>(), f[1].Get<uint32>(), f[2].Get<uint32>()};
             } while (r->NextRow());
-        LOG_INFO("server.loading", ">> Emberfall taming: {} ({} families, {} beasts, {} arrows, {} draughts)", s_enable ? "on" : "off",
-                 s_tastes.Size(), s_beasts.size(), s_arrows.size(), s_draughts.size());
+        s_points.clear();
+        if (QueryResult r = WorldDatabase.Query("SELECT `up_to`, `normal`, `elite`, `rare` FROM `ef_tame_points` ORDER BY `up_to`"))
+            do
+            {
+                Field* f = r->Fetch();
+                s_points.push_back({f[0].Get<uint32>(), f[1].Get<uint32>(), f[2].Get<uint32>(), f[3].Get<uint32>()});
+            } while (r->NextRow());
+        LOG_INFO("server.loading", ">> Emberfall taming: {} ({} families, {} beasts, {} arrows, {} draughts, {} point bands)", s_enable ? "on" : "off",
+                 s_tastes.Size(), s_beasts.size(), s_arrows.size(), s_draughts.size(), s_points.size());
     }
 
     // A beast's family (§15): its ef_tame_beast row; a creature the content build gave none (an older world DB) falls
@@ -762,7 +771,12 @@ namespace
                 pet->SetReactState(REACT_DEFENSIVE);
                 pet->SavePetToDB(PET_SAVE_AS_CURRENT);
                 player->PetSpellInitialize();
-                player->UpdateSkill(kSkillBeastcraft, T::TameSkillPoints(e.s.rank));
+                // the points by the band of the hunter's skill (ef_tame_points), none for a grey beast
+                // (secondary-professions.md §10.7)
+                if (player->HasSkill(kSkillBeastcraft))
+                    if (uint32 const points = T::TamePoints(s_points, e.s.rank, player->GetPureSkillValue(kSkillBeastcraft), e.s.level,
+                                                            Acore::XP::GetGrayLevel(player->GetLevel())))
+                        player->UpdateSkill(kSkillBeastcraft, points);
                 // the Class Journey's tame credits by rank (an elite's, a rare's, an old beast's)
                 if (CreatureTemplate const* t = sObjectMgr->GetCreatureTemplate(entry))
                     Emberfall::Journeys::CreditTame(player, t->rank, e.s.level);
