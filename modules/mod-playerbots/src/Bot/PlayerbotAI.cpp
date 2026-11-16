@@ -15,6 +15,7 @@
 #include "CreatureData.h"
 #include "DBCStores.h"
 #include "EmberfallBots.h"
+#include "EmberfallIdle.h"
 #include "EmoteAction.h"
 #include "Engine.h"
 #include "EventProcessor.h"
@@ -284,6 +285,10 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     }
 
     AllowActivity();
+
+    // EMBERFALL: what a bot does after a fight (the idle trace, Playerbots.Emberfall.IdleTrace; off: nothing)
+    if (EmberfallIdle::Enabled())
+        EmberfallIdle::Tick(bot, nextAICheckDelay, AllowActivity());
 
     // Wake up if combat state changed (unless casting).
     bool isCasting = bot->IsNonMeleeSpellCast(true);
@@ -1668,7 +1673,8 @@ void PlayerbotAI::DoNextAction(bool min)
     }
     else if (bot->m_movementInfo.HasMovementFlag(MOVEMENTFLAG_WALKING))
         bot->m_movementInfo.RemoveMovementFlag(MOVEMENTFLAG_WALKING);
-    else if ((nextAICheckDelay < 1000) && bot->IsSitState())
+    // EMBERFALL (bot idle): not a bot that rests (it eats, drinks or is not rested enough); standing ends the food
+    else if ((nextAICheckDelay < 1000) && bot->IsSitState() && !EmberfallBots::KeepsSeat(bot))
         bot->SetStandState(UNIT_STAND_STATE_STAND);
 
     bool hasMountAura = bot->HasAuraType(SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED) ||

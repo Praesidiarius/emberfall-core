@@ -45,6 +45,7 @@
 #include "DataMap.h"
 #include "DatabaseEnv.h"
 #include "EmberfallVisibility.h"
+#include "../visibility/EfCreatureVisibility.h"
 #include "GameGraveyard.h"
 #include "Log.h"
 #include "Map.h"
@@ -3071,7 +3072,7 @@ namespace Emberfall::Editor
     void OnStartup()
     {
         s_ready = false;
-        Emberfall::Visibility::SetCreatureFilter(nullptr);
+        Emberfall::ModuleVisibility::SetEditor(nullptr);
         if (!s_config.enable)
             return;
         if (s_config.db.empty())
@@ -3104,7 +3105,7 @@ namespace Emberfall::Editor
         if (!s_config.local)
             LoadAccess(0);
         ReplayAll();
-        Emberfall::Visibility::SetCreatureFilter(&HideFromViewer);
+        Emberfall::ModuleVisibility::SetEditor(&HideFromViewer);
         s_ready = true;
         LOG_INFO("server.loading", ">> Emberfall.Editor: on ({} mode, database {}; role: the GM level of realm {}, 1 contributor, 2+ maintainer)",
             s_config.local ? "local" : "realm", s_config.db, realm.Id.Realm);

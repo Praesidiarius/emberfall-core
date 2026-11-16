@@ -4313,6 +4313,15 @@ void SmartScript::GetWorldObjectsInDist(ObjectVector& targets, float dist) const
     Cell::VisitObjects(obj, searcher, dist);
 }
 
+// Emberfall (PATCHES.md "near players are those who see it"): SMART_EVENT_NEAR_PLAYERS(_NEGATION) count a player only if
+// the creature is in their view. An escort's walking copy is seen by its own players alone (mod-emberfall's escorts), so a
+// stranger or a bot near it neither keeps it walking nor sets it off again; for any creature everyone near sees, nothing
+// changes.
+bool SmartScript::NearPlayerSees(Player const* player) const
+{
+    return !me || player->HaveAtClient(me);
+}
+
 void SmartScript::ProcessEvent(SmartScriptHolder& e, Unit* unit, uint32 var0, uint32 var1, bool bvar, SpellInfo const* spell, GameObject* gob)
 {
     if (!e.active && e.GetEventType() != SMART_EVENT_LINK)
@@ -4961,7 +4970,7 @@ void SmartScript::ProcessEvent(SmartScriptHolder& e, Unit* unit, uint32 var0, ui
             if (!targets.empty())
             {
                 for (WorldObject* target : targets)
-                    if (IsPlayer(target) && !target->ToPlayer()->IsGameMaster())
+                    if (IsPlayer(target) && !target->ToPlayer()->IsGameMaster() && NearPlayerSees(target->ToPlayer()))
                         playerCount++;
 
                 if (playerCount >= e.event.nearPlayer.minCount)
@@ -4979,7 +4988,7 @@ void SmartScript::ProcessEvent(SmartScriptHolder& e, Unit* unit, uint32 var0, ui
             if (!targets.empty())
             {
                 for (WorldObject* target : targets)
-                    if (IsPlayer(target) && !target->ToPlayer()->IsGameMaster())
+                    if (IsPlayer(target) && !target->ToPlayer()->IsGameMaster() && NearPlayerSees(target->ToPlayer()))
                         playerCount++;
 
                 if (playerCount < e.event.nearPlayerNegation.maxCount)

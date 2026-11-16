@@ -6,6 +6,7 @@
 
 #include "Engine.h"
 #include "Action.h"
+#include "EmberfallIdle.h"
 #include "Event.h"
 #include "PerfMonitor.h"
 #include "Playerbots.h"
@@ -258,7 +259,11 @@ bool Engine::DoNextAction(Unit* /*unit*/, uint32 /*depth*/, bool minimal)
     }
 
     if (!actionExecuted)
+    {
         LogAction("no actions executed");
+        if (EmberfallIdle::Enabled()) // EMBERFALL: the idle trace (EmberfallIdle.h)
+            EmberfallIdle::NoteAction(botAI->GetBot(), "none");
+    }
 
     queue.RemoveExpired();
 
@@ -623,6 +628,8 @@ bool Engine::ListenAndExecute(Action* action, Event event)
 
     actionExecuted = actionExecutionListeners.OverrideResult(action, actionExecuted, event);
     actionExecutionListeners.After(action, actionExecuted, event);
+    if (actionExecuted && EmberfallIdle::Enabled()) // EMBERFALL: the idle trace (EmberfallIdle.h)
+        EmberfallIdle::NoteAction(botAI->GetBot(), action->getName());
 
     if (actionExecuted && action->GetDuration() > 0)
         botAI->SetActionDuration(action);
