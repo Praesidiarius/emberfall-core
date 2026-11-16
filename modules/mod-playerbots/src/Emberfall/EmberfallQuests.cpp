@@ -26,11 +26,15 @@
 
 #include <ctime>
 #include <list>
+#include <unordered_set>
 #include <vector>
+
+#include "EmberfallQuestLogic.h"
 
 namespace
 {
     std::unordered_map<uint32, std::vector<uint32>> s_questTriggers;  // quest -> its area triggers
+    std::unordered_set<uint32> s_escortQuests;                         // ef_escort's quests
     uint32 s_giveUpMinutes = 45;
     constexpr float kObjectSearch = 80.0f;   // yd: a quest object the bot walks to
     constexpr float kTriggerSearch = 250.0f; // yd: an area trigger the bot walks to
@@ -81,20 +85,32 @@ namespace EmberfallBots
                 ++count;
             } while (r->NextRow());
         }
-        LOG_INFO("server.loading", ">> Emberfall bots: {} quest area triggers of {} quests; a quest held {} min unfinished is dropped",
-                 count, s_questTriggers.size(), s_giveUpMinutes);
+        // the escorts (mod-emberfall's world table ef_escort; an older world has none: the time limit and the event flag
+        // still keep the old escorts out)
+        s_escortQuests.clear();
+        if (QueryResult t = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
+                                                "AND TABLE_NAME = 'ef_escort'");
+            t && t->Fetch()[0].Get<uint64>() > 0)
+            if (QueryResult r = WorldDatabase.Query("SELECT `quest` FROM `ef_escort`"))
+                do
+                    s_escortQuests.insert(r->Fetch()[0].Get<uint32>());
+                while (r->NextRow());
+        LOG_INFO("server.loading", ">> Emberfall bots: {} quest area triggers of {} quests; {} escort quests left alone; a quest held "
+                 "{} min unfinished is dropped", count, s_questTriggers.size(), s_escortQuests.size(), s_giveUpMinutes);
     }
 
     bool QuestDoable(Quest const* quest)
     {
         if (!quest || !Enabled())
             return true;
-        // a timed quest (escorts, races) or an event quest without an area trigger (an escort's end, a script's event)
-        if (quest->GetTimeAllowed())
-            return false;
-        if (quest->HasSpecialFlag(QUEST_SPECIAL_FLAGS_EXPLORATION_OR_EVENT) && !s_questTriggers.count(quest->GetQuestId()))
-            return false;
-        return true;
+        // a timed quest (races), an escort (ef_escort: the taker's private escortee), or an event quest without an area
+        // trigger (a script's event): EmberfallQuestLogic.h
+        EmberfallQuest::Logic::QuestFacts q;
+        q.timed = quest->GetTimeAllowed() != 0;
+        q.event = quest->HasSpecialFlag(QUEST_SPECIAL_FLAGS_EXPLORATION_OR_EVENT);
+        q.hasTrigger = s_questTriggers.count(quest->GetQuestId()) != 0;
+        q.escort = s_escortQuests.count(quest->GetQuestId()) != 0;
+        return EmberfallQuest::Logic::Doable(q);
     }
 }
 

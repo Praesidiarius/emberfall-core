@@ -190,9 +190,16 @@ namespace EmberfallBots
                 s_specs.emplace(s.id, std::move(s));
             } while (r->NextRow());
         }
+        // bot rotations (docs §18): the steps' conditions, a column the older tables lack (then no step has any)
+        bool const hasConds = [] {
+            QueryResult c = PlayerbotsDatabase.Query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+                                                     "AND TABLE_NAME = 'ef_bot_routine' AND COLUMN_NAME = 'conds'");
+            return c && c->Fetch()[0].Get<uint64>() > 0;
+        }();
+        size_t conds = 0;
         if (QueryResult r = PlayerbotsDatabase.Query(
-                "SELECT spec_id, spell_id, kind, near_yd, below_pct, debuff_aura, buff_aura, self_below_pct FROM ef_bot_routine "
-                "ORDER BY spec_id, step"))
+                "SELECT spec_id, spell_id, kind, near_yd, below_pct, debuff_aura, buff_aura, self_below_pct, {} FROM ef_bot_routine "
+                "ORDER BY spec_id, step", hasConds ? "conds" : "''"))
         {
             do
             {
@@ -208,6 +215,8 @@ namespace EmberfallBots
                 step.debuffAura = f[5].Get<uint32>();
                 step.buffAura = f[6].Get<uint32>();
                 step.selfBelowPct = f[7].Get<uint8>();
+                step.conds = EmberfallRotation::Logic::Parse(f[8].Get<std::string>());
+                conds += step.conds.size();
                 if (!sSpellMgr->GetSpellInfo(step.spell))
                 {
                     LOG_ERROR("playerbots", "Emberfall bots: spec {} step spell {} does not exist", it->second.key, step.spell);
@@ -258,8 +267,8 @@ namespace EmberfallBots
         size_t steps = 0;
         for (auto const& [id, s] : s_specs)
             steps += s.steps.size();
-        LOG_INFO("server.loading", ">> Emberfall bots: {} damage specs of {} classes, {} routine steps, {} names{}", s_specs.size(),
-                 s_classSpecs.size(), steps, names, s_enabled ? "" : " (no specs: Emberfall mode stays off)");
+        LOG_INFO("server.loading", ">> Emberfall bots: {} damage specs of {} classes, {} routine steps ({} conditions), {} names{}",
+                 s_specs.size(), s_classSpecs.size(), steps, conds, names, s_enabled ? "" : " (no specs: Emberfall mode stays off)");
     }
 
     bool HasSpecs(uint8 classId) { return s_classSpecs.count(classId) > 0; }

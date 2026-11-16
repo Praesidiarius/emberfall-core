@@ -20,6 +20,7 @@
 #include "EfTalents.h"
 #include "EfLoadouts.h"
 #include "EfClassKit.h"
+#include "EfSpecField.h"
 
 #include "Chat.h"
 #include "Config.h"
@@ -436,6 +437,11 @@ namespace Emberfall::Talents
             }
             if (bars && RewriteReplacedBars(player, st, data))
                 player->SendActionButtons(1);
+            // the active spec for everyone who sees the player (EfSpecField.h): every path that changes the spec or
+            // its spells ends here (the login's re-validation, a spec choice or switch, an apply, a bot's build)
+            uint8 const shown = SpecField::Encode(st.activeSpec);
+            if (player->GetByteValue(UNIT_FIELD_BYTES_1, SpecField::kByte) != shown)
+                player->SetByteValue(UNIT_FIELD_BYTES_1, SpecField::kByte, shown);
         }
 
         // ---- state load and migration (§3.7) -------------------------------------------------------
