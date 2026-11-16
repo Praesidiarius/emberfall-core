@@ -60,6 +60,8 @@ namespace ef::talents
         std::vector<std::vector<uint32_t>> ranks;   // [rank - 1] -> the complete spell set (normal nodes)
         std::vector<std::vector<uint32_t>> options; // [option - 1] -> spells (choice nodes)
         uint32_t group = 0;                         // a pick node's pick group, 1-based in its tree, 0 = none
+        uint32_t reqNode = 0;                       // Emberfall talents.md §1.3 rule 9: the node it needs held, 0 = none
+        uint32_t reqOption = 0;                     // that choice node's option it needs (1-4), 0 = any rank
     };
 
     struct EfTree
@@ -156,17 +158,83 @@ namespace ef::talents
         }
 
         // A node's current spell set in a loadout of a character of `level`: granted nodes by the tree's paid points (none
-        // below their required level), a choice node's option; null when it teaches nothing now.
-        const std::vector<uint32_t>* CurrentSet(const EfTree& tree, size_t i, const eft::Pairs& pairs, uint32_t paid, uint32_t level) const
+        // below their required level, none while shut by their requirement: `rules`, the tree as Seen for the loadout), a
+        // choice node's option; null when it teaches nothing now.
+        const std::vector<uint32_t>* CurrentSet(const EfTree& tree, const RuleTree& rules, size_t i, const eft::Pairs& pairs, uint32_t paid,
+                                                uint32_t level) const
         {
             const EfNode& n = tree.nodes[i];
             const auto it = pairs.find(n.id);
             const eft::Pair p = it == pairs.end() ? eft::Pair{} : it->second;
             if (n.kind == NodeKind::Choice)
                 return p.option >= 1 && p.option <= n.options.size() ? &n.options[p.option - 1] : nullptr;
-            const uint32_t rank = std::min<uint32_t>(effectiveRank(tree.rules.nodes[i], NodeValue{p.rank, p.option}, paid, level),
+            const uint32_t rank = std::min<uint32_t>(effectiveRank(rules.nodes[i], NodeValue{p.rank, p.option}, paid, level),
                                                      static_cast<uint32_t>(n.ranks.size()));
             return rank >= 1 ? &n.ranks[rank - 1] : nullptr;
+        }
+
+        // One tree's values (`ord` order) in stored pairs (nodes of other trees ignored).
+        static std::vector<NodeValue> ValuesOf(const EfTree& tree, const eft::Pairs& pairs)
+        {
+            std::vector<NodeValue> values(tree.nodes.size());
+            for (size_t i = 0; i < tree.nodes.size(); ++i)
+                if (auto it = pairs.find(tree.nodes[i].id); it != pairs.end())
+                    values[i] = NodeValue{it->second.rank, it->second.option};
+            return values;
+        }
+
+        // A tree of the spec's as one loadout sees it (Emberfall talents.md §1.3 rule 9, feedback #584): each node shut
+        // whose requirement the pairs do not hold (the class tree's first), so a granted node that needs Sunmend gives
+        // nothing to a paladin who chose Kneel. TalentRules.h applyRequirements.
+        RuleTree Seen(const EfSpec& spec, const EfTree& tree, const eft::Pairs& pairs, uint32_t level) const
+        {
+            const EfClass* cls = Class(spec.classId);
+            const EfTree* ct = cls ? Tree(cls->classTree) : nullptr;
+            if (!ct)
+                return tree.rules;
+            const std::vector<NodeValue> classValues = ValuesOf(*ct, pairs);
+            RuleTree classSeen = ct->rules;
+            applyRequirements(classSeen, classValues, classSeen, classValues, level);
+            if (&tree == ct)
+                return classSeen;
+            RuleTree out = tree.rules;
+            applyRequirements(out, ValuesOf(tree, pairs), classSeen, classValues, level);
+            return out;
+        }
+
+        // What a requirement no longer held does to a loadout (TalentRules.h dropUnheld: a node shut by its requirement,
+        // the talents of its row, a gate their points held): the pairs with those refunded, or nothing when none is.
+        // `shutNode`: the first node (class tree first, `ord` order) whose requirement the pairs do not hold.
+        std::optional<eft::Pairs> DropUnheld(const EfSpec& spec, const eft::Pairs& pairs, uint32_t level, uint32_t* shutNode = nullptr) const
+        {
+            const EfClass* cls = Class(spec.classId);
+            const EfTree* ct = cls ? Tree(cls->classTree) : nullptr;
+            const EfTree* st = Tree(spec.treeId);
+            if (!ct)
+                return std::nullopt;
+            const RuleTree& specRules = st ? st->rules : emptyTree;
+            std::vector<NodeValue> c = ValuesOf(*ct, pairs), s = st ? ValuesOf(*st, pairs) : std::vector<NodeValue>{};
+            if (!dropUnheld(ct->rules, c, specRules, s, level))
+                return std::nullopt;
+            if (shutNode)
+            {
+                *shutNode = 0;
+                for (const EfTree* t : {ct, st})
+                    if (t && !*shutNode)
+                        for (const RuleNode& n : Seen(spec, *t, pairs, level).nodes)
+                            if (n.shut)
+                            {
+                                *shutNode = n.id;
+                                break;
+                            }
+            }
+            eft::Pairs out;
+            for (const auto& [tree, values] : {std::pair{ct, &c}, std::pair{st, &s}})
+                if (tree)
+                    for (size_t i = 0; i < tree->nodes.size(); ++i)
+                        if (isPaid(tree->rules.nodes[i]) && ((*values)[i].rank != 0 || (*values)[i].option != 0))
+                            out[tree->nodes[i].id] = eft::Pair{(*values)[i].rank, (*values)[i].option};
+            return out;
         }
 
         // (class points, spec points) at a level: the class's own schedule if it has one, else the default;
@@ -333,8 +401,20 @@ namespace ef::talents
         // else the strip alone; else nothing (WithKept with the loadout's own strip). Emberfall 2026-10-29 (Nathanael): the
         // class trees' rows wait for the full strip, and a character that bought rows with the strip unfinished (the level
         // 10 rule of 2026-10-28 let points saved to 11 skip it) gets those row points back and keeps its strip slots.
-        eft::Pairs Refit(const EfSpec& spec, const eft::Pairs& pairs, uint32_t level) const
+        // First (Emberfall 2026-11-15, feedback #584, talents.md §3.7): when what fails is only what a requirement no longer
+        // held leaves failing (an Oathkeeper who chose Kneel holding Solenne's Mercy's row), exactly that is refunded and
+        // everything else kept (DropUnheld; `shutNode` then names the node whose requirement is not held, else 0).
+        eft::Pairs Refit(const EfSpec& spec, const eft::Pairs& pairs, uint32_t level, uint32_t* shutNode = nullptr) const
         {
+            uint32_t shut = 0;
+            if (const auto dropped = DropUnheld(spec, pairs, level, &shut); dropped && Validate(spec, LoadoutString(spec, *dropped), level).ok())
+            {
+                if (shutNode)
+                    *shutNode = shut;
+                return *dropped;
+            }
+            if (shutNode)
+                *shutNode = 0;
             return WithKept(spec, pairs, Kept(pairs), level).value_or(eft::Pairs{});
         }
 
@@ -458,8 +538,9 @@ namespace ef::talents
                 if (!tree)
                     continue;
                 const uint32_t paid = PaidIn(*tree, pairs);
+                const RuleTree seen = Seen(spec, *tree, pairs, level);
                 for (size_t i = 0; i < tree->nodes.size(); ++i)
-                    if (const std::vector<uint32_t>* spells = CurrentSet(*tree, i, pairs, paid, level))
+                    if (const std::vector<uint32_t>* spells = CurrentSet(*tree, seen, i, pairs, paid, level))
                         for (const uint32_t s : *spells)
                             out.emplace(s, GrantSource::Node);
             }
@@ -494,6 +575,7 @@ namespace ef::talents
                 if (!tree)
                     continue;
                 const uint32_t paid = PaidIn(*tree, pairs);
+                const RuleTree seen = Seen(spec, *tree, pairs, level);
                 for (size_t i = 0; i < tree->nodes.size(); ++i)
                 {
                     const EfNode& n = tree->nodes[i];
@@ -503,7 +585,7 @@ namespace ef::talents
                     r.replaced = n.replaces;
                     for (const auto& set : n.kind == NodeKind::Choice ? n.options : n.ranks)
                         r.nodeSpells.insert(r.nodeSpells.end(), set.begin(), set.end());
-                    const std::vector<uint32_t>* now = CurrentSet(*tree, i, pairs, paid, level);
+                    const std::vector<uint32_t>* now = CurrentSet(*tree, seen, i, pairs, paid, level);
                     if (now)
                     {
                         for (const uint32_t s : *now)
@@ -589,6 +671,8 @@ namespace ef::talents
                     for (size_t k = 0; k < r.autoCount; ++k)
                         r.autoAt[k] = n.autoAt[k];
                     r.group = static_cast<uint8_t>(std::min<uint32_t>(n.group, 255));
+                    r.reqNode = n.reqNode;
+                    r.reqOption = static_cast<uint8_t>(std::min<uint32_t>(n.reqOption, 255));
                     const std::string where = "node " + std::to_string(n.id) + ": ";
                     if (n.group && (n.group > tree.groups.size() || !n.autoAt.empty() || n.kind == NodeKind::Choice || n.maxRank != 1))
                         problems.push_back(where + "a pick node needs a group of its tree, one rank and no `auto`");
@@ -676,6 +760,23 @@ namespace ef::talents
             }
             if (!specs.empty() && points.find(0) == points.end())
                 problems.push_back("no default point schedule (ef_talent_points class 0)");
+            // requirements (Emberfall talents.md §1.3 rule 9): a node of its own tree or of its class's class tree, without one
+            // of its own; an option the choice node has
+            for (const auto& [id, tree] : trees)
+                for (const EfNode& n : tree.nodes)
+                {
+                    if (!n.reqNode)
+                        continue;
+                    const std::string where = "node " + std::to_string(n.id) + ": requirement " + std::to_string(n.reqNode);
+                    const EfNode* need = Node(n.reqNode);
+                    const EfClass* cls = Class(tree.classId);
+                    if (!need || n.reqNode == n.id || (need->tree != tree.id && (!cls || need->tree != cls->classTree)))
+                        problems.push_back(where + " is no node of its own tree or of its class tree");
+                    else if (need->reqNode)
+                        problems.push_back(where + " has a requirement of its own");
+                    else if (n.reqOption && (need->kind != NodeKind::Choice || n.reqOption > need->options.size()))
+                        problems.push_back(where + ": no option " + std::to_string(n.reqOption));
+                }
             // Every spec's empty loadout must pass the rules at the cap (TalentRules.h on the loaded data).
             for (const auto& [id, spec] : specs)
             {
@@ -768,6 +869,7 @@ namespace ef::talents
                                                 {"id", num(n->id)}, {"kind", num(static_cast<uint32_t>(n->kind))},
                                                 {"max_rank", num(n->maxRank)}, {"options", list(options)}, {"ord", num(n->ord)},
                                                 {"parent", num(n->parent)}, {"ranks", list(ranks)}, {"replaces", num(n->replaces)},
+                                                {"req_node", num(n->reqNode)}, {"req_option", num(n->reqOption)},
                                                 {"required_level", num(n->requiredLevel)}}));
                     }
                     std::vector<std::string> groups;
