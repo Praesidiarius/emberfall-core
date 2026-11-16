@@ -123,7 +123,19 @@ namespace
     {
         uint32 spell, level, skill;
     };
-    constexpr RankStep kRanks[] = {{kSpellJourneyman, 20, 50}, {kSpellCraftsman, 30, 125}, {kSpellMaster, 40, 200}};
+    // The ranks at the hunter's level and the skill the rank's SkillLineAbility row asks (Emberfall's
+    // professions/beastcraft.yaml: 50 / 150 / 300 since the secondaries moved onto the primaries' steps, 2026-11-16,
+    // feedback #596; `skill` here is the fallback for a world without the rows)
+    constexpr RankStep kRanks[] = {{kSpellJourneyman, 20, 50}, {kSpellCraftsman, 30, 150}, {kSpellMaster, 40, 300}};
+
+    uint32 RankSkill(RankStep const& r)
+    {
+        SkillLineAbilityMapBounds const bounds = sSpellMgr->GetSkillLineAbilityMapBounds(r.spell);
+        for (auto it = bounds.first; it != bounds.second; ++it)
+            if (it->second->SkillLine == kSkillBeastcraft && it->second->MinSkillLineRank)
+                return it->second->MinSkillLineRank;
+        return r.skill;
+    }
 
     struct Entry
     {
@@ -296,7 +308,7 @@ namespace
             return;
         uint32 const skill = player->GetPureSkillValue(kSkillBeastcraft);
         for (RankStep const& r : kRanks)
-            if (player->GetLevel() >= r.level && skill >= r.skill && !player->HasSpell(r.spell) && sSpellMgr->GetSpellInfo(r.spell))
+            if (player->GetLevel() >= r.level && skill >= RankSkill(r) && !player->HasSpell(r.spell) && sSpellMgr->GetSpellInfo(r.spell))
                 player->learnSpell(r.spell);
         player->learnSkillRewardedSpells(kSkillBeastcraft, skill);
     }

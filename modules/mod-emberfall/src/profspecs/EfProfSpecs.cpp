@@ -815,6 +815,12 @@ namespace Emberfall::ProfSpecs
         std::shared_ptr<Model const> const m = s_model;
         if (!m || !m->HasSkill(skill))
             return;
+        // A skill set while the character loads (Player::LoadFromDB: the known rank spells' addSpell sets their skills)
+        // waits for the login: the state loads and re-validates in the world, at OnLogin, after the login migrations
+        // that move skills (the secondary ranks' 141/150 -> 163/175, secondary-professions.md §10); loaded here, it
+        // judged the talents against a skill not yet moved and could wipe them.
+        if (!player->IsInWorld())
+            return;
         PlayerState* st = State(player);
         if (!st)
             return;
