@@ -32,6 +32,15 @@
 //                                                             ef_tame_known; tastes C F L P R), at most
 //                                                             kKnownPerMessage a message (SplitKnown): the compendium's
 //                                                             food lines on any machine
+//   s -> c  GROW    <pet>;<stage>;<stages>;<seconds>;<next>;<flags>
+//                                                             a companion's growth (hunter-taming.md §18): its pet
+//                                                             number (character_pet.id), its stage (0: as tamed) of
+//                                                             <stages>, the seconds it has been out, the seconds out
+//                                                             still to the next stage (0: full grown); flags kGrew (it
+//                                                             just grew: the chat line), kOut (it is out now: the
+//                                                             countdown runs). After the HELLO's OK for every pet the
+//                                                             hunter has, when one comes out, every minute it is out and
+//                                                             when it grows
 
 #ifndef EMBERFALL_TAME_WIRE_H
 #define EMBERFALL_TAME_WIRE_H
@@ -116,6 +125,21 @@ namespace eftame::wire
     };
 
     constexpr std::size_t kKnownPerMessage = 24;   // "99999F," x 24 and the head stay well under 255 bytes
+
+    // GROW flags.
+    constexpr std::uint32_t kGrew = 1;  // it just reached this stage
+    constexpr std::uint32_t kOut = 2;   // it is out with its hunter now
+
+    // GROW: a companion's growth stage.
+    struct Grow
+    {
+        std::uint32_t pet = 0;            // character_pet.id (UNIT_FIELD_PETNUMBER)
+        std::uint32_t stage = 0;          // 0: as tamed
+        std::uint32_t stages = 1;         // how many there are; the last is full grown
+        std::uint32_t seconds = 0;        // out with its hunter so far
+        std::uint32_t next = 0;           // seconds out to the next stage; 0 at the last
+        std::uint32_t flags = 0;          // kGrew, kOut
+    };
 
     inline efenc::Message Msg(std::uint32_t seq, char const* cmd) { return efenc::MakeMessage(seq, efenc::kTaming, cmd); }
 
@@ -285,6 +309,33 @@ namespace eftame::wire
         if (k.items.empty() || k.items.size() > kKnownPerMessage)
             return std::nullopt;
         return k;
+    }
+
+    inline std::string EncodeGrow(std::uint32_t seq, Grow const& g)
+    {
+        if (!g.pet || !g.stages || g.stage >= g.stages)
+            return {};
+        efenc::Message m = Msg(seq, "GROW");
+        m.fields = {std::to_string(g.pet), std::to_string(g.stage), std::to_string(g.stages), std::to_string(g.seconds),
+                    std::to_string(g.next), std::to_string(g.flags)};
+        return efenc::Encode(m);
+    }
+
+    inline std::optional<Grow> DecodeGrow(efenc::Message const& m)
+    {
+        if (m.kind != efenc::kTaming || m.cmd != "GROW" || m.fields.size() != 6)
+            return std::nullopt;
+        std::uint32_t v[6] = {};
+        for (std::size_t i = 0; i < 6; ++i)
+        {
+            auto const x = efenc::ParseUint<std::uint32_t>(m.fields[i]);
+            if (!x)
+                return std::nullopt;
+            v[i] = *x;
+        }
+        if (!v[0] || !v[2] || v[1] >= v[2] || v[5] > (kGrew | kOut))
+            return std::nullopt;
+        return Grow{v[0], v[1], v[2], v[3], v[4], v[5]};
     }
 }
 

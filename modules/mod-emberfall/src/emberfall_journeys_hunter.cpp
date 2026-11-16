@@ -20,8 +20,8 @@
 //
 //   - Beast at Heel (spell_ef_journey_heel): a stabled beast walks beside the hunter as a non-combat follower (a
 //     template per companion kind, npc_ef_journey_heel, wearing the stabled beast's own look: character_pet.modelid).
-//     Not attackable, no spells, passive. It hides while the hunter fights, has his companion out or is in a dungeon or
-//     battleground, and comes back after; a map change brings it along; cast again, it goes back. The next cast takes
+//     Not attackable, no spells, passive; at the stabled beast's own size and growth stage (hunter-taming.md §18). It
+//     hides while the hunter fights, has his companion out or is in a dungeon or battleground, and comes back after; a map change brings it along; cast again, it goes back. The next cast takes
 //     the next stall (EfJourneyLogic.h NextStall).
 //   - Call from the Stable (spell_ef_journey_call, also the step's quest items: call_lesson): 10 s, then the next stabled
 //     beast takes the companion's place (the stable swap of a stable keeper, NPCHandler.cpp HandleStableSwapPet's, with
@@ -45,6 +45,7 @@
 #include "SpellScriptLoader.h"
 #include "TemporarySummon.h"
 #include "journeys/EfJourneyLogic.h"
+#include "petsize/EfPetSize.h"
 
 #include <cmath>
 #include <mutex>
@@ -157,7 +158,10 @@ namespace
             return false;
         summon->SetFaction(player->GetFaction());
         summon->SetLevel(player->GetLevel());
-        if (display)
+        // at its own size and stage, as it stands as the companion (hunter-taming.md §18)
+        if (float scale = 1.0f; display && Emberfall::PetSize::ScaleForPet(t ? t->family : 0, display, petNumber, scale))
+            summon->SetDisplayId(display, scale);
+        else if (display)
             summon->SetDisplayId(display);
         summon->SetReactState(REACT_PASSIVE);
         summon->GetMotionMaster()->MoveFollow(player, kHeelDist, kHeelAngle);
