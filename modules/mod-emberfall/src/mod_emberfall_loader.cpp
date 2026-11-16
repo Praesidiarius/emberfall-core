@@ -19,6 +19,7 @@
 // directory mod-emberfall (Add<directory with _ for ->Scripts()).
 
 void AddEmberfallOwnDataScripts();
+void AddEmberfallSecondaryRanksScripts();
 void AddEmberfallProfSpecsScripts();
 void AddEmberfallTalentsScripts();
 void AddEmberfallClassKitScripts();
@@ -62,6 +63,8 @@ void AddEmberfallRespawnFloorScripts();
 void Addmod_emberfallScripts()
 {
     AddEmberfallOwnDataScripts();
+    // before the profession talents and the taming: their logins read the skills it moves (secondary-professions.md §10)
+    AddEmberfallSecondaryRanksScripts();
     AddEmberfallProfSpecsScripts();
     AddEmberfallTalentsScripts();
     AddEmberfallClassKitScripts();

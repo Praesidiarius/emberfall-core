@@ -815,7 +815,15 @@ namespace Emberfall::ProfSpecs
         std::shared_ptr<Model const> const m = s_model;
         if (!m || !m->HasSkill(skill))
             return;
-        PlayerState* st = State(player);
+        // A skill set before the state is loaded (Player::LoadFromDB: the known rank spells' addSpell sets their
+        // skills; a login migration that moves several skills, the secondary ranks' 141/150 -> 163/175 and 300/300 ->
+        // 500/500, secondary-professions.md §10) waits for the login: the state loads and re-validates at OnLogin, after
+        // those migrations. Loaded here, it judged the talents against skills not yet moved and could wipe them. Once
+        // loaded (every login loads it), a set or unset is handled here as before.
+        PlayerState* st = s_enabled ? player->CustomData.Get<PlayerState>(kStateKey) : nullptr;
+        if (!st || !st->loaded)
+            return;
+        st = State(player);   // a reload after a data reload (the generation)
         if (!st)
             return;
         if (newValue == 0)
