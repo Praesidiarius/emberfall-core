@@ -208,6 +208,10 @@ namespace
         {
             if (enemies >= 0)
                 return uint32(enemies);
+            // the count of the last second for the same target (a grid search each think was a cost of the map thread)
+            if (clock && target)
+                if (int32 const cached = clock->CachedEnemies(target); cached >= 0)
+                    return uint32(enemies = cached);
             enemies = 0;
             if (target)
             {
@@ -220,6 +224,8 @@ namespace
                         ++enemies;
                 if (std::find(units.begin(), units.end(), target) == units.end())
                     ++enemies;
+                if (clock)
+                    clock->CacheEnemies(target, enemies);
             }
             return uint32(enemies);
         }
@@ -253,6 +259,18 @@ namespace
         EmberfallTargetClock* clock;
         int32 enemies = -1;
     };
+}
+
+int32 EmberfallTargetClock::CachedEnemies(Unit* target) const
+{
+    return target->GetGUID() == enemiesGuid && getMSTimeDiff(enemiesAt, getMSTime()) < 1000 ? enemiesCount : -1;
+}
+
+void EmberfallTargetClock::CacheEnemies(Unit* target, int32 count)
+{
+    enemiesGuid = target->GetGUID();
+    enemiesAt = getMSTime();
+    enemiesCount = count;
 }
 
 float EmberfallTargetClock::TimeToLive(Unit* target)

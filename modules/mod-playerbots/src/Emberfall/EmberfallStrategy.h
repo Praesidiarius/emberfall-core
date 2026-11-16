@@ -50,11 +50,17 @@ class EmberfallTargetClock
 {
 public:
     float TimeToLive(Unit* target);  // seconds; < 0: unknown (EmberfallRotationLogic.h)
+    // the `enemies` count near the target, kept a second (-1: none for this target)
+    int32 CachedEnemies(Unit* target) const;
+    void CacheEnemies(Unit* target, int32 count);
 
 private:
     ObjectGuid guid;
     uint32 since = 0;   // ms
     uint32 health = 0;
+    ObjectGuid enemiesGuid;
+    uint32 enemiesAt = 0;  // ms
+    int32 enemiesCount = -1;
 };
 
 // The spec's next ability on the current target (0: none); the buffs and the companion when `prepare`.
