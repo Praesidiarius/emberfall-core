@@ -18,6 +18,7 @@
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
 #include "EfCompanions.h"
+#include "EfFrostLogic.h"
 
 #include "Config.h"
 #include "Creature.h"
@@ -350,8 +351,15 @@ namespace Emberfall::ClassKit
                 return 0;
             --count;
         }
-        if (count > 0)
-            aura->ModStackAmount(count);
+        // a capped stack aura (spell_ef_kit_capped_stacks: the Frostguard's Frost Stacks since 2026-11-15): at most effect
+        // 1's value with the caster's spell mods (Deep Winter 6 -> 8), never above the aura's own maximum
+        uint32 cap = aura->GetSpellInfo()->StackAmount;
+        if (aura->GetScriptByName("spell_ef_kit_capped_stacks"))
+            cap = uint32(Logic::StackCap(aura->GetSpellInfo()->Effects[EFFECT_0].CalcValue(caster), int32(cap)));
+        uint32 const have = aura->GetStackAmount();
+        uint32 const after = FrostLogic::StacksAfterAdd(have, count, std::max<uint32>(1, cap));
+        if (after > have)
+            aura->ModStackAmount(int32(after - have));
         else
             aura->RefreshDuration();
         uint32 const stacks = aura->GetStackAmount();
@@ -374,6 +382,28 @@ namespace Emberfall::ClassKit
             aura->ModStackAmount(-int32(take));
         FollowThresholds(caster, target, stackSpell, have - take);
         return take;
+    }
+
+    namespace
+    {
+        std::mutex s_testChanceLock;
+        std::map<std::string, int32> s_testChances;
+    }
+
+    int32 TestChance(std::string const& key, int32 dataChance)
+    {
+        std::lock_guard<std::mutex> lock(s_testChanceLock);
+        auto const it = s_testChances.find(key);
+        return it == s_testChances.end() ? dataChance : it->second;
+    }
+
+    void SetTestChance(std::string const& key, int32 pct)
+    {
+        std::lock_guard<std::mutex> lock(s_testChanceLock);
+        if (pct < 0)
+            s_testChances.erase(key);
+        else
+            s_testChances[key] = std::min<int32>(pct, 100);
     }
 
     int32 ShellPerStack(Unit* caster, uint32 shellSpell)
@@ -412,11 +442,11 @@ namespace Emberfall::ClassKit
         }
     }
 
-    void AddShellStacks(Unit* caster, uint32 shellSpell, int32 stacks, int32 durationMs)
+    int64 AddShellStacks(Unit* caster, uint32 shellSpell, int32 stacks, int32 durationMs)
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(shellSpell);
         if (!caster || !info || stacks <= 0)
-            return;
+            return 0;
         AddShellSpell(shellSpell);
         int32 const per = ShellPerStack(caster, shellSpell);
         Aura* aura = caster->GetAura(shellSpell, caster->GetGUID());
@@ -426,7 +456,7 @@ namespace Emberfall::ClassKit
             caster->CastSpell(caster, shellSpell, true);
             aura = caster->GetAura(shellSpell, caster->GetGUID());
             if (!aura)
-                return;
+                return 0;
             aura->SetMaxDuration(durationMs);
             aura->SetDuration(durationMs);
         }
@@ -440,8 +470,10 @@ namespace Emberfall::ClassKit
                 aura->SetDuration(durationMs);
             }
         }
+        int64 const overflow = FrostLogic::ShellOverflow(left, per, stacks, ShellMaxStacks(info));
         SetShell(aura, per, Logic::ShellAfterGain(left, per, stacks, ShellMaxStacks(info)));
         RefreshConditionals(caster);
+        return overflow;
     }
 
     void FollowShell(Aura* shell, int32 absorbed)

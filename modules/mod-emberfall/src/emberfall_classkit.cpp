@@ -37,13 +37,17 @@
 //                                    stack; effect 3 (dummy): value = shell stacks per unit, misc B = stacks shattered per
 //                                    unit (summed over every enemy, rounded down), trigger = the stacked shell aura
 //                                    (EfClassKit.h AddShellStacks; its duration: this spell's, with spell mods), misc = at
-//                                    most that many shell stacks a cast (0: no cap; Icebreak 4 since 2026-11-03). Every
-//                                    stack shattered refunds 1 % of max mana and runs the stack-cooldown passives
-//                                    (Icebreak, Glacial Rupture). A single-target shatter (effect 1 at the target, no area:
-//                                    Focused Shatter's Icebreak) needs a target that carries the stacks
+//                                    most that many shell stacks a cast (0: no cap; Icebreak 4 from 2026-11-03 until the
+//                                    rework of 2026-11-15, uncapped since). Every stack shattered refunds 1 % of max mana
+//                                    and runs the stack-cooldown passives (Icebreak, Glacial Rupture). A single-target
+//                                    shatter (effect 1 at the target, no area: Focused Shatter's Icebreak) needs a target
+//                                    that carries the stacks. The shell made beyond the cap feeds the caster's
+//                                    spell_ef_kit_rule_shell_overflow rules naming the spell (Shattering Overflow: value %
+//                                    of it as the trigger's damage, cast at the caster)
 //   spell_ef_kit_shell               the stacked shell aura (effect 1 school absorb; effect 2 dummy: percent of max health
 //                                    per stack; StackAmount: the most stacks): its stacks follow the pool as blows wear it
-//                                    down (EfClassKit.h FollowShell; Frost Shell)
+//                                    down (EfClassKit.h FollowShell; Frost Shell); effect 3 (dummy, optional): the percent
+//                                    of each blow it takes, the rest passes to health (80 since 2026-11-15)
 //   spell_ef_kit_stack_cooldown      a passive: effect 1 (dummy): misc = the stacking aura, value = ms off the cooldown of
 //                                    its trigger spell per stack shattered; effect 2 (dummy): value = at most that many
 //                                    seconds off per cooldown (EfClassKit.h CooldownByStacks; Winter's Embrace on Hoarstorm)
@@ -67,10 +71,12 @@
 //   spell_ef_kit_interrupt_reset     after a successful interrupt, with the talent of effect 3's misc known, the cooldown of
 //                                    effect 3's trigger spell is reset (Unweave + Spellweaver: Flicker)
 //   spell_ef_kit_stack_freeze        an area spell: effect 1 (dummy): misc = the stacking aura, misc B = the stacks needed,
-//                                    trigger = cast at every enemy with that many (not at bosses: the freeze); effect 2
-//                                    (dummy): trigger = cast at every enemy with that many, bosses too (the mark); effect 3
-//                                    (dummy): with the talent of its misc known, enemies below the threshold gain value
-//                                    stacks of its trigger (Stillpoint + Deepening Still). The stacks stay.
+//                                    trigger = cast at every enemy with that many (not at bosses, not at creatures immune to
+//                                    stuns: the freeze); effect 2 (dummy): trigger = cast at every enemy struck, bosses too
+//                                    (the mark; since 2026-11-15 whatever its stacks); effect 3 (dummy): with the talent of
+//                                    its misc known, enemies that had fewer than the threshold gain value stacks of its
+//                                    trigger (Stillpoint + Frost Accumulation). Each enemy's stacks are read once before
+//                                    anything changes (EfFrostLogic.h Stillpoint). The stacks stay.
 //
 // Built for the Paladin's first kit (Emberfall docs/design/classes/paladin-wrathbringer.md: Sunblades, stacks of a self
 // aura; since 2026-10-21 Crown of Blades raises its swords with spell_ef_kit_self_stacks):
@@ -107,9 +113,12 @@
 
 #include "Chat.h"
 #include "ChatCommand.h"
+#include "Creature.h"
 #include "CommandScript.h"
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
+#include "EfFrostLogic.h"
+#include "Log.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerScript.h"
@@ -384,7 +393,17 @@ class spell_ef_kit_shatter : public SpellScript
         int32 duration = GetSpellInfo()->GetDuration();
         if (Player* player = caster->ToPlayer())
             player->ApplySpellMod(GetSpellInfo()->Id, SPELLMOD_DURATION, duration);
-        Emberfall::ClassKit::AddShellStacks(caster, shell.TriggerSpell, gain, duration);
+        int64 const overflow = Emberfall::ClassKit::AddShellStacks(caster, shell.TriggerSpell, gain, duration);
+        // Shattering Overflow (the Frostguard's rework of 2026-11-15): value % of the shell this shatter made beyond the cap
+        // bursts as the rule's trigger round the caster; the shell itself is not touched
+        if (overflow > 0)
+            for (AuraEffect const* eff : Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_shell_overflow", GetSpellInfo()->Id))
+            {
+                uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
+                int32 const damage = Emberfall::ClassKit::FrostLogic::OverflowDamage(overflow, eff->GetAmount());
+                if (trigger && damage > 0)
+                    caster->CastCustomSpell(caster, trigger, &damage, nullptr, nullptr, true);
+            }
     }
 
     void Register() override
@@ -563,6 +582,17 @@ class spell_ef_kit_shell : public AuraScript
         canBeRecalculated = false;
     }
 
+    // the share of a blow the shell takes (effect 3's value in percent, the caster's spell mods in: 80 since 2026-11-15, the
+    // rest passes to health); no effect 3: the whole blow
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        SpellEffectInfo const& share = GetSpellInfo()->Effects[EFFECT_2];
+        if (!share.IsAura(SPELL_AURA_DUMMY))
+            return;
+        int32 const pct = share.CalcValue(GetCaster());
+        absorbAmount = uint32(Emberfall::ClassKit::FrostLogic::ShellTake(dmgInfo.GetDamage(), absorbAmount, pct));
+    }
+
     void AfterAbsorb(AuraEffect* /*aurEff*/, DamageInfo& /*dmgInfo*/, uint32& absorbAmount)
     {
         Emberfall::ClassKit::FollowShell(GetAura(), int32(absorbAmount));
@@ -571,6 +601,7 @@ class spell_ef_kit_shell : public AuraScript
     void Register() override
     {
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_ef_kit_shell::CalcAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_ef_kit_shell::Absorb, EFFECT_0);
         AfterEffectAbsorb += AuraEffectAbsorbFn(spell_ef_kit_shell::AfterAbsorb, EFFECT_0);
     }
 };
@@ -708,17 +739,38 @@ class spell_ef_kit_interrupt_reset : public SpellScript
     }
 };
 
-// The enemies around with enough stacks are frozen (not bosses) and marked (bosses too); with the talent, the others
-// gain stacks. The stacks stay.
+// Stillpoint (the Frostguard's rework of 2026-11-15, the notes' order): every enemy struck is read once, its stacks before
+// anything changes (EfFrostLogic.h Stillpoint); those with enough are frozen (not bosses, not the stun-immune), every one
+// is marked (bosses too), and with the talent those that had too few gain stacks. The stacks stay.
 class spell_ef_kit_stack_freeze : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_stack_freeze);
 
-    bool Enough(Unit* target)
+    std::map<ObjectGuid, Emberfall::ClassKit::FrostLogic::StillPlan> _plans;
+
+    Emberfall::ClassKit::FrostLogic::StillPlan const& Plan(Unit* caster, Unit* target)
     {
-        SpellEffectInfo const& eff = GetSpellInfo()->Effects[EFFECT_0];
-        Aura const* aura = target->GetAura(uint32(eff.MiscValue), GetCaster()->GetGUID());
-        return aura && aura->GetStackAmount() >= uint32(std::max(1, eff.MiscValueB));
+        auto it = _plans.find(target->GetGUID());
+        if (it != _plans.end())
+            return it->second;
+        SpellInfo const* info = GetSpellInfo();
+        SpellEffectInfo const& check = info->Effects[EFFECT_0];
+        SpellEffectInfo const& more = info->Effects[EFFECT_2];
+        Aura const* aura = target->GetAura(uint32(check.MiscValue), caster->GetGUID());
+        uint32 const stacks = aura ? aura->GetStackAmount() : 0;
+        // a freeze is a stun on creatures: a creature immune to stuns is not frozen (its template's immunities; an aura's
+        // immunity to the freeze the engine applies when the freeze is cast)
+        Creature const* creature = target->ToCreature();
+        bool const stunImmune = creature && (creature->HasMechanicTemplateImmunity(1ULL << MECHANIC_STUN)
+                                             || creature->HasMechanicTemplateImmunity(1ULL << MECHANIC_FREEZE));
+        bool const accumulation = more.MiscValue && caster->HasAura(uint32(more.MiscValue));
+        bool const boss = Emberfall::ClassKit::IsBoss(target);
+        auto const plan = Emberfall::ClassKit::FrostLogic::Stillpoint(stacks, uint32(std::max(1, check.MiscValueB)), boss,
+            stunImmune, accumulation, std::max(1, more.CalcValue(caster)));
+        LOG_DEBUG("module.classkit.frost", "Stillpoint of {} on {}: stacks {}, boss {}, stun-immune {}: freeze {}, mark {}, +{} stacks",
+                  caster->GetName(), target->GetGUID().ToString(), stacks, boss ? 1 : 0, stunImmune ? 1 : 0, plan.freeze ? 1 : 0,
+                  plan.mark ? 1 : 0, plan.addStacks);
+        return _plans.emplace(target->GetGUID(), plan).first->second;
     }
 
     void HandleEffect(SpellEffIndex effIndex)
@@ -728,19 +780,20 @@ class spell_ef_kit_stack_freeze : public SpellScript
         SpellEffectInfo const& eff = GetSpellInfo()->Effects[effIndex];
         if (!caster || !target || !eff.TriggerSpell)
             return;
+        auto const plan = Plan(caster, target);
         switch (effIndex)
         {
             case EFFECT_0: // the freeze
-                if (Enough(target) && !Emberfall::ClassKit::IsBoss(target))
+                if (plan.freeze)
                     caster->CastSpell(target, eff.TriggerSpell, true);
                 break;
-            case EFFECT_1: // the mark
-                if (Enough(target))
+            case EFFECT_1: // the mark, every enemy struck
+                if (plan.mark)
                     caster->CastSpell(target, eff.TriggerSpell, true);
                 break;
-            default: // below the threshold, with the talent: stacks
-                if (!Enough(target) && eff.MiscValue && caster->HasAura(uint32(eff.MiscValue)))
-                    Emberfall::ClassKit::AddStacks(caster, target, eff.TriggerSpell, std::max(1, GetEffectValue()));
+            default: // Frost Accumulation: below the threshold, read before
+                if (plan.addStacks > 0)
+                    Emberfall::ClassKit::AddStacks(caster, target, eff.TriggerSpell, plan.addStacks);
                 break;
         }
     }

@@ -435,7 +435,20 @@ namespace Emberfall::Talents
                     static_cast<uint32>(kSourceReplaced));
                 it = st.suppressed.erase(it);
             }
-            if (bars && RewriteReplacedBars(player, st, data))
+            bool barsChanged = bars && RewriteReplacedBars(player, st, data);
+            // a button that still holds a spell taken back here (not replaced by another: the rewrite above ran first)
+            // is emptied, so no button points at an ability the character no longer has until it is bought again
+            // (Emberfall 2026-11-16: the Frostguard's Frostbound Orb, free until then, a pick since; the core itself
+            // would only drop such a button at the next login)
+            if (bars && !removed.empty())
+                for (uint32 button = 0; button < kMaxActionButtons; ++button)
+                    if (ActionButton const* ab = player->GetActionButton(static_cast<uint8>(button)); ab
+                        && ab->GetType() == ACTION_BUTTON_SPELL && removed.count(ab->GetAction()) && !player->HasSpell(ab->GetAction()))
+                    {
+                        player->removeActionButton(static_cast<uint8>(button));
+                        barsChanged = true;
+                    }
+            if (barsChanged)
                 player->SendActionButtons(1);
             // the active spec for everyone who sees the player (EfSpecField.h): every path that changes the spec or
             // its spells ends here (the login's re-validation, a spec choice or switch, an apply, a bot's build)
