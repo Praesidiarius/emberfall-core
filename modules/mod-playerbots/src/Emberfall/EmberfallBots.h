@@ -16,6 +16,7 @@
 #define PLAYERBOTS_EMBERFALLBOTS_H
 
 #include "Define.h"
+#include "EmberfallRotationLogic.h"
 
 #include <set>
 #include <string>
@@ -45,6 +46,8 @@ namespace EmberfallBots
         uint32 debuffAura = 0;   // > 0: only while the target lacks this aura from the bot (damage over time)
         uint32 buffAura = 0;     // > 0: only while the bot lacks this aura (a self buff)
         uint8 selfBelowPct = 0;  // > 0: only with the bot's own health under this percent (a defensive)
+        // bot rotations (docs §18): every condition must hold (EmberfallRotationLogic.h; ef_bot_routine.conds)
+        std::vector<EmberfallRotation::Logic::Cond> conds;
     };
 
     struct Spec

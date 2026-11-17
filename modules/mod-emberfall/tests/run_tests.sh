@@ -14,13 +14,16 @@
 # (tests/classkit_lust_tests.cpp: src/classkit/EfLustLogic.h) and the Spirit Caller's v2.0
 # (tests/classkit_spirit_tests.cpp: src/classkit/EfSpiritLogic.h) and the Infusionist's
 # (tests/classkit_infuse_tests.cpp: src/classkit/EfInfuseLogic.h) and the Pyromancer handoff's (tests/classkit_heat_tests.cpp:
-# src/classkit/EfHeatLogic.h) and the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates)
+# src/classkit/EfHeatLogic.h) and the Frostguard rework's of 2026-11-15 (tests/classkit_frost_tests.cpp:
+# src/classkit/EfFrostLogic.h) and the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates)
 # and the quest loot tests (tests/questloot_tests.cpp: src/questloot/EfQuestLootLogic.h, personal quest objects' lockouts)
 # and the test zone tests (tests/testzone_tests.cpp: src/testzone/EfTestZoneLogic.h, `.eftest zone`'s route and plan)
 # and the meter tests (tests/meter_tests.cpp: src/meter/EfMeterLogic.h, the damage meter's fights, attribution, maths, EFM)
 # and the account friend tests (tests/accountfriends_tests.cpp: src/accountfriends/EfAccountFriendsLogic.h, EFF, ADD, limits)
 # and the profession XP tests (tests/professionxp_tests.cpp: src/professions/EfProfessionXp.h, colours and XP)
 # and the one profession tests (tests/oneprofession_tests.cpp: src/professions/EfOneProfession.h, which craft stays, the mail)
+# and the secondary ranks tests (tests/secondaryranks_tests.cpp: src/professions/EfSecondaryRanks.h, the steps' move,
+# the login migration, the talent budget, the login line)
 # and the periodic crit tests (tests/periodiccrit_tests.cpp: the core's src/server/game/Spells/Auras/EmberfallPeriodicCrit.h)
 # and the miss rules tests (tests/missrules_tests.cpp: the core's src/server/game/Spells/EmberfallMissRules.h)
 # and the kit weapon tests (tests/kitweapon_tests.cpp: the core's src/server/game/Spells/EmberfallKitWeapon.h)
@@ -33,6 +36,9 @@
 # verbatim copies, the golden vectors) and EfFishLogic.h, the bite roll)
 # and the taming tests (tests/taming_tests.cpp: src/taming/EfTameWire.h and EfEncounterWire.h's BARS/SLOTS/PUT/TAKE, the
 # client's verbatim copies, and EfTameLogic.h: the bars, the arrows, Drowse, the claim, the sleep, the food, the slots)
+# and the companion size tests (tests/petsize_tests.cpp: src/petsize/EfPetSizeLogic.h, the stages, the size by kind, the
+# scale for a display, the reach and radius limits) and the companion name tests (tests/petname_tests.cpp:
+# src/petname/EfPetNameLogic.h, a new companion's default name)
 # and the seam guard tests (tests/seam_tests.cpp: src/seam/EfSeamLogic.h, which area is beyond the seam, back or home)
 # and the respawn floor tests (tests/respawnfloor_tests.cpp: src/respawnfloor/EfRespawnFloorLogic.h, the enclosed
 # places' floor against the dynamic respawn)
@@ -42,6 +48,12 @@
 # that follow a player's level: who is followed, the window, the share per side, the spread rest, the exemptions).
 # and the bot rest tests (tests/botrest_tests.cpp: mod-playerbots' src/Emberfall/EmberfallRestLogic.h, when a seated
 # bot keeps its seat: while it eats, drinks or is not rested enough, never in a fight).
+# and the bot rotation tests (tests/botrotation_tests.cpp: mod-playerbots' src/Emberfall/EmberfallRotationLogic.h, a
+# routine step's conditions: power, auras and their time left, stacks, cooldowns, enemies, time to live, casts).
+# and the bot quest tests (tests/botquest_tests.cpp: mod-playerbots' src/Emberfall/EmberfallQuestLogic.h, which quests a
+# bot takes: no escort of ef_escort, no timed quest, an event quest only with an area trigger).
+# and the spec field tests (tests/specfield_tests.cpp: src/talents/EfSpecField.h, the active spec in UNIT_FIELD_BYTES_1
+# for every client in view; the golden value is the client's VehicleTests' too).
 # and the escort tests (tests/escort_tests.cpp: src/escorts/EfEscortLogic.h, who sees a walk and its escortee, who sets one off).
 # No core, no database:
 #
@@ -95,6 +107,7 @@ classkitlust ../src/classkit classkit_lust_tests.cpp
 classkitspirit ../src/classkit classkit_spirit_tests.cpp
 classkitinfuse ../src/classkit classkit_infuse_tests.cpp
 classkitheat ../src/classkit classkit_heat_tests.cpp
+classkitfrost ../src/classkit classkit_frost_tests.cpp
 gmcommands ../src/gmcommands gmcommand_tests.cpp
 questloot ../src/questloot questloot_tests.cpp
 testzone ../src/testzone testzone_tests.cpp
@@ -102,6 +115,7 @@ meter ../src/meter meter_tests.cpp
 accountfriends ../src/accountfriends accountfriends_tests.cpp
 professionxp ../src/professions professionxp_tests.cpp
 oneprofession ../src/professions oneprofession_tests.cpp
+secondaryranks ../src/professions:../src/profspecs secondaryranks_tests.cpp
 periodiccrit ../../../src/server/game/Spells/Auras periodiccrit_tests.cpp
 missrules ../../../src/server/game/Spells missrules_tests.cpp
 kitweapon ../../../src/server/game/Spells kitweapon_tests.cpp
@@ -113,12 +127,17 @@ encounters ../src/encounters encounter_tests.cpp
 fishing ../src/fishing:../src/encounters fishing_tests.cpp
 taming ../src/taming:../src/encounters taming_tests.cpp
 journeys ../src/journeys journeys_tests.cpp
+petsize ../src/petsize petsize_tests.cpp
+petname ../src/petname petname_tests.cpp
 seam ../src/seam seam_tests.cpp
 respawnfloor ../src/respawnfloor respawnfloor_tests.cpp
 sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp
 escorts ../src/escorts escort_tests.cpp
 botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp
-botrest ../../mod-playerbots/src/Emberfall botrest_tests.cpp"
+botrest ../../mod-playerbots/src/Emberfall botrest_tests.cpp
+botrotation ../../mod-playerbots/src/Emberfall botrotation_tests.cpp
+botquest ../../mod-playerbots/src/Emberfall botquest_tests.cpp
+specfield ../src/talents specfield_tests.cpp"
 
 if ! printf '%s\n' "$TESTS" | xargs -P "$JOBS" -n 3 sh "$HERE/run_tests.sh" --compile; then
     echo "run_tests.sh: a test program did not compile" >&2

@@ -38,7 +38,7 @@
 //
 // Checks, the first failure wins: Decode (length, characters, a letter on a normal node); then per node of the class
 // tree and then of the spec tree, in `ord` order, for each invested paid node: Rank (above its max), Level (its
-// required level), Path (its parent is not full), Gate (the paid points of the nodes with a lower gate are fewer than
+// required level), Requires (its requirement not held, below), Path (its parent is not full), Gate (the paid points of the nodes with a lower gate are fewer than
 // its gate; detail: the gate), Choice (a digit above 0 or an unknown option on a choice node); after each tree's nodes
 // its Slot check; finally BudgetClass, BudgetSpec. Details are node IDs except for Gate. Picks get the per-node checks
 // too (Rank: above 1).
@@ -54,6 +54,15 @@
 // Granted nodes skip the per-node checks whatever the string says. A node's gate only counts nodes with a lower gate and
 // a parent stands before its child in `ord` order, so a final state is valid iff every invested node passes on its own:
 // some purchase order reaches it (talents.md §1.3).
+//
+// Requirements (2026-11-15, Emberfall feedback #584: Solenne's Mercy, which replaces Sunmend, only for a paladin who chose
+// Sunmend; talents.md §1.3 rule 9): a node may name what it needs from the class tree or its own tree: a node (`reqNode`,
+// held at any rank) or one option of a choice node (`reqOption`). While that is not held the node is **shut**
+// (applyRequirements marks it for one state, RuleNode::shut): a granted node gives rank 0, so what hangs under it stays
+// shut too (Path), and a paid node cannot be held (Requires, detail: the node). A required node has no requirement of its
+// own (the compiler refuses chains). validateLoadout applies them itself, the class tree first; whoever calls checkTree,
+// checkNode or grantedRank on its own applies them first. dropUnheld is what a change of the required node does to the
+// rest (the window's staged edit, the module's Refit at login): the nodes the change leaves failing are refunded.
 
 #pragma once
 
@@ -63,6 +72,8 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace ef::talents
@@ -87,6 +98,7 @@ namespace ef::talents
         BudgetSpec,
         Slot,
         Permanent,
+        Requires,
     };
 
     // The protocol's error codes (talents.md §4.5).
@@ -105,6 +117,7 @@ namespace ef::talents
         case RuleError::BudgetSpec: return "BUDGET_S";
         case RuleError::Slot: return "SLOT";
         case RuleError::Permanent: return "PERMANENT";
+        case RuleError::Requires: return "REQUIRES";
         }
         return "?";
     }
@@ -125,6 +138,9 @@ namespace ef::talents
         uint8_t autoCount = 0;                       // a granted node's ranks (0: bought with points)
         std::array<uint32_t, kMaxWireRank> autoAt{}; // rank k at autoAt[k-1] paid points in the tree
         uint8_t group = 0;                           // a pick node's group, 1-based into RuleTree::groups
+        uint32_t reqNode = 0;                        // the node it needs (an ID of the class tree or its own), 0 = none
+        uint8_t reqOption = 0;                       // that choice node's option it needs (1-4), 0 = the node at any rank
+        bool shut = false;                           // not data: its requirement is not held in the state at hand
     };
 
     // A pick group: its slot thresholds, counted in points earned for the tree or spent in it.
@@ -244,10 +260,11 @@ namespace ef::talents
         return sum;
     }
 
-    // A granted node's rank at `paid` points spent in its tree for a character of `level` (0 below its required level).
+    // A granted node's rank at `paid` points spent in its tree for a character of `level` (0 below its required level, and
+    // 0 while it is shut: its requirement not held).
     inline uint32_t grantedRank(const RuleNode& node, uint32_t paid, uint32_t level)
     {
-        if (node.requiredLevel > level)
+        if (node.shut || node.requiredLevel > level)
             return 0;
         uint32_t rank = 0;
         for (uint32_t k = 0; k < node.autoCount && k < kMaxWireRank; ++k)
@@ -276,6 +293,39 @@ namespace ef::talents
         return static_cast<size_t>(node.parent);
     }
 
+    // Whether a node's requirement is held in a state: always when it has none; else its required node (looked up by ID in
+    // `own`, then in `classTree`) at a rank above 0 (a granted one by its tree's paid points and the level), or with
+    // `reqOption` that option picked. A node of neither tree is never held.
+    inline bool requirementHeld(const RuleNode& node, const RuleTree& own, std::span<const NodeValue> ownValues, const RuleTree& classTree,
+                                std::span<const NodeValue> classValues, uint32_t level)
+    {
+        if (node.reqNode == 0)
+            return true;
+        for (const auto& [tree, values] : {std::pair{&own, ownValues}, std::pair{&classTree, classValues}})
+            for (size_t i = 0; i < tree->nodes.size() && i < values.size(); ++i)
+            {
+                const RuleNode& r = tree->nodes[i];
+                if (r.id != node.reqNode)
+                    continue;
+                if (r.kind == NodeKind::Choice)
+                    return node.reqOption ? values[i].option == node.reqOption : values[i].option != 0;
+                return effectiveRank(r, values[i], spentPoints(*tree, values), level) > 0;
+            }
+        return false;
+    }
+
+    // Marks the nodes of `tree` whose requirement `values` (the tree's) and `classValues` (the class tree's; for the class
+    // tree itself the same) do not hold: RuleNode::shut, for this one state. `tree` and `classTree` may be the same tree.
+    inline void applyRequirements(RuleTree& tree, std::span<const NodeValue> values, const RuleTree& classTree,
+                                  std::span<const NodeValue> classValues, uint32_t level)
+    {
+        std::vector<bool> shut(tree.nodes.size(), false);
+        for (size_t i = 0; i < tree.nodes.size(); ++i)
+            shut[i] = !requirementHeld(tree.nodes[i], tree, values, classTree, classValues, level);
+        for (size_t i = 0; i < tree.nodes.size(); ++i)
+            tree.nodes[i].shut = shut[i];
+    }
+
     // The per-node rules for one invested node (`index` in `ord` order).
     inline RuleResult checkNode(const RuleTree& tree, std::span<const NodeValue> values, size_t index, uint32_t level)
     {
@@ -287,6 +337,8 @@ namespace ef::talents
             return {RuleError::Rank, node.id};
         if (node.requiredLevel > level)
             return {RuleError::Level, node.id};
+        if (node.shut)
+            return {RuleError::Requires, node.id};
         if (const auto p = parentOf(tree, node);
             p && *p < values.size() && !isFull(tree.nodes[*p], effectiveRank(tree.nodes[*p], values[*p], spentPoints(tree, values), level)))
             return {RuleError::Path, node.id};
@@ -326,7 +378,7 @@ namespace ef::talents
             bool holds(size_t i) const
             {
                 const RuleNode& n = tree.nodes[i];
-                if (n.requiredLevel > level)
+                if (n.shut || n.requiredLevel > level)
                     return false;
                 if (const auto p = parentOf(tree, n); p && !isFull(tree.nodes[*p], rank(*p)))
                     return false;
@@ -464,14 +516,58 @@ namespace ef::talents
         const auto specValues = decodeRanks(specTree, loadout.substr(dot + 1));
         if (!classValues || !specValues)
             return {RuleError::Decode, 0};
-        if (const RuleResult r = checkTree(classTree, *classValues, level, classBudget); !r.ok())
+        RuleTree classSeen = classTree, specSeen = specTree; // the requirements of this state
+        applyRequirements(classSeen, *classValues, classSeen, *classValues, level);
+        applyRequirements(specSeen, *specValues, classSeen, *classValues, level);
+        if (const RuleResult r = checkTree(classSeen, *classValues, level, classBudget); !r.ok())
             return r;
-        if (const RuleResult r = checkTree(specTree, *specValues, level, specBudget); !r.ok())
+        if (const RuleResult r = checkTree(specSeen, *specValues, level, specBudget); !r.ok())
             return r;
         if (spentPoints(classTree, *classValues) > classBudget)
             return {RuleError::BudgetClass, 0};
         if (spentPoints(specTree, *specValues) > specBudget)
             return {RuleError::BudgetSpec, 0};
         return {};
+    }
+
+    // What a requirement no longer held does to a state (the class tree's choice switched, a stored loadout under new data):
+    // every invested paid node that fails its node rules (Requires, the Path under a shut node, a Gate those points held)
+    // with the requirements and passed them without is refunded, to a fixed point (a refund only takes points away, so
+    // nothing refunded would pass again). Nodes that fail without the requirements too are left alone (the caller's to
+    // judge). `classTree`/`specTree` as loaded (their `shut` is ignored), `cls`/`spec` in `ord` order (the pre-spec state:
+    // an empty spec tree). True when anything was refunded.
+    inline bool dropUnheld(const RuleTree& classTree, std::span<NodeValue> cls, const RuleTree& specTree, std::span<NodeValue> spec,
+                           uint32_t level)
+    {
+        if (cls.size() != classTree.nodes.size() || spec.size() != specTree.nodes.size())
+            return false;
+        RuleTree classData = classTree, specData = specTree;
+        for (RuleTree* t : {&classData, &specData})
+            for (RuleNode& n : t->nodes)
+                n.shut = false;
+        const auto failing = [level](const RuleTree& tree, std::span<const NodeValue> values) {
+            std::vector<bool> out(tree.nodes.size(), false);
+            for (size_t i = 0; i < tree.nodes.size(); ++i)
+                out[i] = !checkNode(tree, values, i, level).ok();
+            return out;
+        };
+        const std::vector<bool> classBefore = failing(classData, cls), specBefore = failing(specData, spec);
+        bool dropped = false;
+        for (bool again = true; again;)
+        {
+            again = false;
+            RuleTree classSeen = classData, specSeen = specData;
+            applyRequirements(classSeen, cls, classSeen, cls, level);
+            applyRequirements(specSeen, spec, classSeen, cls, level);
+            for (const auto& [tree, values, before] : {std::tuple{&classSeen, cls, &classBefore}, std::tuple{&specSeen, spec, &specBefore}})
+                for (size_t i = 0; i < tree->nodes.size(); ++i)
+                    if (!(*before)[i] && isPaid(tree->nodes[i]) && boughtRank(tree->nodes[i], values[i]) > 0 &&
+                        !checkNode(*tree, values, i, level).ok())
+                    {
+                        values[i] = NodeValue{};
+                        again = dropped = true;
+                    }
+        }
+        return dropped;
     }
 }

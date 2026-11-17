@@ -36,32 +36,52 @@
 //   .eftest power N          your spec power at N points (0 too), its maximum untouched (`.modify runicpower` sets the
 //                            slot's maximum as well: the Earthwarden's 3 Seismic Charges would be capped at N)
 //
+// Commands for GMs only (a test realm's harness, never a player's: SEC_GAMEMASTER besides the switch above); "the
+// creature" is the selected one, else the nearest attackable one within 5 yd:
+//   .eftest stacks S N [sec] the creature's stacks of your aura S at exactly N (0: gone; never above what EfClassKit.h
+//                            AddStacks allows: Deep Winter's 8 Frost Stacks), lasting sec seconds if given (the
+//                            Frostguard's checks set Frost Stacks without racing their 6 s)
+//   .eftest immune           the creature immune to stuns and freezes until it is gone (a stun-immune
+//                            creature for Stillpoint's check: the engine refuses the freeze)
+//   .eftest auras GUID...    `.efkit auras` of the units with these GUIDs (the hex `.eftest stacks` and `immune` print),
+//                            each after "EFTEST auras <guid>" ("... gone" when it is not near)
+//   .eftest chance KEY N     a chance a kit script rolls forced to N percent for every player of the realm until the
+//                            next restart, -1 back to the data's (EfClassKit.h TestChance; twin_orbs: Twin Orbs)
+//
 // Config: Emberfall.TestTools.Enable (0), .Security (0: any account; the commands are registered for players and
 // refuse an account below it), .FoeEntry and .DummyEntry (0: that command is off; Emberfall's own data names its
 // creatures, content/data/creatures.yaml). A summon's level comes from the AllCreatureScript hook before the core picks
 // a level from the template, so its health, damage and armour are the creature_classlevelstats row of that level.
 
+#include "CellImpl.h"
 #include "Chat.h"
 #include "ChatCommand.h"
 #include "CommandScript.h"
 #include "Config.h"
 #include "Creature.h"
 #include "CreatureAI.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
+#include "SpellAuras.h"
+#include "SpellMgr.h"
 #include "TemporarySummon.h"
 #include "UnitScript.h"
 #include "AllCreatureScript.h"
 #include "World.h"
 #include "WorldScript.h"
 #include "WorldSession.h"
+#include "StringFormat.h"
 #include "testzone/EfTestZone.h"
 #include "classkit/EfClassKit.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <list>
 #include <string>
 #include <unordered_set>
 
@@ -190,6 +210,10 @@ namespace
                 { "clear",   HandleClear,   SEC_PLAYER, Console::No },
                 { "refresh", HandleRefresh, SEC_PLAYER, Console::No },
                 { "power",   HandlePower,   SEC_PLAYER, Console::No },
+                { "stacks",  HandleStacks,  SEC_GAMEMASTER, Console::No },
+                { "chance",  HandleChance,  SEC_GAMEMASTER, Console::No },
+                { "immune",  HandleImmune,  SEC_GAMEMASTER, Console::No },
+                { "auras",   HandleAuras,   SEC_GAMEMASTER, Console::No },
                 { "",        HandleList,    SEC_PLAYER, Console::No },
             };
             static ChatCommandTable commandTable =
@@ -227,7 +251,7 @@ namespace
         {
             if (!Self(handler))
                 return false;
-            handler->SendSysMessage("Emberfall test tools: .eftest level N | zone <zone> [level] | zone list | foe [level] [count] [idle] [hpF] | dummy [level] | clear | refresh | power N");
+            handler->SendSysMessage("Emberfall test tools: .eftest level N | zone <zone> [level] | zone list | foe [level] [count] [idle] [hpF] | dummy [level] | clear | refresh | power N (GM: stacks S N [sec] | immune | auras GUID... | chance KEY N)");
             return true;
         }
 
@@ -405,6 +429,117 @@ namespace
                 return false;
             Emberfall::ClassKit::SetSpecPowerPoints(player, int32(points));
             handler->PSendSysMessage("EFTEST power {}", Emberfall::ClassKit::SpecPowerPoints(player));
+            return true;
+        }
+
+        // The creature a GM test command acts on: the selected one, else the nearest attackable one within 5 yd (a foe
+        // just placed at your feet with `.eftest foe ... idle`: a harness need not target it).
+        static Unit* Picked(ChatHandler* handler, Player* player)
+        {
+            if (Unit* selected = handler->getSelectedUnit(); selected && selected != player)
+                return selected;
+            std::list<Unit*> units;
+            Acore::AnyUnitInObjectRangeCheck check(player, 5.0f);
+            Acore::UnitListSearcher<Acore::AnyUnitInObjectRangeCheck> searcher(player, units, check);
+            Cell::VisitObjects(player, searcher, 5.0f);
+            // any living creature no player controls (a GM can attack nothing, so no attack check: in GM mode a struck
+            // idle foe stays out of combat, and a teleport does not make it evade and drop its auras)
+            Unit* nearest = nullptr;
+            for (Unit* u : units)
+                if (u->IsCreature() && !u->IsControlledByPlayer()
+                    && (!nearest || player->GetExactDist(u) < player->GetExactDist(nearest)))
+                    nearest = u;
+            return nearest;
+        }
+
+        static std::string Hex(ObjectGuid guid) { return Acore::StringFormat("0x{:016X}", guid.GetRawValue()); }
+
+        static bool HandleStacks(ChatHandler* handler, uint32 spell, uint32 count, Optional<uint32> seconds)
+        {
+            Player* player = Self(handler);
+            if (!player)
+                return false;
+            Unit* target = Picked(handler, player);
+            if (!target || !sSpellMgr->GetSpellInfo(spell))
+            {
+                handler->SendSysMessage("Select a creature (or stand at one): .eftest stacks <spell> <count> [seconds]");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            Emberfall::ClassKit::TakeStacks(player, target, spell, 0);
+            uint32 const stacks = count ? Emberfall::ClassKit::AddStacks(player, target, spell, int32(count)) : 0;
+            if (Aura* aura = target->GetAura(spell, player->GetGUID()); aura && seconds && *seconds)
+            {
+                aura->SetMaxDuration(int32(*seconds * IN_MILLISECONDS));
+                aura->SetDuration(int32(*seconds * IN_MILLISECONDS));
+            }
+            handler->PSendSysMessage("EFTEST stacks {} {} {}", Hex(target->GetGUID()), spell, stacks);
+            return true;
+        }
+
+        static bool HandleImmune(ChatHandler* handler)
+        {
+            Player* player = Self(handler);
+            if (!player)
+                return false;
+            Unit* picked = Picked(handler, player);
+            Creature* target = picked ? picked->ToCreature() : nullptr;
+            if (!target)
+            {
+                handler->SendSysMessage("Select a creature (or stand at one): .eftest immune");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            target->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_STUN, true);
+            target->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_FREEZE, true);
+            handler->PSendSysMessage("EFTEST immune {}", Hex(target->GetGUID()));
+            return true;
+        }
+
+        // `.efkit auras` for the units of these GUIDs (as `.eftest stacks` names them), each after a line "EFTEST auras
+        // <guid>", in one go: no targeting, and five creatures read before a 2 s aura runs out
+        static bool HandleAuras(ChatHandler* handler, Tail guids)
+        {
+            Player* player = Self(handler);
+            if (!player)
+                return false;
+            std::string const all(guids);
+            size_t at = 0;
+            uint32 found = 0;
+            while (at < all.size())
+            {
+                size_t const end = std::min(all.find(' ', at), all.size());
+                std::string const word = all.substr(at, end - at);
+                at = end + 1;
+                if (word.empty())
+                    continue;
+                uint64 raw = 0;
+                try { raw = std::stoull(word, nullptr, 16); } catch (...) { raw = 0; }
+                Unit* unit = raw ? ObjectAccessor::GetUnit(*player, ObjectGuid(raw)) : nullptr;
+                handler->PSendSysMessage("EFTEST auras {}{}", word, unit ? "" : " gone");
+                if (!unit)
+                    continue;
+                ++found;
+                std::vector<std::string> lines;
+                Emberfall::ClassKit::DumpAuras(unit, player, lines);
+                for (std::string const& line : lines)
+                    handler->SendSysMessage(line);
+            }
+            if (!found)
+            {
+                handler->SendSysMessage("No such unit near you: .eftest auras <guid> [<guid> ...]");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            return true;
+        }
+
+        static bool HandleChance(ChatHandler* handler, std::string key, int32 pct)
+        {
+            if (!Self(handler))
+                return false;
+            Emberfall::ClassKit::SetTestChance(key, pct);
+            handler->PSendSysMessage("EFTEST chance {} {}", key, Emberfall::ClassKit::TestChance(key, -1));
             return true;
         }
 

@@ -18,6 +18,7 @@
 #include "MovementActions.h"
 #include "EmberfallQuests.h"
 #include "NamedObjectContext.h"
+#include "ObjectGuid.h"
 #include "Strategy.h"
 #include "Trigger.h"
 
@@ -43,9 +44,28 @@ public:
 // Spells a bot's cast of failed although the checks passed (Set On without a companion), skipped until the time (ms).
 using EmberfallBackoff = std::unordered_map<uint32, uint32>;
 
+// The target's time to live for the `ttl` condition (bot rotations, docs §18): its health when the bot first looked at
+// it in this fight and since when; a new target starts the clock again.
+class EmberfallTargetClock
+{
+public:
+    float TimeToLive(Unit* target);  // seconds; < 0: unknown (EmberfallRotationLogic.h)
+    // the `enemies` count near the target, kept a second (-1: none for this target)
+    int32 CachedEnemies(Unit* target) const;
+    void CacheEnemies(Unit* target, int32 count);
+
+private:
+    ObjectGuid guid;
+    uint32 since = 0;   // ms
+    uint32 health = 0;
+    ObjectGuid enemiesGuid;
+    uint32 enemiesAt = 0;  // ms
+    int32 enemiesCount = -1;
+};
+
 // The spec's next ability on the current target (0: none); the buffs and the companion when `prepare`.
 uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** castOn,
-                         EmberfallBackoff const* backoff = nullptr);
+                         EmberfallBackoff const* backoff = nullptr, EmberfallTargetClock* clock = nullptr);
 
 class EmberfallRotationAction : public Action
 {
@@ -57,6 +77,7 @@ public:
 
 private:
     EmberfallBackoff backoff;
+    EmberfallTargetClock clock;
 };
 
 // Auto Shot (75) under the routine for a bot with a bow, gun or crossbow, as a player hunter has it on the bar from level

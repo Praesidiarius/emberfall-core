@@ -22,6 +22,7 @@
 #include "Common.h"
 #include "DatabaseEnv.h"
 #include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
+#include "EmberfallPetSize.h" // EMBERFALL: the companion's size (PATCHES.md #41)
 #include "GameTime.h"
 #include "Group.h"
 #include "InstanceScript.h"
@@ -2519,6 +2520,10 @@ Player* Pet::GetOwner() const
 
 float Pet::GetNativeObjectScale() const
 {
+    // EMBERFALL: #41 a module sizes the hunter's companion by its kind and growth (EmberfallPetSize.h)
+    if (float size = 1.0f; Emberfall::PetSize::Scale(this, size))
+        return size;
+
     uint8 ctFamily = GetCreatureTemplate()->family;
 
     CreatureFamilyEntry const* creatureFamily = sCreatureFamilyStore.LookupEntry(ctFamily);
