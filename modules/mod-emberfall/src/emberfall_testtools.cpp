@@ -43,7 +43,8 @@
 //                            Frostguard's checks set Frost Stacks without racing their 6 s)
 //   .eftest immune           the creature immune to stuns and freezes until it is gone (a stun-immune
 //                            creature for Stillpoint's check: the engine refuses the freeze)
-//   .eftest auras GUID       `.efkit auras` of the unit with that GUID (the hex `.eftest stacks` and `immune` print)
+//   .eftest auras GUID...    `.efkit auras` of the units with these GUIDs (the hex `.eftest stacks` and `immune` print),
+//                            each after "EFTEST auras <guid>" ("... gone" when it is not near)
 //   .eftest chance KEY N     a chance a kit script rolls forced to N percent for every player of the realm until the
 //                            next restart, -1 back to the data's (EfClassKit.h TestChance; twin_orbs: Twin Orbs)
 //
@@ -250,7 +251,7 @@ namespace
         {
             if (!Self(handler))
                 return false;
-            handler->SendSysMessage("Emberfall test tools: .eftest level N | zone <zone> [level] | zone list | foe [level] [count] [idle] [hpF] | dummy [level] | clear | refresh | power N (GM: stacks S N [sec] | immune | auras GUID | chance KEY N)");
+            handler->SendSysMessage("Emberfall test tools: .eftest level N | zone <zone> [level] | zone list | foe [level] [count] [idle] [hpF] | dummy [level] | clear | refresh | power N (GM: stacks S N [sec] | immune | auras GUID... | chance KEY N)");
             return true;
         }
 
@@ -441,9 +442,11 @@ namespace
             Acore::AnyUnitInObjectRangeCheck check(player, 5.0f);
             Acore::UnitListSearcher<Acore::AnyUnitInObjectRangeCheck> searcher(player, units, check);
             Cell::VisitObjects(player, searcher, 5.0f);
+            // any living creature no player controls (a GM can attack nothing, so no attack check: in GM mode a struck
+            // idle foe stays out of combat, and a teleport does not make it evade and drop its auras)
             Unit* nearest = nullptr;
             for (Unit* u : units)
-                if (u->IsCreature() && player->IsValidAttackTarget(u)
+                if (u->IsCreature() && !u->IsControlledByPlayer()
                     && (!nearest || player->GetExactDist(u) < player->GetExactDist(nearest)))
                     nearest = u;
             return nearest;
@@ -493,25 +496,41 @@ namespace
             return true;
         }
 
-        // `.efkit auras` for the unit of that GUID (as `.eftest stacks` names it), no target needed
-        static bool HandleAuras(ChatHandler* handler, std::string guidHex)
+        // `.efkit auras` for the units of these GUIDs (as `.eftest stacks` names them), each after a line "EFTEST auras
+        // <guid>", in one go: no targeting, and five creatures read before a 2 s aura runs out
+        static bool HandleAuras(ChatHandler* handler, Tail guids)
         {
             Player* player = Self(handler);
             if (!player)
                 return false;
-            uint64 raw = 0;
-            try { raw = std::stoull(guidHex, nullptr, 16); } catch (...) { raw = 0; }
-            Unit* unit = raw ? ObjectAccessor::GetUnit(*player, ObjectGuid(raw)) : nullptr;
-            if (!unit)
+            std::string const all(guids);
+            size_t at = 0;
+            uint32 found = 0;
+            while (at < all.size())
             {
-                handler->SendSysMessage("No such unit near you: .eftest auras <guid>");
+                size_t const end = std::min(all.find(' ', at), all.size());
+                std::string const word = all.substr(at, end - at);
+                at = end + 1;
+                if (word.empty())
+                    continue;
+                uint64 raw = 0;
+                try { raw = std::stoull(word, nullptr, 16); } catch (...) { raw = 0; }
+                Unit* unit = raw ? ObjectAccessor::GetUnit(*player, ObjectGuid(raw)) : nullptr;
+                handler->PSendSysMessage("EFTEST auras {}{}", word, unit ? "" : " gone");
+                if (!unit)
+                    continue;
+                ++found;
+                std::vector<std::string> lines;
+                Emberfall::ClassKit::DumpAuras(unit, player, lines);
+                for (std::string const& line : lines)
+                    handler->SendSysMessage(line);
+            }
+            if (!found)
+            {
+                handler->SendSysMessage("No such unit near you: .eftest auras <guid> [<guid> ...]");
                 handler->SetSentErrorMessage(true);
                 return false;
             }
-            std::vector<std::string> lines;
-            Emberfall::ClassKit::DumpAuras(unit, player, lines);
-            for (std::string const& line : lines)
-                handler->SendSysMessage(line);
             return true;
         }
 
