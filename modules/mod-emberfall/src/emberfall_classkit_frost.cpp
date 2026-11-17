@@ -39,12 +39,13 @@
 //                                     missile speed whose persistent area aura stands where it lands), value = the line's
 //                                     length, misc B = its half width in yards: the orb flies to the first enemy on the line
 //                                     ahead (in sight; none: the line's end, short of a wall) and stays there; effect 2
-//                                     (dummy): with the talent of its misc known, value % for a second orb (only the pressed
-//                                     cast rolls; no cost, no cooldown, no global cooldown of its own) on a line misc B
-//                                     degrees to one side, then the other, at another enemy (none there: straight ahead);
-//                                     for every orb the caster's spell_ef_kit_rule_orb_collapse rules naming the orb cast
-//                                     their trigger where it stands as its time runs out (Frostbound Orb, Twin Orbs,
-//                                     Shattering Collapse)
+//                                     (dummy): with the talent of its misc known, value % for a second orb, its trigger (a
+//                                     twin of the orb under its own id, so the two strike an enemy both stand on; only the
+//                                     pressed cast rolls; no cost, no cooldown, no global cooldown of its own) on a line
+//                                     misc B degrees to one side, then the other, at another enemy (none there: straight
+//                                     ahead); for both orbs the caster's spell_ef_kit_rule_orb_collapse rules naming the
+//                                     first orb cast their trigger where it stands as its time runs out (Frostbound Orb,
+//                                     Twin Orbs, Shattering Collapse)
 //   spell_ef_kit_frost_rules          the caster's Frostguard rules for this ability: spell_ef_kit_rule_first_contact (value %
 //                                     more on an enemy the mage had not hurt before the cast: no threat from the mage on a
 //                                     creature, not in combat with the mage otherwise; First Contact on Glacial Spear)
@@ -59,6 +60,7 @@
 #include "Creature.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "Log.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -213,14 +215,17 @@ class spell_ef_kit_orb_seek : public SpellScript
     }
 
     // One orb to `dest`: the orb spell flies there at its own missile speed and stands; the collapse where it stands as its
-    // time runs out.
-    void Send(Unit* caster, uint32 orb, Position const& dest)
+    // time runs out (the rules name the first orb, `ruleOrb`, and follow the second as well).
+    void Send(Unit* caster, uint32 orb, uint32 ruleOrb, Position const& dest, bool twin, ObjectGuid at)
     {
-        caster->CastSpell(dest.GetPositionX(), dest.GetPositionY(), dest.GetPositionZ(), orb, true);
+        SpellCastResult const result = caster->CastSpell(dest.GetPositionX(), dest.GetPositionY(), dest.GetPositionZ(), orb, true);
+        LOG_DEBUG("module.classkit.frost", "Frostbound Orb: {} {} of {} to ({:.1f}, {:.1f}, {:.1f}) {:.1f} yd, at {}: cast result {}",
+                  twin ? "second orb" : "orb", orb, caster->GetName(), dest.GetPositionX(), dest.GetPositionY(),
+                  dest.GetPositionZ(), caster->GetExactDist(&dest), at.IsEmpty() ? "no enemy" : at.ToString(), uint32(result));
         SpellInfo const* info = sSpellMgr->GetSpellInfo(orb);
         if (!info)
             return;
-        auto const rules = Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_orb_collapse", orb);
+        auto const rules = Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_orb_collapse", ruleOrb);
         if (rules.empty())
             return;
         int32 duration = info->GetDuration();
@@ -253,19 +258,29 @@ class spell_ef_kit_orb_seek : public SpellScript
         Position dest;
         ObjectGuid first;
         Seek(caster, 0.0f, length, half, false, ObjectGuid::Empty, dest, first);
-        Send(caster, orb, dest);
-        // Twin Orbs: only this pressed cast rolls; the second orb is the orb spell itself, cast by the script (no cost, no
-        // cooldown, no global cooldown), and never rolls again
+        Send(caster, orb, orb, dest, false, first);
+        // Twin Orbs: only this pressed cast rolls; the second orb is effect 2's trigger, cast by the script (no cost, no
+        // cooldown, no global cooldown), and never rolls again. It is a spell of its own (the first orb's twin): one
+        // caster's periodic ground auras of one spell only refresh each other on an enemy (Aura::CanStackWith), so the
+        // first orb's spell a second time added nothing where the two overlap. A test realm's GM may force the chance
+        // (`.eftest chance twin_orbs N`).
         bool const talent = twinEff.MiscValue && caster->HasAura(uint32(twinEff.MiscValue));
-        if (!Emberfall::ClassKit::FrostLogic::TwinOrb(false, talent, twinEff.CalcValue(caster), int32(urand(0, 99))))
+        int32 const chance = Emberfall::ClassKit::TestChance("twin_orbs", twinEff.CalcValue(caster));
+        int32 const roll = int32(urand(0, 99));
+        bool const second = Emberfall::ClassKit::FrostLogic::TwinOrb(false, talent, chance, roll);
+        LOG_DEBUG("module.classkit.frost", "Twin Orbs roll of {} at ({:.1f}, {:.1f}) facing {:.2f}: talent {}, chance {}, roll {}: {}",
+                  caster->GetName(), caster->GetPositionX(), caster->GetPositionY(), caster->GetOrientation(), talent ? 1 : 0,
+                  chance, roll, second ? "a second orb" : "none");
+        uint32 const twinSpell = Emberfall::ClassKit::FrostLogic::TwinOrbSpell(orb, twinEff.TriggerSpell);
+        if (!second || !twinSpell)
             return;
         float const side = float(std::max(1, twinEff.MiscValueB)) * float(M_PI) / 180.0f;
         Position twin;
-        ObjectGuid ignored;
-        if (!Seek(caster, side, length, half, true, first, twin, ignored)
-            && !Seek(caster, -side, length, half, true, first, twin, ignored))
-            Seek(caster, 0.0f, length, half, false, ObjectGuid::Empty, twin, ignored);
-        Send(caster, orb, twin);
+        ObjectGuid at;
+        if (!Seek(caster, side, length, half, true, first, twin, at)
+            && !Seek(caster, -side, length, half, true, first, twin, at))
+            Seek(caster, 0.0f, length, half, false, ObjectGuid::Empty, twin, at);
+        Send(caster, twinSpell, orb, twin, true, at);
     }
 
     void Register() override

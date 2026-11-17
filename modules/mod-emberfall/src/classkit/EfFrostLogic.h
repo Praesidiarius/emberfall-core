@@ -134,6 +134,15 @@ namespace Emberfall::ClassKit::FrostLogic
         return !isTwin && talent && chance > 0 && roll < chance;
     }
 
+    // Twin Orbs: the spell the second orb is cast with: its own (`twin`, the orb's twin under another id), never the first
+    // orb's spell: one caster's periodic ground auras of one spell refresh each other on an enemy instead of stacking
+    // (Aura::CanStackWith), so the first orb's spell again strikes nobody the first already does (live, 2026-11-17: two
+    // orbs over two enemies, 9-10 ticks each in 10 s, as one orb). 0: no second orb (no twin spell in the data).
+    constexpr uint32_t TwinOrbSpell(uint32_t orb, uint32_t twin)
+    {
+        return twin && twin != orb ? twin : 0;
+    }
+
     // Stillpoint on one enemy, in the notes' order (§6): 1. its Frost Stacks are read once, before anything changes;
     // 2. frozen when it has at least `need` and is neither a boss nor immune to stuns (a freeze is a stun on creatures);
     // 3. the Glacial Rupture mark on every enemy struck, bosses too; 4. Frost Accumulation's `gain` stacks (with the

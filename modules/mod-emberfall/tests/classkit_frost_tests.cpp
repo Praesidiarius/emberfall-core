@@ -150,6 +150,11 @@ int main()
         for (int roll = 0; roll < 100; ++roll)
             twins += FrostLogic::TwinOrb(false, true, 20, roll) ? 1 : 0;
         check(twins == 20, "20 of 100 rolls");
+        // the second orb is its own spell: the first orb's spell again would only refresh the first's ticks on the
+        // enemies both stand over (2026-11-17)
+        check(FrostLogic::TwinOrbSpell(94452, 94458) == 94458, "the second orb: its own spell");
+        check(FrostLogic::TwinOrbSpell(94452, 94452) == 0, "never the first orb's spell");
+        check(FrostLogic::TwinOrbSpell(94452, 0) == 0, "no twin spell in the data: no second orb");
     }
     // Stillpoint in the notes' order: the stacks read first; frozen at 6+ (never a boss, never the stun-immune); every
     // enemy marked; Frost Accumulation's 2 only on those that had fewer than 6, after the freeze check
