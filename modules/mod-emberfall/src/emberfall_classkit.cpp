@@ -118,6 +118,7 @@
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
 #include "EfFrostLogic.h"
+#include "Log.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerScript.h"
@@ -763,9 +764,13 @@ class spell_ef_kit_stack_freeze : public SpellScript
         bool const stunImmune = creature && (creature->HasMechanicTemplateImmunity(1ULL << MECHANIC_STUN)
                                              || creature->HasMechanicTemplateImmunity(1ULL << MECHANIC_FREEZE));
         bool const accumulation = more.MiscValue && caster->HasAura(uint32(more.MiscValue));
-        return _plans.emplace(target->GetGUID(), Emberfall::ClassKit::FrostLogic::Stillpoint(stacks,
-            uint32(std::max(1, check.MiscValueB)), Emberfall::ClassKit::IsBoss(target), stunImmune, accumulation,
-            std::max(1, more.CalcValue(caster)))).first->second;
+        bool const boss = Emberfall::ClassKit::IsBoss(target);
+        auto const plan = Emberfall::ClassKit::FrostLogic::Stillpoint(stacks, uint32(std::max(1, check.MiscValueB)), boss,
+            stunImmune, accumulation, std::max(1, more.CalcValue(caster)));
+        LOG_DEBUG("module.classkit.frost", "Stillpoint of {} on {}: stacks {}, boss {}, stun-immune {}: freeze {}, mark {}, +{} stacks",
+                  caster->GetName(), target->GetGUID().ToString(), stacks, boss ? 1 : 0, stunImmune ? 1 : 0, plan.freeze ? 1 : 0,
+                  plan.mark ? 1 : 0, plan.addStacks);
+        return _plans.emplace(target->GetGUID(), plan).first->second;
     }
 
     void HandleEffect(SpellEffIndex effIndex)

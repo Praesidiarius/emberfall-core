@@ -384,6 +384,28 @@ namespace Emberfall::ClassKit
         return take;
     }
 
+    namespace
+    {
+        std::mutex s_testChanceLock;
+        std::map<std::string, int32> s_testChances;
+    }
+
+    int32 TestChance(std::string const& key, int32 dataChance)
+    {
+        std::lock_guard<std::mutex> lock(s_testChanceLock);
+        auto const it = s_testChances.find(key);
+        return it == s_testChances.end() ? dataChance : it->second;
+    }
+
+    void SetTestChance(std::string const& key, int32 pct)
+    {
+        std::lock_guard<std::mutex> lock(s_testChanceLock);
+        if (pct < 0)
+            s_testChances.erase(key);
+        else
+            s_testChances[key] = std::min<int32>(pct, 100);
+    }
+
     int32 ShellPerStack(Unit* caster, uint32 shellSpell)
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(shellSpell);

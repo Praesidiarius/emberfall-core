@@ -90,6 +90,12 @@ namespace Emberfall::ClassKit
     uint32 AddStacks(Unit* caster, Unit* target, uint32 stackSpell, int32 count);
     // Takes up to `count` stacks (0: all) of `stackSpell` from `target`; returns how many were taken.
     uint32 TakeStacks(Unit* caster, Unit* target, uint32 stackSpell, uint32 count);
+
+    // ---- Test hooks (mod-emberfall's test tools, GM commands of a test realm: src/emberfall_testtools.cpp) ----
+    // A chance a kit script rolls, forced for a test under its key ("twin_orbs": Twin Orbs): TestChance returns the
+    // forced percent, else `dataChance` (the spell data's); SetTestChance with a negative percent ends the forcing.
+    int32 TestChance(std::string const& key, int32 dataChance);
+    void SetTestChance(std::string const& key, int32 pct);
     // The stacked shell (Frost Shell): one shell aura per caster (school absorb; effect 2's value = the percent of max
     // health one stack absorbs; Spell.dbc StackAmount = the most stacks). Its absorb pool is the stacks' worth, the
     // stacks shown follow the pool (EfClassKitLogic.h ShellStacks: every started stack counts).
