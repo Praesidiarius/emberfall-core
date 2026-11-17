@@ -56,7 +56,8 @@ namespace Emberfall::ClassKit::FrostLogic
         return now > room ? now - room : 0;
     }
 
-    // Shattering Overflow: `pct` percent of the shell made beyond the cap becomes frost damage (the notes: 50 %).
+    // Shattering Overflow: `pct` percent of the shell made beyond the cap becomes frost damage (the notes: 50 %; 10 % since
+    // feedback #619, 2026-11-17: the kit's talent value).
     constexpr int32_t OverflowDamage(int64_t overflow, int32_t pct)
     {
         if (overflow <= 0 || pct <= 0)
@@ -64,9 +65,10 @@ namespace Emberfall::ClassKit::FrostLogic
         return int32_t(std::min<int64_t>(overflow * pct / 100, INT32_MAX));
     }
 
-    // An area burst's damage on each of `struck` enemies: the whole `amount` on each while at most `full` are struck; with
-    // more, each takes amount x sqrt(full / struck) (the total still grows with the pack, each enemy's share falls)
-    // [proposal: full 1, Shattering Overflow's burst].
+    // An area burst's damage on each of `struck` enemies, soft-capped at `full`: the whole `amount` on each while at most
+    // `full` are struck; with more, each takes amount x full / struck, so the total stays amount x full however many more
+    // there are (feedback #619, 2026-11-17: Shattering Overflow's burst, full 5; amount x sqrt(full / struck) with full 1
+    // before, whose total kept growing with the pack).
     inline int32_t AreaShare(int32_t amount, uint32_t struck, uint32_t full)
     {
         if (amount <= 0)
@@ -74,7 +76,7 @@ namespace Emberfall::ClassKit::FrostLogic
         uint32_t const k = std::max<uint32_t>(1, full);
         if (struck <= k)
             return amount;
-        return int32_t(std::lround(double(amount) * std::sqrt(double(k) / double(struck))));
+        return int32_t(std::lround(double(amount) * double(k) / double(struck)));
     }
 
     // The stacks on an enemy after adding `add` under the cap `cap` (Deep Winter raises the Frost Stacks' 6 to 8): never

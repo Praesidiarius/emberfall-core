@@ -34,7 +34,7 @@
 //                                     AddStacks adds at most that many, the caster's spell mods in (Frost Stacks 6, Deep
 //                                     Winter +2), never above the aura's own maximum (StackAmount)
 //   spell_ef_kit_area_share           an area damage spell: effect 2's value enemies take its damage whole, with more
-//                                     each takes damage x sqrt(that / enemies struck) (Shattering Overflow's burst)
+//                                     each takes damage x that / enemies struck: the total soft-capped (Shattering Overflow, 5)
 //   spell_ef_kit_orb_seek             a self button: effect 1 (dummy): trigger = the orb (a spell at a destination with a
 //                                     missile speed whose persistent area aura stands where it lands), value = the line's
 //                                     length, misc B = its half width in yards: the orb flies to the first enemy on the line
