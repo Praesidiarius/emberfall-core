@@ -98,22 +98,23 @@ int main()
         check(FrostLogic::OverflowDamage(1800, 50) == 900, "50 % of 1800: 900 frost damage");
         check(FrostLogic::OverflowDamage(0, 50) == 0 && FrostLogic::OverflowDamage(1800, 0) == 0, "nothing over: no burst");
     }
-    // the burst's share over many enemies: one takes it whole, n take 1 / sqrt(n) each [proposal: full 1]
+    // the burst's soft cap (feedback #619): up to `full` enemies take it whole, beyond that the total stays amount x full
     {
-        check(FrostLogic::AreaShare(900, 1, 1) == 900, "one enemy: the whole 900");
-        check(FrostLogic::AreaShare(900, 4, 1) == 450, "four enemies: 450 each (1800 in all)");
-        check(FrostLogic::AreaShare(900, 9, 1) == 300, "nine enemies: 300 each (2700 in all)");
-        check(FrostLogic::AreaShare(900, 3, 3) == 900 && FrostLogic::AreaShare(900, 12, 3) == 450,
-              "a share that starts after three: whole up to three, half at twelve");
+        check(FrostLogic::OverflowDamage(1800, 10) == 180, "10 % of 1800: 180 frost damage (feedback #619)");
+        check(FrostLogic::AreaShare(900, 1, 5) == 900 && FrostLogic::AreaShare(900, 5, 5) == 900, "up to five: the whole 900");
+        check(FrostLogic::AreaShare(900, 10, 5) == 450, "ten enemies: 450 each (4500 in all, as five)");
+        check(FrostLogic::AreaShare(900, 6, 5) == 750, "six enemies: 750 each (4500 in all)");
+        check(FrostLogic::AreaShare(900, 4, 1) == 225, "a cap of one: four share one hit");
         int32_t prev = 1000000;
-        bool falls = true;
+        bool capped = true;
         for (uint32_t n = 1; n <= 20; ++n)
         {
-            int32_t const each = FrostLogic::AreaShare(900, n, 1);
-            falls = falls && each <= prev && each * int32_t(n) >= 900;
+            int32_t const each = FrostLogic::AreaShare(900, n, 5);
+            int32_t const total = each * int32_t(n);
+            capped = capped && each <= prev && total <= 900 * 5 + int32_t(n) && total >= 900 * int32_t(std::min<uint32_t>(n, 5)) - int32_t(n);
             prev = each;
         }
-        check(falls, "each enemy's share falls with every enemy more, the whole never below one hit");
+        check(capped, "each share falls with every enemy more; the total grows to five hits and no further");
     }
     // Deep Winter: the Frost Stacks' cap 6 -> 8 (StackCap of effect 1 with the talent's +2, the aura's maximum 8)
     {
