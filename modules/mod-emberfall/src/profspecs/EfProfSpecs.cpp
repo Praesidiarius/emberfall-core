@@ -35,6 +35,7 @@
 #include "EfProfModel.h"
 #include "EfProfText.h"
 #include "../talents/EftProtocol.h"
+#include "../veins/EfVeinSwings.h"
 
 #include "CellImpl.h"
 #include "Chat.h"
@@ -864,6 +865,16 @@ namespace Emberfall::ProfSpecs
         uint32 const skill = LootSkill(player, lootGuid, loot, generation, any);
         if (!skill && !any)
             return;
+        // a vein worked in swings (emberfall_vein_swings.cpp): its ore as one stack before the rolls, and the yield
+        // once per vein and player, on the first swing (a full vein's extra ore as when it was one gather); an
+        // upgrade rolls on every swing's ore (the same share of the ore as before)
+        bool laterSwing = false;
+        if (lootGuid.IsGameObject())
+            if (GameObject* go = ObjectAccessor::GetGameObject(*player, lootGuid))
+            {
+                Emberfall::VeinSwings::MergeLoot(go, loot);
+                laterSwing = Emberfall::VeinSwings::IsLaterSwing(go, player);
+            }
         std::pair<uint32, uint8> const key{generation, static_cast<uint8>(loot->loot_type)};
         auto const seen = st->lootSeen.find(lootGuid);
         if (seen != st->lootSeen.end() && seen->second == key)
@@ -893,7 +904,7 @@ namespace Emberfall::ProfSpecs
                     break;
                 }
             }
-            uint32 const chance = m->Sum(st->ranks, Effect::Yield, skill, [&](Node const& n) { return n.items.count(li.itemid) != 0 && takes(n); });
+            uint32 const chance = laterSwing ? 0 : m->Sum(st->ranks, Effect::Yield, skill, [&](Node const& n) { return n.items.count(li.itemid) != 0 && takes(n); });
             if (!chance)
                 continue;
             bool const hit = roll_chance_i(static_cast<int32>(std::min<uint32>(chance, 100)));

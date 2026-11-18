@@ -41,6 +41,8 @@
 # and the seam guard tests (tests/seam_tests.cpp: src/seam/EfSeamLogic.h, which area is beyond the seam, back or home)
 # and the respawn floor tests (tests/respawnfloor_tests.cpp: src/respawnfloor/EfRespawnFloorLogic.h, the enclosed
 # places' floor against the dynamic respawn)
+# and the vein tests (tests/veins_tests.cpp: src/veins/EfVeinSwingsLogic.h, veins worked in swings: the range, the
+# release, the merge of a swing's stacks)
 # and the sun tests (tests/sun_tests.cpp: src/sun/EfSunLogic.h and EfSunTime.h (the client's verbatim copy): the day's
 # sunrise and sunset, the modes, the sun clock, the parts of the day, EFSUN, the daylight event's window)
 # and the bot follow tests (tests/botfollow_tests.cpp: mod-playerbots' src/Emberfall/EmberfallFollowLogic.h, the bots
@@ -129,6 +131,7 @@ petsize ../src/petsize petsize_tests.cpp
 petname ../src/petname petname_tests.cpp
 seam ../src/seam seam_tests.cpp
 respawnfloor ../src/respawnfloor respawnfloor_tests.cpp
+veins ../src/veins veins_tests.cpp
 sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp
 escorts ../src/escorts escort_tests.cpp
 botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp
