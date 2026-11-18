@@ -20,6 +20,7 @@
 #include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
 #include "EmberfallCastWhileMoving.h" // EMBERFALL: casting on the move (PATCHES.md #25)
 #include "EmberfallMissRules.h" // EMBERFALL: the miss rules (PATCHES.md #26)
+#include "EmberfallAutoShot.h" // EMBERFALL: the Hunter's auto shot on the move (PATCHES.md #42)
 #include "ArenaSpectator.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
@@ -6101,8 +6102,10 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
     if (unitCaster && unitCaster->IsPlayer() && unitCaster->ToPlayer()->isMoving() && !IsTriggered())
     {
         // skip stuck spell to allow use it in falling case and apply spell limitations at movement
+        // EMBERFALL: the Hunter's auto shot on the move (PATCHES.md #42): on own data it is not refused for moving
         if ((!unitCaster->HasUnitMovementFlag(MOVEMENTFLAG_FALLING_FAR) || m_spellInfo->Effects[0].Effect != SPELL_EFFECT_STUCK) &&
-                (IsAutoRepeat() || (m_spellInfo->AuraInterruptFlags & AURA_INTERRUPT_FLAG_NOT_SEATED) != 0))
+                Emberfall::AutoShot::MovingRefuses(m_spellInfo->Id == Emberfall::AutoShot::kSpellId && Emberfall::OwnData(), m_spellInfo->Id,
+                    IsAutoRepeat(), (m_spellInfo->AuraInterruptFlags & AURA_INTERRUPT_FLAG_NOT_SEATED) != 0))
             return SPELL_FAILED_MOVING;
     }
 

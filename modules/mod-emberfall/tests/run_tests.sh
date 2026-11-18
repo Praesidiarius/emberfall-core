@@ -27,6 +27,7 @@
 # and the periodic crit tests (tests/periodiccrit_tests.cpp: the core's src/server/game/Spells/Auras/EmberfallPeriodicCrit.h)
 # and the miss rules tests (tests/missrules_tests.cpp: the core's src/server/game/Spells/EmberfallMissRules.h)
 # and the kit weapon tests (tests/kitweapon_tests.cpp: the core's src/server/game/Spells/EmberfallKitWeapon.h)
+# and the auto shot tests (tests/autoshot_tests.cpp: the core's src/server/game/Spells/EmberfallAutoShot.h, Loose on the move)
 # and the leash tests (tests/leash_tests.cpp: src/leash/EfLeashLogic.h, which landed hit renews a mob's leash)
 # and the stat rules tests (tests/statrules_tests.cpp: src/stats/EfStatRulesLogic.h and the core's EmberfallStatRules.h)
 # and the extra action tests (tests/extraaction_tests.cpp: src/extraaction/EfExtraActionLogic.h, which marker grants which spell)
@@ -121,6 +122,7 @@ secondaryranks ../src/professions:../src/profspecs secondaryranks_tests.cpp
 periodiccrit ../../../src/server/game/Spells/Auras periodiccrit_tests.cpp
 missrules ../../../src/server/game/Spells missrules_tests.cpp
 kitweapon ../../../src/server/game/Spells kitweapon_tests.cpp
+autoshot ../../../src/server/game/Spells autoshot_tests.cpp
 leash ../src/leash leash_tests.cpp
 statrules ../src/stats:../../../src/server/game/Entities/Unit statrules_tests.cpp
 extraaction ../src/extraaction extraaction_tests.cpp
