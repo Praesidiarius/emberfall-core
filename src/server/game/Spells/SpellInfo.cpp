@@ -20,6 +20,7 @@
 #include "ConditionMgr.h"
 #include "Corpse.h"
 #include "DBCStores.h"
+#include "EmberfallStatRules.h" // EMBERFALL: the stat rules (PATCHES.md #40)
 #include "LootMgr.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -2858,7 +2859,9 @@ int32 SpellInfo::CalcPowerCost(WorldObject const* caster, SpellSchoolMask school
                 powerCost += int32(CalculatePct(unitCaster->GetCreateHealth(), ManaCostPercentage));
                 break;
             case POWER_MANA:
-                powerCost += int32(CalculatePct(unitCaster->GetCreateMana(), ManaCostPercentage));
+                // EMBERFALL (PATCHES.md #40, feedback #646): under the stat rules a player's percent is of its max mana
+                powerCost += int32(CalculatePct(Emberfall::StatRules::ManaCostBase(Emberfall::StatRules::On(), unitCaster->IsPlayer(),
+                    unitCaster->GetCreateMana(), unitCaster->GetMaxPower(POWER_MANA)), ManaCostPercentage));
                 break;
             case POWER_RAGE:
             case POWER_FOCUS:

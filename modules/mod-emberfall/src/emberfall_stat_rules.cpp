@@ -25,7 +25,9 @@
 //   - mana comes back at the row's rate a second, in and out of a fight, while casting too (the core's #40 hunk reads
 //     ManaRegenPerSecond below);
 //   - Spirit is no stat: an item's Spirit is dropped (OnPlayerApplyItemModsBefore), health out of combat comes from
-//     Vigour (the core's #40 hunk).
+//     Vigour (the core's #40 hunk);
+//   - a percent mana cost is a share of the player's maximum mana, not of base mana (the core's #40 hunk in
+//     SpellInfo::CalcPowerCost, ManaCostBase; Nathanael 2026-11-18, feedback #646).
 // Without rows in ef_player_mana (or without the table) the pool and the regen stay upstream's; the rest still holds.
 
 #include "Config.h"
@@ -114,7 +116,8 @@ namespace
             settings.manaRegenPerSecond = settings.on ? &RowRegen : nullptr;
             if (Emberfall::OwnData())
                 LOG_INFO("server.loading", ">> Emberfall stat rules: {}", settings.on
-                    ? "on (Intellect = spell power, Strength = attack power, the mana pool by class and level, flat mana regen, no Spirit)"
+                    ? "on (Intellect = spell power, Strength = attack power, the mana pool by class and level, flat mana regen, no Spirit, "
+                      "percent mana costs of the pool)"
                     : "off (upstream's stats)");
         }
 
