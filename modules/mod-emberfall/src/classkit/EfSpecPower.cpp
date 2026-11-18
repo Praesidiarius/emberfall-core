@@ -476,7 +476,7 @@ namespace Emberfall::ClassKit
             player->ModifyPower(slot, -drain);
     }
 
-    int32 GainSpecPower(Unit* caster, int32 points, uint32 spellId, int32 outOfCombatMax)
+    int32 GainSpecPower(Unit* caster, int32 points, uint32 spellId)
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
         if (!player || points <= 0)
@@ -484,11 +484,7 @@ namespace Emberfall::ClassKit
         PowerState* st = player->CustomData.Get<PowerState>(kStateKey);
         if (!st || !st->power || player->getPowerType() != Powers(st->power->power))
             return 0;
-        int32 const scale = PowerScale(st->power->power);
-        int32 units = points * scale;
-        // out of a fight a build with a ceiling stops there (Flashpoint: 30 Heat, feedback #592)
-        if (outOfCombatMax > 0 && !player->IsInCombat())
-            units = Logic::GainBelowCeiling(units, int32(player->GetPower(Powers(st->power->power))), outOfCombatMax * scale);
+        int32 const units = points * PowerScale(st->power->power);
         if (units <= 0)
             return 0;
         player->EnergizeBySpell(player, spellId, units, Powers(st->power->power));

@@ -286,9 +286,9 @@ namespace Emberfall::ClassKit
     // The player's spec power as shown (0 while its power is the class's).
     int32 SpecPowerPoints(Unit* owner);
     // Gives `points` (as shown) of the caster's spec power (nothing while the caster's power is the class's mana) as an
-    // energize of `spellId` (the combat log). Returns the stored units given. `outOfCombatMax` (points, 0: none): out of a
-    // fight the power rises to that at most and a power already there gains nothing (a builder's `ooc_max`, feedback #592).
-    int32 GainSpecPower(Unit* caster, int32 points, uint32 spellId, int32 outOfCombatMax = 0);
+    // energize of `spellId` (the combat log). Returns the stored units given. In a fight or out of one alike (the
+    // builders' ceiling out of a fight, `ooc_max` of feedback #592, went with the Pyromancer's Flashfire, 2026-11-17).
+    int32 GainSpecPower(Unit* caster, int32 points, uint32 spellId);
     // End bonuses: when the aura `auraSpell` (cast by `caster`) leaves `owner`, every dummy aura effect of the caster with
     // misc = auraSpell and a trigger casts the trigger with its amount as base points 1: on the caster when the trigger
     // targets its caster (Stored Charge when Galeward ends), else on the owner (Slow Waking when Becalm ends, Echoing

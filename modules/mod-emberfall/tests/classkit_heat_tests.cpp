@@ -19,7 +19,9 @@
 // EfLustLogic.h SpendCutMs and EfClassKitLogic.h TierReached / RampTick; tests/run_tests.sh builds and runs them):
 // Undying Flame's cut for the Heat really spent (no remainder lost, nothing for Overheat's free casts), thresholds read
 // before the cost, Falling Sun's "consumes all", the field's snapshot at placement, Burning Chains once per enemy, Twin
-// Sigils' own instances, Eternal Ember's floor, Endless Inferno's uncapped lengthening and Final Incineration's tick. The
+// Sigils' own instances, Eternal Ember's floor, Endless Inferno's uncapped lengthening and Final Incineration's tick;
+// Flashfire (ankarna's notes of 2026-11-17): Heat hit or miss once the fight began, no ceiling out of combat, its
+// talents' thresholds before its own Heat. The
 // numbers are examples fed to the functions, not the kit's values (those: the game repo's content/data/classes/mage.yaml).
 // Solar Terror's cower is a hold (mod_stun with the fear mechanic), never a fear that flees: data, checked by the game
 // repo's tools/py/tests/test_classkit_pyromancer.py.
@@ -115,29 +117,44 @@ int main()
         check(Heat::Lengthen(0, 15000, 4000).leftMs == 0, "Overheat already gone: nothing");
         check(Heat::LastTick(6, 6) && !Heat::LastTick(5, 6), "only the last of six ticks counts");
     }
-    // Flashpoint out of a fight (feedback #592, Nathanael 2026-11-15): Heat to 30 at most (300 stored, ooc_max 30 x 10);
-    // pressed every 10 s while walking (the bar drains 1 a second: 100 stored between presses) it never passes 30
+    // Flashfire (ankarna 2026-11-17): Heat on a successful cast whether or not the attack hits; the cast starts the fight
+    // (the core's hostile cast does, a miss or resist included, an evading enemy not), and without a fight no Heat
     {
-        int32_t const ceiling = 30 * 10;
-        int32_t heat = 0, most = 0;
+        auto build = [](int32_t value, uint32_t struck, uint32_t reached, bool inFight)
+        { return Logic::PowerGain(value, 0, Logic::BuildCount(true, struck, reached, inFight), true, false); };
+        check(build(30, 1, 1, true) == 30, "a Flashfire that hits: 30 Heat");
+        check(build(30, 0, 1, true) == 30, "a Flashfire that misses, is dodged or resisted: 30 Heat all the same");
+        check(build(40, 0, 1, true) == 40, "Empowered Flashfire 2/2 (40), hit or miss");
+        check(build(30, 0, 0, true) == 0, "at an evading enemy (reached nobody, no fight): nothing");
+        check(build(30, 1, 1, false) == 0, "a cast that left its caster out of a fight: no Heat before the pull");
+        // every other builder keeps the miss rules: only the enemies struck count
+        check(Logic::BuildCount(false, 0, 1, true) == 0 && Logic::BuildCount(false, 2, 3, true) == 2,
+              "without hit_or_miss: the enemies struck, never those only reached");
+        check(Logic::PowerGain(10, 0, Logic::BuildCount(false, 0, 1, true), true, false) == 0, "a missed Cinderbolt: nothing");
+    }
+    // Heat neither stops nor is capped out of a fight any more (Flashpoint's ceiling of 30, feedback #592, is gone): a
+    // Flashfire cast out of combat starts the fight and gives its whole Heat whatever the bar holds, up to the bar's top
+    {
+        int32_t heat = 0;
         for (int press = 0; press < 4; ++press)
         {
-            heat += Logic::GainBelowCeiling(300, heat, ceiling);
-            most = std::max(most, heat);
-            heat = std::max(0, heat - 100);
+            heat += 10 * Logic::PowerGain(30, 0, Logic::BuildCount(true, 1, 1, true), true, false);
+            heat = std::max(0, heat - 100);    // walking 10 s between pulls: the drain of 1 a second
         }
-        check(most == 300, "four presses out of a fight: Heat ends at 30, never above");
-        check(Logic::GainBelowCeiling(300, 0, ceiling) == 300, "from empty: the opener's full 30");
-        check(Logic::GainBelowCeiling(400, 0, ceiling) == 300, "Empowered Flashpoint's 40: still 30 at most");
-        check(Logic::GainBelowCeiling(300, 250, ceiling) == 50, "at 25: up to 30");
-        check(Logic::GainBelowCeiling(300, 300, ceiling) == 0 && Logic::GainBelowCeiling(300, 900, ceiling) == 0,
-              "at 30 or more: no Heat (the charge and the cooldown are the spell's own, unchanged)");
-        // in a fight the module passes no ceiling: 30 each press, up to the bar's maximum
-        int32_t fight = 0;
-        for (int press = 0; press < 4; ++press)
-            fight += Logic::GainBelowCeiling(300, fight, 0);
-        check(fight == 1200, "in a fight: 30 a press, four presses 120");
-        check(Logic::GainBelowCeiling(0, 0, ceiling) == 0 && Logic::GainBelowCeiling(-5, 0, 0) == 0, "nothing to give: nothing");
+        check(heat == 800, "four pulls opened with Flashfire: 30 each, the slow drain between them (80 left)");
+        check(Logic::PowerGain(30, 0, Logic::BuildCount(true, 0, 1, true), true, false) == 30,
+              "at 30 Heat or more out of combat: still the full 30 (it gave nothing before)");
+    }
+    // Flashfire's talents read the bar as Flashfire is cast, before its own Heat (the stage auras follow the bar on the
+    // player tick after the cast); its empowerment waits for the next Heat spender, one charge
+    {
+        check(Logic::TierReached(300, 30, 10) && !Logic::TierReached(290, 30, 10), "Blazing Flashfire: from 30 Heat");
+        check(!Heat::ReachedBeforeCost(29, 30), "cast at 29 (59 after its own 30): no Blazing Flashfire");
+        check(Logic::TierReached(700, 70, 10) && !Logic::TierReached(690, 70, 10), "Critical Ignition: from 70 Heat");
+        check(!Heat::ReachedBeforeCost(69, 70) && Heat::ReachedBeforeCost(70, 70), "cast at 69: no Critical Ignition; at 70: yes");
+        check(Logic::Empowered(1000, 30) == 1300, "the empowered spender: 30 % more");
+        check(Logic::Empowered(1000, 30 + 20) == 1500, "with Blazing Flashfire at 30+: 50 % more");
+        check(Logic::Empowered(1000, 0) == 1000, "no empowerment (spent, or Flashfire's own hit): as it is");
     }
     // Final Incineration: the final tick 100 % more, the rest as they were
     {
