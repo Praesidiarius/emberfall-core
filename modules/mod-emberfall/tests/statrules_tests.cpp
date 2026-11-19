@@ -17,7 +17,8 @@
 
 // Standalone tests of the stat rules (src/stats/EfStatRulesLogic.h and the core's EmberfallStatRules.h, PATCHES.md #40;
 // tests/run_tests.sh builds and runs them): spell power and attack power one for one, the mana pool in place of create
-// mana and Intellect's bonus, the flat regen with its auras, the table rows, Spirit dropped from items.
+// mana and Intellect's bonus, the flat regen with its auras, the table rows, Spirit dropped from items, a percent mana
+// cost of the pool.
 
 #include "EfStatRulesLogic.h"
 #include "EmberfallStatRules.h"
@@ -124,6 +125,38 @@ int main()
         Check(ValidRow(ManaRow{8, 10, 975.0f, 0.0f}), "a regen of 0 is allowed");
         Check(RowKey(8, 10) != RowKey(10, 8), "keys tell class and level apart");
         Check(RowKey(11, 60) == RowKey(11, 60), "keys are stable");
+    }
+
+    // ---- a percent mana cost of the pool (feedback #646, 2026-11-18): SpellInfo::CalcPowerCost's mana case,
+    // int32(CalculatePct(ManaCostBase(...), ManaCostPercentage)); the cast check (Spell::CheckPower: power < cost is
+    // refused) and the bots' HasPowerFor (power >= cost) both compare against that one number
+    {
+        auto const cost = [](bool on, bool player, uint32_t base, uint32_t maxMana, uint32_t pct)
+        {
+            return int32_t(uint32_t(ManaCostBase(on, player, base, maxMana) * float(pct) / 100.0f));   // CalculatePct
+        };
+        auto const castAllowed = [](int32_t power, int32_t c) { return !(power < c); };      // Spell::CheckPower
+        auto const botHasPowerFor = [](int32_t power, int32_t c) { return c <= 0 || power >= c; };
+        struct Case { char const* what; uint32_t base; uint32_t pool; };
+        // a 5 x class (base 60 + 15 a level) and the Paladin (3 x, base 50 + 12 a level), at 10 and at 40
+        for (Case const& k : { Case{"5 x class at 10", 195, 975}, Case{"5 x class at 40", 645, 3225},
+                               Case{"3 x class at 10", 158, 474}, Case{"3 x class at 40", 518, 1554} })
+        {
+            std::string const w = k.what;
+            Check(cost(true, true, k.base, k.pool, 20) == int32_t(k.pool / 5), w + ": 20 % takes a fifth of the pool");
+            Check(cost(true, true, k.base, k.pool, 10) == int32_t(k.pool * 10 / 100), w + ": 10 % of the pool");
+            Check(cost(false, true, k.base, k.pool, 20) == int32_t(k.base * 20 / 100), w + ": switch off, base mana as upstream");
+            Check(cost(true, false, k.base, k.pool, 20) == int32_t(k.base * 20 / 100), w + ": a creature keeps base mana");
+            // a talent or aura that raises max mana (+10 %) raises the cost with it
+            uint32_t const raised = k.pool + k.pool / 10;
+            Check(cost(true, true, k.base, raised, 20) == int32_t(uint32_t(raised * 20.0f / 100.0f)), w + ": a max-mana aura counts");
+            // one point short is refused, exactly the cost is allowed; the bot agrees both ways
+            int32_t const c = cost(true, true, k.base, k.pool, 20);
+            Check(!castAllowed(c - 1, c) && !botHasPowerFor(c - 1, c), w + ": one point short: no cast, no bot cast");
+            Check(castAllowed(c, c) && botHasPowerFor(c, c), w + ": exactly the cost: cast, bot casts");
+        }
+        Check(ManaCostBase(true, true, 195, 0) == 0 && cost(true, true, 195, 0, 20) == 0, "no mana bar, no cost");
+        Check(cost(true, true, 195, 975, 0) == 0, "no percent, no percent cost");
     }
 
     // ---- rule 5: Spirit dropped from items

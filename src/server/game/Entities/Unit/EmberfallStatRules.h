@@ -27,7 +27,11 @@
 //     core's regen fields, so Player::Regenerate's "recent cast" choice picks the same value); the mana regen percent auras
 //     scale that rate, the flat mana-a-five-seconds auras and items add to it as upstream;
 //   - health out of combat comes from Vigour (the core's Stamina) where upstream reads Spirit (Player::OCTRegenHPPerSpirit,
-//     the same gt tables: Emberfall's gtOCTRegenHP / gtRegenHPPerSpt hold 0.1, so Vigour / 10 a second).
+//     the same gt tables: Emberfall's gtOCTRegenHP / gtRegenHPPerSpt hold 0.1, so Vigour / 10 a second);
+//   - a spell's percent mana cost (Spell.dbc ManaCostPercentage) is a share of the player's maximum mana, the bar as the
+//     client shows it (the class and level's pool plus what talents and auras add), not of base mana (Nathanael
+//     2026-11-18, Emberfall feedback #646; SpellInfo::CalcPowerCost, so the cast check, the cost taken, the bots and
+//     every other caller agree). Creatures, pets and every other power keep upstream's base.
 // What a script hook reaches stays in the module: the mana pool (OnPlayerAfterUpdateMaxPower) and attack power from
 // Strength (OnPlayerAfterUpdateAttackPowerAndDamage). No core header here: modules/mod-emberfall/tests/statrules_tests.cpp
 // tests this file on its own.
@@ -63,6 +67,13 @@ namespace Emberfall::StatRules
     constexpr int32_t SpellPowerFromIntellect(float intellect)
     {
         return intellect > 0.0f ? int32_t(intellect) : 0;
+    }
+
+    // The amount a percent mana cost is a share of: a player's maximum mana while the rules are on; upstream's base mana
+    // (create mana, player_class_stats BaseMana) with the rules off and for every creature and pet.
+    constexpr uint32_t ManaCostBase(bool rulesOn, bool isPlayer, uint32_t baseMana, uint32_t maxMana)
+    {
+        return rulesOn && isPlayer ? maxMana : baseMana;
     }
 
     // The mana a second written into both regen fields: the flat rate times the regen percent auras (a talent's +20 %:
