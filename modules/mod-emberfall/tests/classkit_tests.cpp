@@ -105,7 +105,7 @@ int main()
     check(FlowBuilds(true, 3), "Crosscurrent reaching three, all dodged, builds Flow");
     check(!FlowBuilds(true, 0), "Crosscurrent at empty air (nobody reached) builds no Flow");
     check(FlowBuilds(false, 0), "a self builder builds without a target");
-    check(Builds(false, 0), "a self spell (no enemy effect: Flashpoint) builds without a target");
+    check(Builds(false, 0), "a self spell (no enemy effect) builds without a target");
     check(BuilderGain(1, 0, 0, true) == 0 && PowerGain(10, 0, 0, true, true) == 0,
           "self stacks and spec power follow the same rule (First Flash doubles nothing)");
 

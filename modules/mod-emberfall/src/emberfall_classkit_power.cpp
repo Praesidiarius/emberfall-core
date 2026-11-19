@@ -161,8 +161,9 @@ namespace
     // the miss rules (#146): a builder that strikes others builds only for the enemies it struck
     bool NeedsHit(SpellInfo const* info) { return Emberfall::ClassKit::StrikesOthers(info); }
 
-    // The build's ceiling out of a fight in points (the kit's `ooc_max`, carried in the build effect's item type), 0: none.
-    int32 OutOfCombatMax(SpellEffectInfo const& eff) { return int32(eff.ItemType); }
+    // The build counts the enemies the cast reached, struck or not (the kit's `hit_or_miss`, carried as 1 in the build
+    // effect's item type: the Pyromancer's Flashfire).
+    bool HitOrMiss(SpellEffectInfo const& eff) { return eff.ItemType == 1; }
 }
 
 class spell_ef_kit_build_power : public SpellScript
@@ -204,7 +205,14 @@ class spell_ef_kit_build_power : public SpellScript
     }
 
     // A missile (Spell.dbc speed: the Pyromancer's Cinderbolt) strikes after the cast is done: its build waits for the hit.
-    bool Delayed() { return GetSpellInfo()->Speed > 0.0f && NeedsHit(GetSpellInfo()); }
+    // A build hit or miss is at the cast (the kit refuses `hit_or_miss` on a missile).
+    bool Delayed()
+    {
+        int8 const index = BuildEffect(GetSpellInfo());
+        if (index >= 0 && HitOrMiss(GetSpellInfo()->Effects[index]))
+            return false;
+        return GetSpellInfo()->Speed > 0.0f && NeedsHit(GetSpellInfo());
+    }
 
     void AfterHitTarget()
     {
@@ -224,7 +232,7 @@ class spell_ef_kit_build_power : public SpellScript
             return;
         int32 const gain = BuildPct(caster, GetSpellInfo()->Id, eff.CalcValue(caster));
         if (gain > 0)
-            Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id, OutOfCombatMax(eff));
+            Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id);
     }
 
     void Finish()
@@ -236,12 +244,15 @@ class spell_ef_kit_build_power : public SpellScript
         SpellEffectInfo const& eff = GetSpellInfo()->Effects[index];
         bool const first = eff.MiscValue && eff.TriggerSpell && caster->HasAura(uint32(eff.MiscValue))
                            && !caster->HasAura(eff.TriggerSpell);
+        // the enemies it counts: struck (the miss rules), or reached struck or not with the fight begun (Flashfire)
+        uint32 const count = Emberfall::ClassKit::Logic::BuildCount(
+            HitOrMiss(eff), _hits, Emberfall::ClassKit::Reached(GetSpell(), caster), caster->IsInCombat());
         int32 const gain = BuildPct(caster, GetSpellInfo()->Id,
                                     WithRules(caster, Emberfall::ClassKit::Logic::PowerGain(eff.CalcValue(caster), eff.MiscValueB,
-                                                                                         _hits, NeedsHit(GetSpellInfo()), first)));
+                                                                                         count, NeedsHit(GetSpellInfo()), first)));
         if (gain <= 0)
             return;
-        if (Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id, OutOfCombatMax(eff)) > 0 && first)
+        if (Emberfall::ClassKit::GainSpecPower(caster, gain, GetSpellInfo()->Id) > 0 && first)
             caster->CastSpell(caster, eff.TriggerSpell, true);
     }
 

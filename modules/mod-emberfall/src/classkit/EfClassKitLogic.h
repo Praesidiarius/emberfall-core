@@ -57,6 +57,18 @@ namespace Emberfall::ClassKit::Logic
         return Builds(strikesOthers, reached);
     }
 
+    // The enemies a spec power build counts (spell_ef_kit_build_power): those its strike struck (the miss rules, #146),
+    // or with the build effect's `hit_or_miss` (the Pyromancer's Flashfire, ankarna 2026-11-17: "on a successful cast,
+    // regardless of whether the attack hits") those it reached, struck or not (a miss, dodge, parry, resist or immunity
+    // counts; an evading enemy does not), and only when the cast left its caster in a fight (it starts one: no build
+    // out of a fight, so no Heat before the pull).
+    constexpr uint32_t BuildCount(bool hitOrMiss, uint32_t struck, uint32_t reached, bool inFight)
+    {
+        if (!hitOrMiss)
+            return struck;
+        return inFight ? reached : 0;
+    }
+
     // The stacks a builder raises. `value` is its stack effect's value (spell mods in: Crown of Blades +1, Marked by
     // Heaven +1, Dawn's Return +1/+2); `perEnemyMax` its misc B: above 0 one stack per enemy struck, at most that many,
     // plus value - 1 (Sunwheel: 1 per enemy, at most 3; under Crown one more). A builder whose enemy effects struck
@@ -155,18 +167,6 @@ namespace Emberfall::ClassKit::Logic
             return 0;
         int32_t const gain = perEnemyMax > 0 ? value * std::min<int32_t>(int32_t(hits), perEnemyMax) : value;
         return first ? gain * 2 : gain;
-    }
-
-    // A build out of a fight under its ceiling (the build effect's `ooc_max`, Emberfall feedback #592: the Pyromancer's
-    // Flashpoint lifts Heat to 30 at most out of combat): of `gain` stored units, what the power at `now` may still take
-    // without passing `ceiling` (stored units); nothing once it stands at or above it. No ceiling (0): all of it.
-    constexpr int32_t GainBelowCeiling(int32_t gain, int32_t now, int32_t ceiling)
-    {
-        if (gain <= 0)
-            return 0;
-        if (ceiling <= 0)
-            return gain;
-        return std::clamp(ceiling - now, 0, gain);
     }
 
     // Heavy Rend's overspend: of `want` more points, what the caster still holds beyond the spell's own cost (`have` and
