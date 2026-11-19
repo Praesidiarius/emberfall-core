@@ -778,6 +778,14 @@ namespace Emberfall::ClassKit::Logic
         return keep && now == 0 && before > 0 ? before : now;
     }
 
+    // Whether a spec power's tier holds at `stored` (EfSpecPower UpdateTiers): from its `at` on (the Pyromancer's Heat);
+    // a tier at 0 only while the power is exactly 0 (the Ranger's Energy Spent, the gate of its two transitions,
+    // 2026-11-19). Both in stored units.
+    constexpr bool TierHolds(int32_t at, int32_t stored)
+    {
+        return at > 0 ? stored >= at : stored == 0;
+    }
+
     // ---- the Druid's Bloomtender (Emberfall docs/design/classes/druid-bloomtender.md: Lifesprout, Verdant Ancient) ----
 
     // A growth plant's clock (spell_ef_kit_growth_stage): a stage that began with `leftMs` of the cycle still to run (the

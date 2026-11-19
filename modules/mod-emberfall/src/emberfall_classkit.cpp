@@ -1120,6 +1120,7 @@ void AddEmberfallClassKitEarthScripts();
 void AddEmberfallClassKitSpiritScripts();
 void AddEmberfallClassKitInfuseScripts();
 void AddEmberfallClassKitFrostScripts();
+void AddEmberfallClassKitRangerScripts();
 
 void AddEmberfallClassKitScripts()
 {
@@ -1163,4 +1164,5 @@ void AddEmberfallClassKitScripts()
     AddEmberfallClassKitSpiritScripts(); // the Hunter's Spirit Caller v2.0: src/emberfall_classkit_spirit.cpp
     AddEmberfallClassKitInfuseScripts(); // the Mage's Infusionist: src/emberfall_classkit_infuse.cpp
     AddEmberfallClassKitFrostScripts();  // the Mage Frostguard rework's (2026-11-03): src/emberfall_classkit_frost.cpp
+    AddEmberfallClassKitRangerScripts(); // the Hunter Ranger v1.0's (2026-11-19): src/emberfall_classkit_ranger.cpp
 }

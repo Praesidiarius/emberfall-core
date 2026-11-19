@@ -35,6 +35,11 @@
 #include <ctime>
 #include <list>
 
+#if __has_include("EfClassKit.h")
+#include "EfClassKit.h"
+#define EF_BOTS_HAVE_CAST_OVERRIDE 1
+#endif
+
 std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
 {
     // The routine first; a melee spec swings when nothing in its table can go, a ranged spec with a bow keeps its Auto
@@ -302,10 +307,17 @@ uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** 
     {
         if (!bot->HasSpell(step.spell))
             continue;
+        // the spell the button casts now: a class kit's cast override (the Ranger's adaptive button is Rending Strike in
+        // Bear's Claw, 2026-11-19; the client's press goes through the server's override, a bot's cast does not)
+        uint32 spellId = step.spell;
+#ifdef EF_BOTS_HAVE_CAST_OVERRIDE
+        if (uint32 const face = Emberfall::ClassKit::CastOverride(bot, step.spell))
+            spellId = face;
+#endif
         if (backoff)
-            if (auto it = backoff->find(step.spell); it != backoff->end() && now < it->second)
+            if (auto it = backoff->find(spellId); it != backoff->end() && now < it->second)
                 continue;
-        SpellInfo const* info = sSpellMgr->GetSpellInfo(step.spell);
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
         if (!info)
             continue;
         Unit* on = nullptr;
@@ -366,11 +378,12 @@ uint32 EmberfallPickStep(PlayerbotAI* botAI, Unit* target, bool prepare, Unit** 
             continue;
         if (!HasPowerFor(bot, info))
             continue;
-        if (!botAI->CanCastSpell(step.spell, on))
+        // the override's face is cast without being known (a helper of the kit)
+        if (!botAI->CanCastSpell(spellId, on, spellId == step.spell))
             continue;
         if (castOn)
             *castOn = on;
-        return step.spell;
+        return spellId;
     }
     return 0;
 }
