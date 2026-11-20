@@ -21,7 +21,8 @@
 // A chest whose template has a max_opens (data5, maxSuccessOpens: the 3.3.5 core reads neither, "pre 3.0 used for
 // mining nodes") above one is a vein: each mining cast at it is one swing with its own loot (the loot template rolled
 // again), and the vein stays until its last swing, then goes and respawns as any node. How many swings a fresh vein
-// holds is rolled when its first swing ends, evenly between min_opens and max_opens.
+// holds is rolled when its first swing's loot opens, evenly between min_opens and max_opens (so while a swing's window
+// is open the vein knows whether it is the last: CheckCastAt).
 
 #ifndef EMBERFALL_VEIN_SWINGS_LOGIC_H
 #define EMBERFALL_VEIN_SWINGS_LOGIC_H
@@ -64,6 +65,43 @@ namespace Emberfall::VeinSwings
         if (!armed)
             return Release::PassOn;
         return swingsBefore + 1 >= total ? Release::Spent : Release::Keep;
+    }
+
+    // What a gathering cast (an open-lock spell at a game object: a vein, an herb, a chest) may do with the object as it
+    // stands, asked when the cast starts and again when it ends (Spell::CheckCast). Without it a cast at a node that
+    // went meanwhile ran to its end and failed silently in Spell::SendLoot ("Possible hacking attempt ... on respawn
+    // time"): a click during the last swing's loot window (the auto loot takes its time) started a cast, the window
+    // closed, the vein went, the cast ended at nothing; or another player took the last load while this one cast.
+    // - Ok:    the cast goes on (also a vein's next swing while the caster's own window of a swing that is not the
+    //          vein's last is still open: Player::SendLoot releases that window first, then the next swing's loot comes)
+    // - Gone:  nothing is left: despawned, going at the map's next update (its last load was just taken), or the swing
+    //          out in the caster's own window is the vein's last
+    // - InUse: a vein whose swing is out in another player's open window: theirs first
+    enum class CastAt
+    {
+        Ok,
+        Gone,
+        InUse
+    };
+    struct NodeState
+    {
+        bool spawned = true;          // GameObject::isSpawned
+        bool goingAway = false;       // its last load was taken (loot state "just deactivated" of a consumable chest)
+        bool vein = false;            // worked in swings
+        bool swingOut = false;        // a swing's loot is out in an open loot window (the looter's loot is this vein)
+        bool swingIsCasters = false;  // that window is the caster's
+        uint32_t swingsBefore = 0;    // the swings counted before the one out (the object's use count)
+        uint32_t total = 0;           // the swings the vein holds (0: not rolled yet)
+    };
+    constexpr CastAt CheckCastAt(NodeState const& n)
+    {
+        if (!n.spawned || n.goingAway)
+            return CastAt::Gone;
+        if (!n.vein || !n.swingOut)
+            return CastAt::Ok;
+        if (!n.swingIsCasters)
+            return CastAt::InUse;
+        return n.total && n.swingsBefore + 1 >= n.total ? CastAt::Gone : CastAt::Ok;
     }
 
     // One loot slot, as far as the merge cares: the vein's template has the ore twice (the sure one and the chance of

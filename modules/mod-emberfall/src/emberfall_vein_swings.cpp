@@ -23,8 +23,15 @@
 // (the world is shared). Skill-ups stay one roll per player and vein (the core's skill-up list in
 // Spell::EffectOpenLock: on the player's first swing), and the yield talents roll on the player's first swing too
 // (EfProfSpecs.cpp, IsLaterSwing). The rule: veins/EfVeinSwingsLogic.h (tests/veins_tests.cpp).
+//
+// A gathering cast at a node that is gone or going (any open-lock spell at a game object: veins, herbs, chests) is
+// refused when it starts and when it ends, with a message, instead of ending silently in Spell::SendLoot's "Possible
+// hacking attempt ... on respawn time" (2026-11-20: a click during the last swing's auto loot started a cast at a vein
+// that went before the cast ended); a vein whose swing is out in another player's window is theirs first
+// (EfVeinSwingsLogic.h CheckCastAt).
 
 #include "AllGameObjectScript.h"
+#include "AllSpellScript.h"
 #include "GameObject.h"
 #include "Log.h"
 #include "LootMgr.h"
@@ -34,6 +41,9 @@
 #include "PlayerScript.h"
 #include "Random.h"
 #include "ScriptMgr.h"
+#include "SharedDefines.h"
+#include "Spell.h"
+#include "SpellInfo.h"
 #include "veins/EfVeinSwings.h"
 #include "veins/EfVeinSwingsLogic.h"
 
@@ -47,7 +57,8 @@ namespace
     struct VeinState : public DataMap::Base
     {
         bool armed = false;   // a swing's loot is out (opened by a player since the last release)
-        uint32 total = 0;     // the swings this spawn holds (rolled when its first swing ends)
+        uint32 total = 0;     // the swings this spawn holds (rolled when its first swing's loot opens)
+        ObjectGuid looter;    // who opened the swing that is out
     };
 
     VS::Range RangeOf(GameObject const* go)
@@ -68,19 +79,24 @@ namespace
             VeinState* st = go->CustomData.GetDefault<VeinState>("ef_vein");
             if (state == GO_ACTIVATED)
             {
-                // Player::SendLoot opened the swing's loot (or DoLootRelease left it open, not all taken)
+                // Player::SendLoot opened the swing's loot (or DoLootRelease left it open, not all taken). A fresh
+                // spawn's first swing rolls how many it holds (the use count is reset at respawn; a reopened swing,
+                // still armed, rolls nothing), so the window of its last swing knows it is the last.
                 if (unit && unit->IsPlayer())
+                {
+                    if (!st->armed && go->GetUseCount() == 0)
+                    {
+                        VS::Range const r = RangeOf(go);
+                        st->total = urand(r.lo, r.hi);
+                    }
                     st->armed = true;
+                    st->looter = unit->GetGUID();
+                }
                 return;
             }
             if (state != GO_JUST_DEACTIVATED)
                 return;
             uint32 const before = go->GetUseCount();
-            if (st->armed && before == 0)
-            {
-                VS::Range const r = RangeOf(go);
-                st->total = urand(r.lo, r.hi);
-            }
             VS::Release const what = VS::AfterRelease(st->armed, before, st->total);
             st->armed = false;
             if (what == VS::Release::PassOn)
@@ -107,6 +123,50 @@ namespace
                 return;
             if (GameObject* go = ObjectAccessor::GetGameObject(*player, lootGuid))
                 VS::MergeLoot(go, loot);
+        }
+    };
+
+    // A gathering cast at a node as it stands (VS::CheckCastAt), when it starts and when it ends: gone or going ->
+    // SPELL_FAILED_BAD_TARGETS (the client says "That is gone." for a cast at a game object), another player's swing out
+    // -> SPELL_FAILED_CHEST_IN_USE ("Someone else is at it."). A game master may use a despawned object (as the core's
+    // Spell::SendLoot lets them).
+    class emberfall_vein_swings_spells : public AllSpellScript
+    {
+    public:
+        emberfall_vein_swings_spells() : AllSpellScript("emberfall_vein_swings_spells", { ALLSPELLHOOK_ON_SPELL_CHECK_CAST }) { }
+
+        void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
+        {
+            if (res != SPELL_CAST_OK || !spell || !spell->GetSpellInfo()->HasEffect(SPELL_EFFECT_OPEN_LOCK))
+                return;
+            GameObject* go = spell->m_targets.GetGOTarget();
+            Player* player = spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr;
+            if (!go || !player || player->IsGameMaster())
+                return;
+            VS::NodeState n;
+            n.spawned = go->isSpawned();
+            n.goingAway = go->getLootState() == GO_JUST_DEACTIVATED && go->GetGOInfo()->IsDespawnAtAction();
+            n.vein = VS::IsVein(go);
+            if (n.vein && go->getLootState() == GO_ACTIVATED)
+                if (VeinState const* st = go->CustomData.Get<VeinState>("ef_vein"); st && st->armed)
+                {
+                    Player const* looter = ObjectAccessor::GetPlayer(*go, st->looter);
+                    n.swingOut = looter && looter->GetLootGUID() == go->GetGUID();
+                    n.swingIsCasters = looter == player;
+                    n.swingsBefore = go->GetUseCount();
+                    n.total = st->total;
+                }
+            switch (VS::CheckCastAt(n))
+            {
+                case VS::CastAt::Gone:
+                    res = SPELL_FAILED_BAD_TARGETS;
+                    break;
+                case VS::CastAt::InUse:
+                    res = SPELL_FAILED_CHEST_IN_USE;
+                    break;
+                default:
+                    break;
+            }
         }
     };
 }
@@ -166,4 +226,5 @@ void AddEmberfallVeinSwingsScripts()
 {
     new emberfall_vein_swings_objects();
     new emberfall_vein_swings_player();
+    new emberfall_vein_swings_spells();
 }
