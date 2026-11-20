@@ -134,6 +134,13 @@ int main()
         check(!LinkedAuraOn(true, false), "Momentum refreshed without the talent: no parry");
     }
 
+    // a channel's hold reach: its range and 10 %, at most 3 yd more (Cutlass Barrage's 5 yd: 5.5)
+    {
+        check(ChannelHoldRange(5.0f) > 5.49f && ChannelHoldRange(5.0f) < 5.51f, "a 5 yd channel holds to 5.5 yd");
+        check(ChannelHoldRange(40.0f) > 42.99f && ChannelHoldRange(40.0f) < 43.01f, "at most 3 yd more");
+        check(ChannelHoldRange(0.0f) == 0.0f, "no range, no check");
+    }
+
     std::cout << "classkit flow: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed == 0 ? 0 : 1;
 }

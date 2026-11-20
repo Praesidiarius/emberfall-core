@@ -833,6 +833,31 @@ class spell_ef_kit_parry_window : public AuraScript
     }
 };
 
+// A channel at one enemy (Cutlass Barrage, 2026-11-20): refused at the cast while its enemy is beyond the reach the channel
+// keeps (EfFlowLogic.h ChannelHoldRange); the core lets a melee spell start up to ~2.7 yd farther for a caster on the move,
+// and such a channel ended at once with its cooldown spent and no strike struck.
+class spell_ef_kit_channel_reach : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_channel_reach);
+
+    SpellCastResult Check()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !target || target == caster)
+            return SPELL_CAST_OK;
+        float const hold = Flow::ChannelHoldRange(GetSpellInfo()->GetMaxRange(GetSpellInfo()->IsPositive()));
+        if (hold > 0.0f && !caster->IsWithinDistInMap(target, hold))
+            return SPELL_FAILED_OUT_OF_RANGE;
+        return SPELL_CAST_OK;
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_ef_kit_channel_reach::Check);
+    }
+};
+
 // The aura link's rule passive (Defensive Momentum): a marker the rules are found by (EfClassKit.h Rules); nothing happens
 // in it (the Corsair's own, beside src/emberfall_classkit_exec.cpp's spell_ef_kit_rule).
 class spell_ef_kit_flow_rule : public AuraScript
@@ -848,6 +873,7 @@ void AddEmberfallClassKitFlowScripts()
     RegisterSpellAndAuraScriptPair(spell_ef_kit_flow_clear, spell_ef_kit_flow_clear_aura);
     RegisterSpellScript(spell_ef_kit_aura_link);
     RegisterSpellScript(spell_ef_kit_parry_window);
+    RegisterSpellScript(spell_ef_kit_channel_reach);
     RegisterSpellScriptWithArgs(spell_ef_kit_flow_rule, "spell_ef_kit_rule_aura_link");
     RegisterSpellScript(spell_ef_kit_faces);
     RegisterSpellScript(spell_ef_kit_offhand_strike);

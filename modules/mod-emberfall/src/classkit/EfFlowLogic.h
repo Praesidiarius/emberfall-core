@@ -236,6 +236,14 @@ namespace Emberfall::ClassKit::Flow
         return parriesWithout ? wanted : std::max<int32_t>(0, wanted - kEngineBaseParryPct);
     }
 
+    // The reach a channel at one enemy keeps (Spell::UpdateChanneledTargetList: its range and 10 %, at most 3 yd more):
+    // spell_ef_kit_channel_reach refuses a cast beyond it (Cutlass Barrage: 5 yd -> 5.5), where the core's melee leeway for
+    // a moving caster (up to ~2.7 yd) would start a channel that ends at once, its cooldown spent and no strike struck.
+    constexpr float ChannelHoldRange(float range)
+    {
+        return range <= 0.0f ? 0.0f : range + std::min(3.0f, range * 0.1f);
+    }
+
     // A linked aura (spell_ef_kit_aura_link): on while its carrier holds and the caster holds the rule that names it.
     constexpr bool LinkedAuraOn(bool carrierUp, bool ruleHeld)
     {
