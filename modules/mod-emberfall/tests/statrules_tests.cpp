@@ -71,10 +71,10 @@ int main()
     // ---- rule 2: attack power from Strength (a hunter's Agility too)
     for (uint8_t cls : {1, 2, 8, 9, 11})
     {
-        Check(Near(AttackPowerBase(cls, 95.0f, 67.0f), 95.0f), "Strength one for one, Agility nothing, class " + std::to_string(cls));
+        Check(Near(AttackPowerBase(cls, 95.0f, 67.0f), 190.0f), "Strength two for one, Agility nothing, class " + std::to_string(cls));
         Check(Near(AttackPowerBase(cls, 0.0f, 50.0f), 0.0f), "no Strength, no attack power, class " + std::to_string(cls));
     }
-    Check(Near(AttackPowerBase(3, 81.0f, 67.0f), 148.0f), "a hunter: Strength and Agility one for one");
+    Check(Near(AttackPowerBase(3, 81.0f, 67.0f), 229.0f), "a hunter: Strength two for one and Agility one for one");
     Check(Near(AttackPowerBase(3, -4.0f, 10.0f), 10.0f), "a debuffed Strength below 0 counts as 0");
     // at level 1 the rule gives a warrior 24 (upstream 3 + 48 - 20 = 31) and a mage 18 (upstream 8): above 0 for all
     Check(AttackPowerBase(1, 24.0f, 20.0f) > 0.0f && AttackPowerBase(8, 18.0f, 20.0f) > 0.0f, "level 1 attack power above 0");

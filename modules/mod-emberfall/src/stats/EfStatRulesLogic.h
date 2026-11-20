@@ -24,7 +24,8 @@
 //   hunter                 2 x level + Strength + Agility - 20   ranged: 2 x level + Agility - 10
 //   druid (no form)        2 x Strength - 20                     ranged: Agility - 10
 //   mage, warlock          Strength - 10                         ranged: Agility - 10
-// Here: Strength one for one for every class, melee and ranged alike; a hunter (whose items carry Agility, the class's
+// Here: two attack power a point of Strength for every class, melee and ranged alike (one for one until 2026-11-20:
+// Nathanael's feedback #679, "i think we should make 1 strength = 2 attack power instead of one"); a hunter (whose items carry Agility, the class's
 // main stat) adds its Agility one for one [proposal]. No level term: from level 1 the rule gives at least what upstream
 // gave a mage, and a warrior's 24 at level 1 against upstream's 31 (the swing is the auto attack's level rule anyway).
 // Talents and auras (the TOTAL modifiers: the Earthwarden's attack power from Agility in its form) stay on top.
@@ -40,12 +41,13 @@
 namespace Emberfall::StatRules
 {
     constexpr uint8_t CLASS_HUNTER_ID = 3;   // SharedDefines.h CLASS_HUNTER
+    constexpr float STRENGTH_ATTACK_POWER = 2.0f;   // attack power a point of Strength (feedback #679, 2026-11-20; 1 before)
 
     // The base attack power (upstream's val2, before the BASE_PCT modifiers) of a player's Strength and Agility; the
     // same for melee and ranged. Never below 0.
     constexpr float AttackPowerBase(uint8_t classId, float strength, float agility)
     {
-        float ap = strength > 0.0f ? strength : 0.0f;
+        float ap = strength > 0.0f ? STRENGTH_ATTACK_POWER * strength : 0.0f;
         if (classId == CLASS_HUNTER_ID && agility > 0.0f)
             ap += agility;
         return ap;
