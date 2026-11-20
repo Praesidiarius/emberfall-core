@@ -92,16 +92,19 @@ namespace Emberfall::ClassKit
                         player->RemoveAurasDueToSpell(t.aura);
         }
 
-        // The tier auras follow the power (Blazing, Inferno, Maximum).
+        // The tier auras follow the power (Blazing, Inferno, Maximum; a tier at 0 while the power is exactly 0: the
+        // Ranger's Energy Spent, 2026-11-19).
         void UpdateTiers(Player* player, SpecPower const& power)
         {
             if (power.tiers.empty())
                 return;
             Powers const slot = Powers(power.power);
-            int32 const stored = player->getPowerType() == slot ? int32(player->GetPower(slot)) : 0;
+            bool const inSlot = player->getPowerType() == slot;
+            int32 const stored = inSlot ? int32(player->GetPower(slot)) : 0;
             for (SpecPower::Tier const& t : power.tiers)
             {
-                bool const want = t.at > 0 && stored >= int32(t.at) && (!t.requiredSpell || player->HasSpell(t.requiredSpell));
+                bool const want = inSlot && Logic::TierHolds(int32(t.at), stored)
+                    && (!t.requiredSpell || player->HasSpell(t.requiredSpell));
                 bool const has = player->HasAura(t.aura);
                 if (want && !has)
                     player->AddAura(t.aura, player);
