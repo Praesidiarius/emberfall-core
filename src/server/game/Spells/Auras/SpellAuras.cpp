@@ -15,6 +15,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "EmberfallOwnData.h" // EMBERFALL: own data (Emberfall.OwnData)
+#include "EmberfallPetAura.h" // EMBERFALL: a player's companion auras (PATCHES.md #43)
 #include "ArenaSpectator.h"
 #include "CellImpl.h"
 #include "Common.h"
@@ -24,6 +26,7 @@
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Opcodes.h"
+#include "Pet.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -2968,6 +2971,17 @@ void UnitAura::FillTargetMap(std::map<Unit*, uint8>& targets, Unit* caster)
                             break;
                         }
                     case SPELL_EFFECT_APPLY_AREA_AURA_PET:
+                        // EMBERFALL: a class kit's companion aura cast by a player reaches its companion, not the player
+                        // (PATCHES.md #43, EmberfallPetAura.h)
+                        if (Emberfall::PetAura::ToCompanion(Emberfall::OwnData(), GetSpellInfo()->SpellFamilyName,
+                                                            GetUnitOwner()->IsPlayer()))
+                        {
+                            Pet* pet = GetUnitOwner()->ToPlayer()->GetPet();
+                            if (Emberfall::PetAura::CompanionInReach(pet != nullptr, pet && pet->IsAlive(),
+                                                                     pet ? GetUnitOwner()->GetDistance(pet) : 0.0f, radius))
+                                targetList.push_back(pet);
+                            break;
+                        }
                         targetList.push_back(GetUnitOwner());
                         [[fallthrough]]; /// @todo: Not sure whether the fallthrough was a mistake (forgetting a break) or intended. This should be double-checked.
                     case SPELL_EFFECT_APPLY_AREA_AURA_OWNER:

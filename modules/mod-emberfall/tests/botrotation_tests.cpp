@@ -124,6 +124,38 @@ int main()
     float const t = TimeToLive(1000, 600, 4.0f);
     check(t > 5.9f && t < 6.1f, "400 taken in 4 s, 600 left: 6 s to live");
 
+    // the kiting step (ef_bot_spec.kite, the Marksman's notes of 2026-11-19)
+    KiteFacts k;
+    k.kite = k.ranged = true;
+    k.foeDistance = 3.0f;
+    k.nowMs = 100000;
+    check(KiteStep(k), "kite: a foe in reach of a ranged kiting bot: a step away");
+    KiteFacts no = k;
+    no.kite = false;
+    check(!KiteStep(no), "kite: not a spec that kites");
+    no = k;
+    no.ranged = false;
+    check(!KiteStep(no), "kite: not while it fights in melee");
+    no = k;
+    no.foeDistance = 12.0f;
+    check(!KiteStep(no), "kite: the foe out of reach: it shoots");
+    no.foeDistance = -1.0f;
+    check(!KiteStep(no), "kite: no foe on it");
+    no = k;
+    no.rooted = true;
+    check(!KiteStep(no), "kite: rooted, no step");
+    no = k;
+    no.grouped = true;
+    check(!KiteStep(no), "kite: in a group the tank holds it");
+    no = k;
+    no.castingPlanted = true;
+    check(!KiteStep(no), "kite: a planted cast is not broken");
+    no = k;
+    no.lastStepMs = k.nowMs - 2000;
+    check(!KiteStep(no), "kite: one step every 6 s, shooting between");
+    no.lastStepMs = k.nowMs - 6000;
+    check(KiteStep(no), "kite: the next step after 6 s");
+
     std::cout << "botrotation: " << (g_checks - g_failed) << "/" << g_checks << " checks passed\n";
     return g_failed ? 1 : 0;
 }

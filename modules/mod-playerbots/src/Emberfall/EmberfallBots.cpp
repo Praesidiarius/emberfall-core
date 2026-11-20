@@ -161,7 +161,7 @@ namespace EmberfallBots
 
         if (QueryResult r = PlayerbotsDatabase.Query(
                 "SELECT spec_id, class_id, spec_key, ranged, weight, weapons, offhand, shield, prespec_ranged, stat_weights, "
-                "swing FROM ef_bot_spec"))
+                "swing, kite FROM ef_bot_spec"))
         {
             do
             {
@@ -177,6 +177,7 @@ namespace EmberfallBots
                 s.shield = f[7].Get<uint8>() != 0;
                 s.prespecRanged = f[8].Get<uint8>() != 0;
                 s.swing = f[10].Get<uint8>() != 0;
+                s.kite = f[11].Get<uint8>() != 0;
                 std::string const weights = f[9].Get<std::string>();
                 for (std::string_view part : Acore::Tokenize(weights, ',', false))
                 {

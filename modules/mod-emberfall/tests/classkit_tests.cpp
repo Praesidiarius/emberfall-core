@@ -278,6 +278,14 @@ int main()
     check(StackedDamage(200, 14, 5) == 340, "Patient Kill: 14 % a Bead");
     check(StackedDamage(200, 10, 0) == 200, "no Beads: the base");
     check(StackedDamage(0, 10, 5) == 0, "a miss stays a miss");
+    // the "each stack" form (misc B 1; Full Draw since the Marksman notes of 2026-11-19: 30 % of the shot a Bead)
+    check(PerStackDamage(200, 30, 5) == 300, "5 Beads at 30 %: 150 % of the shot");
+    check(PerStackDamage(200, 30, 1) == 60, "1 Bead: 30 %");
+    check(PerStackDamage(200, 30, 0) == 0, "no Bead: nothing");
+    check(PerStackDamage(200, 34, 5) == 340, "Patient Kill: 34 % a Bead");
+    check(PerStackDamage(0, 30, 5) == 0, "a miss stays a miss (each stack)");
+    check(SpentDamage(200, 30, 5, 1) == 300 && SpentDamage(200, 30, 5, 0) == 500, "misc B picks the form");
+    check(SpentDamage(200, 10, 5, 2) == StackedDamage(200, 10, 5), "any other misc B: the base and more");
     // spend bonuses (feedback #249): a passive with or without a trigger, a buff only with one; never below its need
     check(SpendBonusActs(true, true, 5, 5) && !SpendBonusActs(true, true, 5, 4), "a passive's trigger at its stacks only");
     check(SpendBonusActs(true, false, 5, 5), "a passive without a trigger (stacks kept) acts too");
