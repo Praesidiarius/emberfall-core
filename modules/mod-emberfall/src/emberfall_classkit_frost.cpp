@@ -48,13 +48,20 @@
 //                                     Twin Orbs, Shattering Collapse)
 //   spell_ef_kit_frost_rules          the caster's Frostguard rules for this ability: spell_ef_kit_rule_first_contact (value %
 //                                     more on an enemy the mage had not hurt before the cast: no threat from the mage on a
-//                                     creature, not in combat with the mage otherwise; First Contact on Glacial Spear)
-//   spell_ef_kit_rule_shell_overflow  the rule spell_ef_kit_shatter reads (src/emberfall_classkit.cpp): value % of the shell a
-//                                     shatter of its misc made beyond the cap, as the trigger's damage at the caster
+//                                     creature, not in combat with the mage otherwise; First Contact on Glacial Spear);
+//                                     spell_ef_kit_rule_echo_pulse (ankarna's hand-off of 2026-11-19, mage-frostguard.md §14:
+//                                     ONE roll a cast, value % for the rule's trigger, cast at the caster once the cast is
+//                                     done: Echoing Frost's second pulse on Frigid Pulse, a stack-only spell of its own)
+//   spell_ef_kit_rule_shell_overflow  the rule the shared shell gains read (src/emberfall_classkit.cpp, EfFrostRules.h
+//                                     OverflowPulse): since 2026-11-19 a gain of one ability activation that passes the cap
+//                                     casts the trigger ONCE at the caster with its own numbers (Shattering Overflow's
+//                                     pulse); misc = the ability, or none: any gain (the shell over the cap only decides
+//                                     whether there is a pulse, never its size)
 //   spell_ef_kit_rule_*               the rules' own aura scripts: markers (nothing happens in them)
 
 #include "EfClassKit.h"
 #include "EfFrostLogic.h"
+#include "EfFrostRules.h"
 
 #include "CellImpl.h"
 #include "Creature.h"
@@ -75,6 +82,7 @@
 #include <cmath>
 #include <list>
 #include <map>
+#include <set>
 #include <vector>
 
 // Takes value % of a blow of its schools, only from an attacker the owner has marked.
@@ -326,12 +334,54 @@ class spell_ef_kit_frost_rules : public SpellScript
         SetHitDamage(Emberfall::ClassKit::FrostLogic::FirstContactDamage(GetHitDamage(), true, pct));
     }
 
+    // Echoing Frost (2026-11-19): one roll for the whole cast once it is done, however many enemies it struck; the second
+    // pulse is the rule's own spell (stack-only: no damage, no threat), cast by the script, triggered (no cost, no global
+    // cooldown). A test realm's GM may force the chance (`.eftest chance echoing_frost N`).
+    void Echo()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+        for (AuraEffect const* eff : Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_echo_pulse", GetSpellInfo()->Id))
+        {
+            uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
+            int32 const chance = Emberfall::ClassKit::TestChance("echoing_frost", eff->GetAmount());
+            int32 const roll = int32(urand(0, 99));
+            bool const echo = Emberfall::ClassKit::FrostLogic::EchoPulse(trigger != 0, chance, roll);
+            LOG_DEBUG("module.classkit.frost", "Echoing Frost roll of {} on {}: chance {}, roll {}: {}", caster->GetName(),
+                      GetSpellInfo()->Id, chance, roll, echo ? "a second pulse" : "none");
+            if (echo)
+                caster->CastSpell(caster, trigger, true);
+        }
+    }
+
     void Register() override
     {
         BeforeCast += SpellCastFn(spell_ef_kit_frost_rules::Before);
         OnHit += SpellHitFn(spell_ef_kit_frost_rules::HandleHit);
+        AfterCast += SpellCastFn(spell_ef_kit_frost_rules::Echo);
     }
 };
+
+// Shattering Overflow since ankarna's hand-off of 2026-11-19 (EfFrostRules.h): one pulse a whole activation, with the
+// burst's own numbers (its level and spell power values; crits as any spell; the pack share of spell_ef_kit_area_share).
+void Emberfall::ClassKit::FrostRules::OverflowPulse(Unit* caster, uint32 spellId, int64 overflow)
+{
+    if (!caster || !Emberfall::ClassKit::FrostLogic::OverflowPulses(overflow))
+        return;
+    // the rules naming this ability and those naming none (any shell gain); one burst each, a burst never twice
+    std::set<uint32> bursts;
+    for (uint32 named : { spellId, 0u })
+        for (AuraEffect const* eff : Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_shell_overflow", named))
+            if (uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell)
+                bursts.insert(trigger);
+    for (uint32 trigger : bursts)
+    {
+        LOG_DEBUG("module.classkit.frost", "Shattering Overflow of {}: {} made {} beyond the shell's cap: one pulse ({})",
+                  caster->GetName(), spellId, overflow, trigger);
+        caster->CastSpell(caster, trigger, true);
+    }
+}
 
 // A rule's own script: a marker the rules are found by (EfClassKit.h Rules); nothing happens in it.
 class spell_ef_kit_frost_rule : public AuraScript
@@ -349,6 +399,7 @@ void AddEmberfallClassKitFrostScripts()
     RegisterSpellScript(spell_ef_kit_area_share);
     RegisterSpellScript(spell_ef_kit_orb_seek);
     RegisterSpellScript(spell_ef_kit_frost_rules);
-    for (char const* name : { "spell_ef_kit_rule_shell_overflow", "spell_ef_kit_rule_orb_collapse", "spell_ef_kit_rule_first_contact" })
+    for (char const* name : { "spell_ef_kit_rule_shell_overflow", "spell_ef_kit_rule_orb_collapse", "spell_ef_kit_rule_first_contact",
+                              "spell_ef_kit_rule_echo_pulse" })
         RegisterSpellScriptWithArgs(spell_ef_kit_frost_rule, name);
 }

@@ -31,7 +31,8 @@
 //                                    aura that cast this spell (Bitter Cold on Hoarstorm's tick). A dummy on the caster
 //                                    whose trigger is the stacked shell gives value shell stacks once the cast is done,
 //                                    hit or miss, for this spell's duration (spell mods in), with its misc talent known
-//                                    (Crystalline Recovery on Glacial Spear; EfClassKit.h AddShellStacks, under the cap)
+//                                    (Crystalline Recovery on Glacial Spear; EfClassKit.h AddShellStacks, under the cap;
+//                                    beyond it Shattering Overflow's one pulse, EfFrostRules.h)
 //   spell_ef_kit_shatter             effect 1 damages the enemies around that carry the stacks; effect 2 (dummy): value =
 //                                    stacks shattered per enemy (0: all), misc = the stacking aura, misc B 1 = damage per
 //                                    stack; effect 3 (dummy): value = shell stacks per unit, misc B = stacks shattered per
@@ -41,9 +42,9 @@
 //                                    rework of 2026-11-15, uncapped since). Every stack shattered refunds 1 % of max mana
 //                                    and runs the stack-cooldown passives (Icebreak, Glacial Rupture). A single-target
 //                                    shatter (effect 1 at the target, no area: Focused Shatter's Icebreak) needs a target
-//                                    that carries the stacks. The shell made beyond the cap feeds the caster's
-//                                    spell_ef_kit_rule_shell_overflow rules naming the spell (Shattering Overflow: value %
-//                                    of it as the trigger's damage, cast at the caster)
+//                                    that carries the stacks. A cast whose shell gain passes the cap sends the caster's
+//                                    spell_ef_kit_rule_shell_overflow rules' burst once (EfFrostRules.h OverflowPulse:
+//                                    Shattering Overflow, one pulse an activation since 2026-11-19)
 //   spell_ef_kit_shell               the stacked shell aura (effect 1 school absorb; effect 2 dummy: percent of max health
 //                                    per stack; StackAmount: the most stacks): its stacks follow the pool as blows wear it
 //                                    down (EfClassKit.h FollowShell; Frost Shell); effect 3 (dummy, optional): the percent
@@ -118,6 +119,7 @@
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
 #include "EfFrostLogic.h"
+#include "EfFrostRules.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
@@ -300,7 +302,10 @@ class spell_ef_kit_add_stacks : public SpellScript
             int32 duration = GetSpellInfo()->GetDuration();
             if (Player* player = caster->ToPlayer())
                 player->ApplySpellMod(GetSpellInfo()->Id, SPELLMOD_DURATION, duration);
-            Emberfall::ClassKit::AddShellStacks(caster, eff.TriggerSpell, std::max(1, eff.CalcValue(caster)), duration);
+            int64 const overflow = Emberfall::ClassKit::AddShellStacks(caster, eff.TriggerSpell, std::max(1, eff.CalcValue(caster)),
+                                                                       duration);
+            // any shell gain beyond the cap sends Shattering Overflow's one pulse (EfFrostRules.h)
+            Emberfall::ClassKit::FrostRules::OverflowPulse(caster, GetSpellInfo()->Id, overflow);
         }
     }
 
@@ -394,16 +399,9 @@ class spell_ef_kit_shatter : public SpellScript
         if (Player* player = caster->ToPlayer())
             player->ApplySpellMod(GetSpellInfo()->Id, SPELLMOD_DURATION, duration);
         int64 const overflow = Emberfall::ClassKit::AddShellStacks(caster, shell.TriggerSpell, gain, duration);
-        // Shattering Overflow (the Frostguard's rework of 2026-11-15): value % of the shell this shatter made beyond the cap
-        // bursts as the rule's trigger round the caster; the shell itself is not touched
-        if (overflow > 0)
-            for (AuraEffect const* eff : Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_shell_overflow", GetSpellInfo()->Id))
-            {
-                uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
-                int32 const damage = Emberfall::ClassKit::FrostLogic::OverflowDamage(overflow, eff->GetAmount());
-                if (trigger && damage > 0)
-                    caster->CastCustomSpell(caster, trigger, &damage, nullptr, nullptr, true);
-            }
+        // Shattering Overflow (EfFrostRules.h): one pulse for this whole activation when its gain passed the cap; the shell
+        // itself is not touched
+        Emberfall::ClassKit::FrostRules::OverflowPulse(caster, GetSpellInfo()->Id, overflow);
     }
 
     void Register() override

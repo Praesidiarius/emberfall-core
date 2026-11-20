@@ -19,8 +19,10 @@
 // docs/design/classes/mage-frostguard.md §13) that needs no core: the Frost Shell's share of a blow and what a gain makes
 // beyond its cap, Shattering Overflow's damage and its share over many enemies, the stacks under a cap a talent raises
 // (Deep Winter), First Contact, Frostbound Orb's first enemy on its line and its flight, Twin Orbs' roll, and Stillpoint's
-// plan for one enemy in the notes' order. src/classkit/EfClassKit.cpp, src/emberfall_classkit.cpp and
-// src/emberfall_classkit_frost.cpp use it; tests/classkit_frost_tests.cpp (tests/run_tests.sh) checks it.
+// plan for one enemy in the notes' order; since ankarna's AoE and threat hand-off of 2026-11-19 (§14) Shattering
+// Overflow's one pulse an activation, Frigid Pulse's hit without damage and Echoing Frost's roll. src/classkit/EfClassKit.cpp,
+// src/emberfall_classkit.cpp and src/emberfall_classkit_frost.cpp use it; tests/classkit_frost_tests.cpp
+// (tests/run_tests.sh) checks it.
 
 #ifndef EMBERFALL_FROST_LOGIC_H
 #define EMBERFALL_FROST_LOGIC_H
@@ -56,13 +58,14 @@ namespace Emberfall::ClassKit::FrostLogic
         return now > room ? now - room : 0;
     }
 
-    // Shattering Overflow: `pct` percent of the shell made beyond the cap becomes frost damage (the notes: 50 %; 10 % since
-    // feedback #619, 2026-11-17: the kit's talent value).
-    constexpr int32_t OverflowDamage(int64_t overflow, int32_t pct)
+    // Shattering Overflow since ankarna's hand-off of 2026-11-19 (mage-frostguard.md §14): one ability activation sends at
+    // most ONE pulse. The activation's shell gain is summed over every enemy it shattered first (Logic::ShellGain), the cap
+    // is looked at once (ShellOverflow), and anything made beyond it sends one pulse however much was over, however many
+    // enemies or stacks were shattered. Two activations, two pulses (no internal cooldown). (Before: `pct` % of the
+    // amount over as the pulse's damage, 50 % and then 10 % since feedback #619.)
+    constexpr int32_t OverflowPulses(int64_t overflow)
     {
-        if (overflow <= 0 || pct <= 0)
-            return 0;
-        return int32_t(std::min<int64_t>(overflow * pct / 100, INT32_MAX));
+        return overflow > 0 ? 1 : 0;
     }
 
     // An area burst's damage on each of `struck` enemies, soft-capped at `full`: the whole `amount` on each while at most
@@ -77,6 +80,44 @@ namespace Emberfall::ClassKit::FrostLogic
         if (struck <= k)
             return amount;
         return int32_t(std::lround(double(amount) * double(k) / double(struck)));
+    }
+
+    // What one Shattering Overflow pulse deals to each of `struck` enemies: the burst's own amount (`amount`: its spell's
+    // level and spell power numbers, never a share of the shell over the cap), shared out over a big pack as AreaShare
+    // does (`full` enemies take it whole); nothing without a pulse. `overflow` only decides whether there is one.
+    inline int32_t OverflowHit(int64_t overflow, int32_t amount, uint32_t struck, uint32_t full)
+    {
+        return OverflowPulses(overflow) ? AreaShare(amount, struck, full) : 0;
+    }
+
+    // Frigid Pulse since the hand-off of 2026-11-19: no damage; every enemy it strikes gets its own flat threat (the
+    // engine's SPELL_EFFECT_THREAT: the effect's points by level, not shared between the enemies, without threat
+    // modifiers, so the spec's x 3.5 does not touch it) and its stacks: `baseStacks` (1) + Gathering Frost's
+    // `extraStacks` (0 / 1 / 2).
+    struct PulseHit
+    {
+        int32_t damage;
+        int32_t threat;
+        int32_t stacks;
+    };
+
+    constexpr PulseHit FrigidPulseHit(int32_t threatPoints, int32_t baseStacks, int32_t extraStacks)
+    {
+        return PulseHit{ 0, std::max(0, threatPoints), std::max(0, baseStacks) + std::max(0, extraStacks) };
+    }
+
+    // Echoing Frost: one roll a cast, never one an enemy: with the talent, `roll` (0-99) below `chance` percent sends the
+    // second pulse.
+    constexpr bool EchoPulse(bool talent, int32_t chance, int32_t roll)
+    {
+        return talent && chance > 0 && roll < chance;
+    }
+
+    // The second pulse's hit on each enemy: exactly `echoStacks` (1), whatever the cast's own stacks were (Gathering
+    // Frost does not touch it); no damage, no threat.
+    constexpr PulseHit EchoHit(int32_t echoStacks)
+    {
+        return PulseHit{ 0, 0, std::max(0, echoStacks) };
     }
 
     // The stacks on an enemy after adding `add` under the cap `cap` (Deep Winter raises the Frost Stacks' 6 to 8): never
