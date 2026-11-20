@@ -835,6 +835,16 @@ namespace Emberfall::Talents
                 for (auto const& [spell, level] : baseline)
                     if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spell); info && !info->IsPassive())
                         spells.push_back(spell);
+                // the spec tree's granted abilities that replace nothing go on the first empty buttons too (Emberfall
+                // 2026-11-20: a new Corsair's first bar is Quickcut, Crosscurrent and the Flow Finisher; Quickcut and the
+                // Flow Finisher take Cross Cut's and Finish's buttons below, Crosscurrent replaces nothing)
+                if (EfTree const* tree = data.Tree(s->treeId))
+                    for (EfNode const& n : tree->nodes)
+                        if (!n.autoAt.empty() && n.kind == NodeKind::Active && !n.replaces && !n.ranks.empty())
+                            for (uint32 const spell : n.ranks.front())
+                                if (player->HasSpell(spell) && !IsPassiveSpell(spell)
+                                    && std::find(spells.begin(), spells.end(), spell) == spells.end())
+                                    spells.push_back(spell);
                 // Replacements take over their slots (T6/M6): a button holding any replacing node's spell of the class
                 // holds its replaced spell again, then the new spec's invested replacements take it over (Magic Bolt ->
                 // Frostbolt at the first choice; Frostbolt -> Magic Bolt in a spec without it), before unknown spells go.
