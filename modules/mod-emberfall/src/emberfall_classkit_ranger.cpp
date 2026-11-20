@@ -22,9 +22,15 @@
 //
 //   spell_ef_kit_stance_rest        a passive (the spec passive): effect 1 a periodic dummy whose misc is the resting stance
 //                                   (an aura); the other dummies' misc the stances a fight's end takes off. Every tick (and
-//                                   when it comes): out of a fight those come off, the resting stance goes on and the spec
-//                                   power is full; in a fight the resting stance goes on while no stance holds (Falcon's
-//                                   Eye and 100 Energy at every fight's start, a stance always on)
+//                                   when it comes): 3 s out of a fight (Ranger::kRestDelayMs, the Rework Update of
+//                                   2026-11-20; the clock starts at the first tick out of it, so 3.0-3.5 s with the 0.5 s
+//                                   tick; a fight before that cancels it) those come off, the resting stance goes on and the
+//                                   spec power is full; until then stance and power stay; with no stance at all the resting
+//                                   one at once; in a fight the resting stance goes on while no stance holds (Falcon's Eye
+//                                   and 100 Energy at every fight's start, a stance always on)
+//   spell_ef_kit_spent_at_start     a buff of cast-time (or other) modifiers on its caster: spent as a cast of a spell they
+//                                   name BEGINS, so an interrupted or cancelled cast spends it too (Quick Nock on Falcon Shot;
+//                                   no charges, a new application renews it); a triggered cast leaves it
 //   spell_ef_kit_hunt_strike        the Ranger's strikes: on every enemy struck the caster's hit bonuses (self triggers once
 //                                   a cast); a dummy at the enemy whose misc is an aura of the caster's on it takes all its
 //                                   stacks and adds value % a stack to this strike (Hunter's Opening on Savage Leap's impact;
@@ -64,11 +70,13 @@
 #include "EfClassKitLogic.h"
 #include "EfRangerLogic.h"
 
+#include "AllSpellScript.h"
 #include "CharmInfo.h"
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "DataMap.h"
 #include "EventProcessor.h"
+#include "GameTime.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "Pet.h"
@@ -301,10 +309,18 @@ class spell_ef_kit_stance_rest : public AuraScript
 {
     PrepareAuraScript(spell_ef_kit_stance_rest);
 
+    uint64 _outSinceMs = 0;   // when this rest first saw its owner out of the fight (0: in one); the game clock
+
     void Tick()
     {
         Player* player = GetUnitOwner() ? GetUnitOwner()->ToPlayer() : nullptr;
-        if (!player || !player->IsInWorld() || !player->IsAlive())
+        if (!player || !player->IsInWorld())
+            return;
+        // the clock runs while dead too (a corpse run is time out of the fight)
+        Ranger::RestClock const clock = Ranger::RestTick(_outSinceMs, player->IsInCombat(),
+                                                         uint64(GameTime::GetGameTimeMS().count()));
+        _outSinceMs = clock.sinceMs;
+        if (!player->IsAlive())
             return;
         uint32 const rest = uint32(GetSpellInfo()->Effects[EFFECT_0].MiscValue);
         if (!rest)
@@ -320,7 +336,7 @@ class spell_ef_kit_stance_rest : public AuraScript
         for (uint32 o : others)
             hasOther = hasOther || player->HasAura(o);
         Powers const slot = player->getPowerType();
-        Ranger::RestAction const act = Ranger::Rest(player->IsInCombat(), player->HasAura(rest), hasOther,
+        Ranger::RestAction const act = Ranger::Rest(player->IsInCombat(), clock.outMs, player->HasAura(rest), hasOther,
                                                     int32(player->GetPower(slot)), int32(player->GetMaxPower(slot)));
         if (act.removeOther)
             for (uint32 o : others)
@@ -652,6 +668,47 @@ class spell_ef_kit_swing_bonus : public AuraScript
     void Register() override { }
 };
 
+// A buff spent as a cast it shortens begins (Quick Nock): the marker; the spell script below spends it.
+class spell_ef_kit_spent_at_start : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_spent_at_start);
+
+    void Register() override { }
+};
+
+// Every cast that begins (Spell::prepare done: the cast bar is up, the engine has applied the cast-time modifiers): the
+// caster's spell_ef_kit_spent_at_start buffs whose modifiers name the spell are spent now, so an interrupted or cancelled
+// cast has spent them too (the engine itself would give a charged modifier back on a failed cast). Such a buff has no
+// charges: nothing of the engine's spends or restores it.
+class EmberfallSpentAtStartSpells : public AllSpellScript
+{
+public:
+    EmberfallSpentAtStartSpells() : AllSpellScript("EmberfallSpentAtStartSpells", { ALLSPELLHOOK_ON_PREPARE }) { }
+
+    void OnSpellPrepare(Spell* spell, Unit* caster, SpellInfo const* spellInfo) override
+    {
+        Player* player = caster ? caster->ToPlayer() : nullptr;
+        if (!spell || !player || !spellInfo || !spellInfo->SpellFamilyFlags)
+            return;
+        std::vector<Aura*> spent;
+        for (auto const& [id, app] : player->GetAppliedAuras())
+        {
+            Aura* aura = app->GetBase();
+            if (aura->GetCasterGUID() != player->GetGUID() || !aura->GetScriptByName("spell_ef_kit_spent_at_start"))
+                continue;
+            bool names = false;
+            for (SpellEffectInfo const& eff : aura->GetSpellInfo()->Effects)
+                names = names || ((eff.IsAura(SPELL_AURA_ADD_FLAT_MODIFIER) || eff.IsAura(SPELL_AURA_ADD_PCT_MODIFIER))
+                                  && aura->GetSpellInfo()->SpellFamilyName == spellInfo->SpellFamilyName
+                                  && (eff.SpellClassMask & spellInfo->SpellFamilyFlags));
+            if (Ranger::SpentAtStart(true, names, spell->IsTriggered()))
+                spent.push_back(aura);
+        }
+        for (Aura* aura : spent)
+            aura->Remove();
+    }
+};
+
 // The rules' markers: nothing happens in them (EfClassKit.h Rules finds the passives by these names).
 class spell_ef_kit_ranger_rule : public AuraScript
 {
@@ -702,6 +759,8 @@ void AddEmberfallClassKitRangerScripts()
     RegisterSpellScript(spell_ef_kit_pet_command);
     RegisterSpellScript(spell_ef_kit_pet_command_strike);
     RegisterSpellScript(spell_ef_kit_swing_bonus);
+    RegisterSpellScript(spell_ef_kit_spent_at_start);
+    new EmberfallSpentAtStartSpells();
     for (char const* name : { "spell_ef_kit_rule_health_crit", "spell_ef_kit_rule_hit_stacks", "spell_ef_kit_rule_wound_echo" })
         RegisterSpellScriptWithArgs(spell_ef_kit_ranger_rule, name);
     new EmberfallRangerUnitScript();

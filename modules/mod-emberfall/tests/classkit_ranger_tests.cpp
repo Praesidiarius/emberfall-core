@@ -57,18 +57,64 @@ namespace
 
 int main()
 {
-    // AT 1: a fight starts in Falcon's Eye with 100 Energy; leaving it from either stance: Falcon's Eye, 100 Energy
+    // AT 1: a fight starts in Falcon's Eye with 100 Energy; leaving it from either stance: Falcon's Eye, 100 Energy (since
+    // the Rework Update of 2026-11-20 after 3 s out of the fight)
     {
-        RestAction const fromBear = Rest(false, false, true, 0, 1000);
-        check(fromBear.addRest && fromBear.removeOther && fromBear.fill, "AT1: out of a fight from Bear's Claw: Falcon's Eye on, Bear's Claw off, full");
-        RestAction const fromFalcon = Rest(false, true, false, 250, 1000);
-        check(!fromFalcon.addRest && !fromFalcon.removeOther && fromFalcon.fill, "AT1: out of a fight in Falcon's Eye at 25: filled");
-        RestAction const atRest = Rest(false, true, false, 1000, 1000);
+        RestAction const fromBear = Rest(false, kRestDelayMs, false, true, 0, 1000);
+        check(fromBear.addRest && fromBear.removeOther && fromBear.fill, "AT1: 3 s out of a fight from Bear's Claw: Falcon's Eye on, Bear's Claw off, full");
+        RestAction const fromFalcon = Rest(false, kRestDelayMs, true, false, 250, 1000);
+        check(!fromFalcon.addRest && !fromFalcon.removeOther && fromFalcon.fill, "AT1: 3 s out of a fight in Falcon's Eye at 25: filled");
+        RestAction const atRest = Rest(false, 60000, true, false, 1000, 1000);
         check(!atRest.addRest && !atRest.removeOther && !atRest.fill, "AT1: at rest and full: nothing to do");
-        RestAction const fight = Rest(true, false, true, 0, 1000);
+        RestAction const fight = Rest(true, 0, false, true, 0, 1000);
         check(!fight.addRest && !fight.removeOther && !fight.fill, "AT1: in a fight Bear's Claw stays, no Energy comes back");
-        RestAction const none = Rest(true, false, false, 300, 1000);
-        check(none.addRest && !none.fill, "AT1: in a fight with no stance (after a death): Falcon's Eye, no Energy");
+        RestAction const none = Rest(true, 0, false, false, 300, 1000);
+        check(none.addRest && !none.fill, "AT1: in a fight with no stance (after a death): Falcon's Eye at once, no Energy");
+    }
+
+    // Update 1, the delayed reset: during the 3 s the stance and the Energy stay; after them the reset; a new fight cancels
+    {
+        for (int32_t out : { 0, 500, 1500, 2500, 2999 })
+        {
+            RestAction const bear = Rest(false, out, false, true, 0, 1000);
+            check(!bear.addRest && !bear.removeOther && !bear.fill, "U1: " + std::to_string(out) + " ms out of a fight: Bear's Claw and 0 Energy stay");
+            RestAction const falcon = Rest(false, out, true, false, 250, 1000);
+            check(!falcon.addRest && !falcon.fill, "U1: " + std::to_string(out) + " ms out of a fight: Falcon's Eye keeps its 25 Energy");
+        }
+        RestAction const after = Rest(false, 3000, false, true, 400, 1000);
+        check(after.addRest && after.removeOther && after.fill, "U1: at 3 s: Falcon's Eye, Bear's Claw off, 100 Energy");
+        // the clock: the first tick out of a fight starts it; the ticks every 0.5 s; a fight resets it
+        RestClock c = RestTick(0, false, 10000);
+        check(c.sinceMs == 10000 && c.outMs == 0, "U1: the first tick out of a fight starts the clock at 0");
+        c = RestTick(c.sinceMs, false, 12500);
+        check(c.outMs == 2500 && !Rest(false, c.outMs, false, true, 0, 1000).addRest, "U1: 2.5 s later: still waiting");
+        c = RestTick(c.sinceMs, false, 13000);
+        check(c.outMs == 3000 && Rest(false, c.outMs, false, true, 0, 1000).addRest, "U1: 3 s after the first tick out: the reset");
+        RestClock fightAgain = RestTick(10000, true, 12000);
+        check(fightAgain.sinceMs == 0 && fightAgain.outMs == 0, "U1: a new fight before the 3 s cancels the pending reset");
+        RestClock const restart = RestTick(fightAgain.sinceMs, false, 14000);
+        check(restart.sinceMs == 14000 && restart.outMs == 0, "U1: the next fight's end starts a fresh 3 s");
+        // the reset itself: from a held stance, never in a fight (no input, no global cooldown: a triggered cast)
+        check(!Rest(true, 99999, false, true, 0, 1000).removeOther, "U1: in a fight the clock never resets a stance");
+        // death, logout, zoning as before: no stance at all (a login, a death that took Bear's Claw) is mended at once
+        RestAction const login = Rest(false, 0, false, false, 1000, 1000);
+        check(login.addRest && !login.fill, "U1: a login (no stance, full Energy): Falcon's Eye at once");
+        RestAction const revived = Rest(false, 0, false, false, 100, 1000);
+        check(revived.addRest && revived.fill, "U1: back from a death that took Bear's Claw: Falcon's Eye and 100 Energy at once");
+        // a corpse run is time out of the fight: the clock runs while dead, so a revived Ranger in Falcon's Eye is filled
+        RestClock const dead = RestTick(20000, false, 45000);
+        check(Rest(false, dead.outMs, true, false, 0, 1000).fill, "U1: revived in Falcon's Eye after 25 s dead: filled at once");
+    }
+
+    // Update 1, Quick Nock: spent as Falcon Shot BEGINS (interrupted or cancelled too); 1.5 s - 0.5 s = 1.0 s
+    {
+        check(SpentAtStart(true, true, false), "U1: Quick Nock held, Falcon Shot begins: spent");
+        check(!SpentAtStart(true, false, false), "U1: another spell (Heartseeker, Perfect Shot) leaves Quick Nock");
+        check(!SpentAtStart(false, true, false), "U1: no Quick Nock: nothing to spend");
+        check(!SpentAtStart(true, true, true), "U1: a triggered cast leaves it");
+        check(ShortenedCastMs(1500, 500) == 1000, "U1: Falcon Shot with Quick Nock: 1.0 s");
+        check(ShortenedCastMs(1500, 0) == 1500, "U1: Falcon Shot without it: 1.5 s");
+        check(ShortenedCastMs(300, 500) == 0, "U1: never below 0");
     }
 
     // AT 2: Falcon 25 + 25 + 50 = 0, then Savage Leap: Bear's Claw, 100
@@ -84,7 +130,7 @@ int main()
     check(Spend(100, { 100 }) == 0 && TransitionOpen(0), "AT4: Brutal Cleave spends all 100: Retreat open");
 
     // AT 5: no unspendable residual from the approved costs
-    check(AfterSpend(25, 25) == 0, "AT5: 25 in Falcon's Eye: Piercing Shot usable, to 0");
+    check(AfterSpend(25, 25) == 0, "AT5: 25 in Falcon's Eye: Falcon Shot usable, to 0");
     check(AfterSpend(50, 50) == 0, "AT5: 50 in Bear's Claw: Rending Strike usable, to 0");
     check(EverySpendable(100, { 25, 50, 75 }), "AT5: Falcon's Eye 25 / 50 / 75: every reachable amount spends to 0");
     check(EverySpendable(100, { 50, 50, 100 }), "AT5: Bear's Claw 50 / 50 / 100: every reachable amount spends to 0");
