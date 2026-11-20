@@ -16,7 +16,7 @@
  */
 
 // Standalone tests of the stat rules (src/stats/EfStatRulesLogic.h and the core's EmberfallStatRules.h, PATCHES.md #40;
-// tests/run_tests.sh builds and runs them): spell power and attack power one for one, the mana pool in place of create
+// tests/run_tests.sh builds and runs them): spell power one for one, attack power two a point of Strength, the mana pool in place of create
 // mana and Intellect's bonus, the flat regen with its auras, the table rows, Spirit dropped from items, a percent mana
 // cost of the pool.
 
@@ -68,16 +68,38 @@ int main()
     Check(SpellPowerFromIntellect(34.8f) == 34, "one for one, whole points");
     Check(SpellPowerFromIntellect(275.0f) == 275, "one for one at 60");
 
-    // ---- rule 2: attack power from Strength (a hunter's Agility too)
+    // ---- rule 2: attack power from Strength, two a point since 2026-11-20 (feedback #679; a hunter's Agility one a point)
+    Check(Near(STRENGTH_ATTACK_POWER, 2.0f), "two attack power a point of Strength by default");
     for (uint8_t cls : {1, 2, 8, 9, 11})
     {
-        Check(Near(AttackPowerBase(cls, 95.0f, 67.0f), 190.0f), "Strength two for one, Agility nothing, class " + std::to_string(cls));
+        Check(Near(AttackPowerBase(cls, 95.0f, 67.0f), 190.0f), "Strength two a point, Agility nothing, class " + std::to_string(cls));
         Check(Near(AttackPowerBase(cls, 0.0f, 50.0f), 0.0f), "no Strength, no attack power, class " + std::to_string(cls));
     }
-    Check(Near(AttackPowerBase(3, 81.0f, 67.0f), 229.0f), "a hunter: Strength two for one and Agility one for one");
+    // a Strength class at two levels (the warrior's class line, formulas.yaml: 24 + 1.2 a level): 10 and 60
+    {
+        float const str10 = 24.0f + 1.2f * 9.0f, str60 = 24.0f + 1.2f * 59.0f;
+        Check(Near(AttackPowerBase(1, str10, 27.2f), 69.6f, 0.01f), "a warrior at 10: 34.8 Strength, 69.6 attack power");
+        Check(Near(AttackPowerBase(1, str60, 67.2f), 189.6f, 0.01f), "a warrior at 60: 94.8 Strength, 189.6 attack power");
+        Check(Near(AttackPowerBase(1, str60, 67.2f) - AttackPowerBase(1, str60 - 10.0f, 67.2f), 20.0f, 0.01f),
+              "ten points of Strength from gear: twenty attack power");
+    }
+    // an Agility-based spec: the hunter's Agility gives one a point as before, its Strength two
+    Check(Near(AttackPowerBase(3, 81.0f, 67.0f), 229.0f), "a hunter: Strength two a point, Agility one");
+    Check(Near(AttackPowerBase(3, 81.0f, 77.0f) - AttackPowerBase(3, 81.0f, 67.0f), 10.0f), "a hunter's ten Agility: ten, unchanged");
     Check(Near(AttackPowerBase(3, -4.0f, 10.0f), 10.0f), "a debuffed Strength below 0 counts as 0");
-    // at level 1 the rule gives a warrior 24 (upstream 3 + 48 - 20 = 31) and a mage 18 (upstream 8): above 0 for all
-    Check(AttackPowerBase(1, 24.0f, 20.0f) > 0.0f && AttackPowerBase(8, 18.0f, 20.0f) > 0.0f, "level 1 attack power above 0");
+    Check(Near(AttackPowerBase(1, 95.0f, 67.0f, 1.0f), 95.0f), "the config's 1: the rule of 2026-11-15, one for one");
+    Check(Near(AttackPowerBase(1, 95.0f, 67.0f, -1.0f), 0.0f), "a negative ratio gives nothing");
+    // at level 1 the rule gives a warrior 48 (upstream 3 + 48 - 20 = 31) and a mage 36 (upstream 8): above 0 for all
+    Check(Near(AttackPowerBase(1, 24.0f, 20.0f), 48.0f) && Near(AttackPowerBase(8, 18.0f, 20.0f), 36.0f), "level 1 attack power");
+    // the hook: on, the rule's base times upstream's BASE_PCT; off, upstream's own base (its class formula) untouched
+    Check(Near(AttackPowerUnderRules(true, 1, 94.8f, 67.2f, STRENGTH_ATTACK_POWER, 1.0f, 350.0f), 189.6f, 0.01f),
+          "the rules on: the rule's base in place of upstream's 350");
+    Check(Near(AttackPowerUnderRules(true, 1, 94.8f, 67.2f, STRENGTH_ATTACK_POWER, 1.1f, 350.0f), 208.56f, 0.01f),
+          "the rules on: BASE_PCT on the rule's base");
+    Check(Near(AttackPowerUnderRules(false, 1, 94.8f, 67.2f, STRENGTH_ATTACK_POWER, 1.1f, 350.0f), 350.0f),
+          "the switch off: upstream's base stays");
+    Check(Near(AttackPowerUnderRules(false, 3, 81.0f, 67.0f, STRENGTH_ATTACK_POWER, 1.0f, 248.0f), 248.0f),
+          "the switch off: a hunter's upstream base stays");
 
     // ---- rule 3: the pool in place of create mana and Intellect's bonus
     {

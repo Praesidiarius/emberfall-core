@@ -18,8 +18,9 @@
 // Emberfall (PATCHES.md, "Module"; the core's #40): the stat rules (Emberfall docs/design/classes.md §4.10, Nathanael
 // 2026-11-15), for players, with Emberfall.OwnData = 1 and Emberfall.Stats.Rules (default 1):
 //   - Intellect gives spell power one for one (the core's #40 hunk; this script switches it on);
-//   - Strength gives attack power one for one, a hunter's Agility too (OnPlayerAfterUpdateAttackPowerAndDamage: the base
-//     in place of upstream's class formula; src/stats/EfStatRulesLogic.h AttackPowerBase);
+//   - Strength gives two attack power a point (Nathanael 2026-11-20, feedback #679; one until then;
+//     Emberfall.Stats.StrengthAttackPower, default 2), a hunter's Agility one for one (OnPlayerAfterUpdateAttackPowerAndDamage:
+//     the base in place of upstream's class formula; src/stats/EfStatRulesLogic.h AttackPowerBase);
 //   - the mana pool is its class and level's (ef_player_mana, rows from Emberfall's formulas.yaml player_stats.mana;
 //     OnPlayerAfterUpdateMaxPower: the pool in place of create mana and Intellect's bonus, talents on top);
 //   - mana comes back at the row's rate a second, in and out of a fight, while casting too (the core's #40 hunk reads
@@ -48,6 +49,7 @@ namespace
     using namespace Emberfall::StatRules;
 
     std::unordered_map<uint16, ManaRow> s_mana;
+    float s_strengthAttackPower = STRENGTH_ATTACK_POWER;
 
     ManaRow const* RowOf(Player const* player)
     {
@@ -114,11 +116,17 @@ namespace
             Settings& settings = Current();
             settings.on = Emberfall::OwnData() && sConfigMgr->GetOption<bool>("Emberfall.Stats.Rules", true, false);
             settings.manaRegenPerSecond = settings.on ? &RowRegen : nullptr;
+            s_strengthAttackPower = sConfigMgr->GetOption<float>("Emberfall.Stats.StrengthAttackPower", STRENGTH_ATTACK_POWER, false);
+            if (s_strengthAttackPower < 0.0f)
+                s_strengthAttackPower = STRENGTH_ATTACK_POWER;
             if (Emberfall::OwnData())
-                LOG_INFO("server.loading", ">> Emberfall stat rules: {}", settings.on
-                    ? "on (Intellect = spell power, Strength = attack power, the mana pool by class and level, flat mana regen, no Spirit, "
-                      "percent mana costs of the pool)"
-                    : "off (upstream's stats)");
+            {
+                if (settings.on)
+                    LOG_INFO("server.loading", ">> Emberfall stat rules: on (Intellect = spell power, {} attack power a point of Strength, "
+                        "the mana pool by class and level, flat mana regen, no Spirit, percent mana costs of the pool)", s_strengthAttackPower);
+                else
+                    LOG_INFO("server.loading", ">> Emberfall stat rules: off (upstream's stats)");
+            }
         }
 
         void OnLoadCustomDatabaseTable() override
@@ -150,17 +158,16 @@ namespace
                                            player->GetPctModifierValue(mod, BASE_PCT), player->GetPctModifierValue(mod, TOTAL_PCT));
         }
 
-        // Player::UpdateAttackPowerAndDamage, after upstream's class formula: the base from Strength (and a hunter's
-        // Agility) one for one, upstream's BASE_PCT on it; the auras' flat and percent parts as they were. The unit
-        // modifier's BASE_VALUE keeps upstream's number (setting it would call this function again); nothing else reads it.
+        // Player::UpdateAttackPowerAndDamage, after upstream's class formula: the base from Strength (two a point, the
+        // config's number) and a hunter's Agility (one a point), upstream's BASE_PCT on it; the auras' flat and percent
+        // parts as they were; with the rules off upstream's base stays. The unit modifier's BASE_VALUE keeps upstream's
+        // number (setting it would call this function again); nothing else reads it.
         void OnPlayerAfterUpdateAttackPowerAndDamage(Player* player, float& /*level*/, float& base_attPower, float& /*attPowerMod*/,
                                                      float& /*attPowerMultiplier*/, bool ranged) override
         {
-            if (!On())
-                return;
             UnitMods const mod = ranged ? UNIT_MOD_ATTACK_POWER_RANGED : UNIT_MOD_ATTACK_POWER;
-            base_attPower = AttackPowerBase(player->getClass(), player->GetStat(STAT_STRENGTH), player->GetStat(STAT_AGILITY))
-                * player->GetPctModifierValue(mod, BASE_PCT);
+            base_attPower = AttackPowerUnderRules(On(), player->getClass(), player->GetStat(STAT_STRENGTH),
+                player->GetStat(STAT_AGILITY), s_strengthAttackPower, player->GetPctModifierValue(mod, BASE_PCT), base_attPower);
         }
 
         // An item's Spirit gives nothing (rule 5; Emberfall's items carry none since 2026-11-15, this holds for old data).
