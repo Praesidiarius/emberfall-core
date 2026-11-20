@@ -18,7 +18,8 @@
 // Standalone tests of the Frostguard rework's rules (ankarna's notes of 2026-11-15; src/classkit/EfFrostLogic.h with the
 // shared EfClassKitLogic.h ShellAfterGain / ShellStacks / ShellGain / StackCap; tests/run_tests.sh builds and runs them):
 // the shell's 80 % share of a blow with the rest passing to health, its capacity per stack, its two durations, the
-// uncapped gains, Shattering Overflow's damage and its share over many enemies, Deep Winter's cap, First Contact, the Orb
+// uncapped gains, Shattering Overflow's one pulse an activation (ankarna's hand-off of 2026-11-19) and its share over many
+// enemies, Frigid Pulse's hit without damage and Echoing Frost's one roll a cast, Deep Winter's cap, First Contact, the Orb
 // stopping at its first enemy, Twin Orbs' limits, and Stillpoint's order and boss rule. The numbers are examples fed to
 // the functions, not the kit's values (those: the game repo's content/data/classes/mage.yaml).
 
@@ -86,7 +87,7 @@ int main()
         check(Logic::ShellGain(5 + 6 + 8, 2, 1) == 9, "Glacial Rupture on 5 + 6 + 8: 9, summed and rounded down");
         check(Logic::ShellGain(12, 2, 1, 3) == 3, "Focused Shatter's own 3 stays (the capstone unchanged)");
     }
-    // what a gain makes beyond the cap, and Shattering Overflow's 50 % of it
+    // what a gain makes beyond the cap
     {
         int64_t const per = 600;
         check(FrostLogic::ShellOverflow(0, per, 4, 10) == 0, "an empty shell: everything fits");
@@ -95,12 +96,98 @@ int main()
         check(Logic::ShellAfterGain(5400, per, 2, 10) + FrostLogic::ShellOverflow(5400, per, 2, 10) == 5400 + 2 * per,
               "what the pool keeps and what flows over add up to the gain");
         check(FrostLogic::ShellOverflow(7000, per, 1, 10) == 600, "a pool above a cap that fell: the gain is all over");
-        check(FrostLogic::OverflowDamage(1800, 50) == 900, "50 % of 1800: 900 frost damage");
-        check(FrostLogic::OverflowDamage(0, 50) == 0 && FrostLogic::OverflowDamage(1800, 0) == 0, "nothing over: no burst");
+    }
+    // Shattering Overflow since the hand-off of 2026-11-19: ONE pulse an ability activation. An activation's shell gain is
+    // summed over every enemy it shattered (1 shell stack per 2 stacks), the cap looked at once, and anything over sends
+    // one pulse; each enemy in reach takes the burst's own amount once (its level and spell power numbers: 100 here),
+    // never a share of what was over, the same however many enemies or stacks the activation shattered
+    {
+        int64_t const per = 600;
+        int32_t const maxStacks = 10;
+        int32_t const burst = 100;
+        // one activation over the enemies' stacks shattered: the pulses it sends; the pool follows
+        auto activation = [&](int64_t& pool, std::vector<uint32_t> const& shattered, int64_t* over = nullptr)
+        {
+            uint32_t sum = 0;
+            for (uint32_t s : shattered)
+                sum += s;
+            int32_t const gain = Logic::ShellGain(sum, 2, 1);
+            int64_t const beyond = FrostLogic::ShellOverflow(pool, per, gain, maxStacks);
+            pool = Logic::ShellAfterGain(pool, per, gain, maxStacks);
+            if (over)
+                *over = beyond;
+            return FrostLogic::OverflowPulses(beyond);
+        };
+        std::vector<uint32_t> const icebreakSix(6, 2);     // Icebreak shatters 2 on each of six enemies: 12, 6 shell stacks
+        std::vector<uint32_t> const ruptureSix(6, 8);      // Glacial Rupture shatters 8 on each of six: 48, 24 shell stacks
+        int64_t pool = per * maxStacks;                    // a full shell
+        int64_t overIce = 0, overRupture = 0;
+        check(activation(pool, icebreakSix, &overIce) == 1, "one Icebreak shattering six enemies over a full shell: one pulse, not six");
+        check(activation(pool, ruptureSix, &overRupture) == 1, "one Glacial Rupture shattering six enemies (48 stacks): one pulse, not six or 24");
+        check(overIce == 6 * per && overRupture == 24 * per, "the shell over the cap: 6 and 24 stacks' worth (the shell itself not capped)");
+        int32_t const iceHit = FrostLogic::OverflowHit(overIce, burst, 6, 5);
+        int32_t const ruptureHit = FrostLogic::OverflowHit(overRupture, burst, 6, 5);
+        check(iceHit == ruptureHit && iceHit == FrostLogic::AreaShare(burst, 6, 5),
+              "each of the six takes the same, however much was over or however many stacks were shattered");
+        check(iceHit * 6 <= burst * 6 && iceHit * 6 >= burst * 5 - 6, "the wave: six hits of the burst at most (the pack share above five), never 6 x 6");
+        check(FrostLogic::OverflowHit(per, burst, 3, 5) == burst && FrostLogic::OverflowHit(100 * per, burst, 3, 5) == burst,
+              "three enemies: 100 each, whether one stack or a hundred stacks' worth was over");
+        // two activations close together: two pulses (no internal cooldown)
+        int pulses = activation(pool, icebreakSix) + activation(pool, icebreakSix);
+        check(pulses == 2, "two Icebreaks back to back over a full shell: two pulses");
+        // a gain that fits: none
+        int64_t emptyPool = 0;
+        check(activation(emptyPool, icebreakSix) == 0, "six stacks into an empty shell: no pulse");
+        int64_t nearly = per * 9;
+        check(activation(nearly, std::vector<uint32_t>(1, 2)) == 0, "the last stack exactly fills it: no pulse");
+        check(activation(nearly, std::vector<uint32_t>(1, 2)) == 1, "one stack more: one pulse");
+        check(FrostLogic::OverflowHit(0, burst, 6, 5) == 0, "nothing over: no hit");
+    }
+    // Frigid Pulse since the hand-off of 2026-11-19: no damage; its own threat on every enemy struck, not shared out over
+    // the pack; 1 stack, 2 / 3 with Gathering Frost 1 / 2; Echoing Frost one roll a cast, its pulse exactly 1 stack, no
+    // damage, no threat
+    {
+        auto const base = FrostLogic::FrigidPulseHit(730, 1, 0);
+        check(base.damage == 0 && base.threat == 730 && base.stacks == 1, "the pulse: no damage, its threat, 1 stack");
+        check(FrostLogic::FrigidPulseHit(730, 1, 1).stacks == 2 && FrostLogic::FrigidPulseHit(730, 1, 2).stacks == 3,
+              "Gathering Frost 1 / 2: 2 / 3 stacks an enemy");
+        bool flat = true;
+        for (int enemies = 1; enemies <= 10; ++enemies)
+        {
+            int64_t total = 0;
+            for (int i = 0; i < enemies; ++i)
+                total += FrostLogic::FrigidPulseHit(730, 1, 2).threat;
+            flat = flat && total == int64_t(730) * enemies;
+        }
+        check(flat, "every enemy struck gets the whole threat, one enemy or ten (not shared)");
+        auto const echo = FrostLogic::EchoHit(1);
+        check(echo.damage == 0 && echo.threat == 0 && echo.stacks == 1, "the echo: exactly 1 stack, no damage, no threat");
+        check(FrostLogic::EchoPulse(true, 10, 9) && !FrostLogic::EchoPulse(true, 10, 10), "10 %: rolls 0-9");
+        check(!FrostLogic::EchoPulse(false, 10, 0), "without the talent: never");
+        int echoes = 0;
+        for (int roll = 0; roll < 100; ++roll)
+            echoes += FrostLogic::EchoPulse(true, 10, roll) ? 1 : 0;
+        check(echoes == 10, "10 of 100 casts");
+        // one cast over six enemies with Gathering Frost 2/2 rolls once: all six get 3, or all six get 3 + 1 (never 3 + 3)
+        for (int roll : { 0, 50 })
+        {
+            bool const second = FrostLogic::EchoPulse(true, 10, roll);
+            std::vector<uint32_t> stacks(6, 0);
+            for (uint32_t& s : stacks)
+                s = FrostLogic::StacksAfterAdd(s, FrostLogic::FrigidPulseHit(730, 1, 2).stacks, 8);
+            if (second)
+                for (uint32_t& s : stacks)
+                    s = FrostLogic::StacksAfterAdd(s, FrostLogic::EchoHit(1).stacks, 8);
+            bool same = true;
+            for (uint32_t s : stacks)
+                same = same && s == (second ? 4u : 3u);
+            check(same, second ? "an echo: 4 on every enemy (3 + 1)" : "no echo: 3 on every enemy");
+        }
+        check(FrostLogic::StacksAfterAdd(5, 3 + 1, 6) == 6 && FrostLogic::StacksAfterAdd(5, 3 + 1, 8) == 8,
+              "the 6 or 8 cap holds the echo's stack too");
     }
     // the burst's soft cap (feedback #619): up to `full` enemies take it whole, beyond that the total stays amount x full
     {
-        check(FrostLogic::OverflowDamage(1800, 10) == 180, "10 % of 1800: 180 frost damage (feedback #619)");
         check(FrostLogic::AreaShare(900, 1, 5) == 900 && FrostLogic::AreaShare(900, 5, 5) == 900, "up to five: the whole 900");
         check(FrostLogic::AreaShare(900, 10, 5) == 450, "ten enemies: 450 each (4500 in all, as five)");
         check(FrostLogic::AreaShare(900, 6, 5) == 750, "six enemies: 750 each (4500 in all)");
