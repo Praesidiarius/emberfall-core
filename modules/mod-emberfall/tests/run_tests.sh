@@ -16,7 +16,8 @@
 # (tests/classkit_infuse_tests.cpp: src/classkit/EfInfuseLogic.h) and the Pyromancer handoff's (tests/classkit_heat_tests.cpp:
 # src/classkit/EfHeatLogic.h) and the Frostguard rework's of 2026-11-15 (tests/classkit_frost_tests.cpp:
 # src/classkit/EfFrostLogic.h) and the Hunter Ranger v1.0's (tests/classkit_ranger_tests.cpp: src/classkit/EfRangerLogic.h,
-# the hand-off's acceptance tests by number) and the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates)
+# the hand-off's acceptance tests by number) and the Corsair rework's of 2026-11-19 (tests/classkit_flow_tests.cpp:
+# src/classkit/EfFlowLogic.h, No Quarter's end, the parry window, the linked aura) and the GM command tests (tests/gmcommand_tests.cpp: src/gmcommands/EfGmCommandLogic.h, `.modify speed` and `.die`, held rates)
 # and the quest loot tests (tests/questloot_tests.cpp: src/questloot/EfQuestLootLogic.h, personal quest objects' lockouts)
 # and the test zone tests (tests/testzone_tests.cpp: src/testzone/EfTestZoneLogic.h, `.eftest zone`'s route and plan)
 # and the meter tests (tests/meter_tests.cpp: src/meter/EfMeterLogic.h, the damage meter's fights, attribution, maths, EFM)
@@ -113,6 +114,7 @@ classkitinfuse ../src/classkit classkit_infuse_tests.cpp
 classkitheat ../src/classkit classkit_heat_tests.cpp
 classkitfrost ../src/classkit classkit_frost_tests.cpp
 classkitranger ../src/classkit classkit_ranger_tests.cpp
+classkitflow ../src/classkit classkit_flow_tests.cpp
 gmcommands ../src/gmcommands gmcommand_tests.cpp
 questloot ../src/questloot questloot_tests.cpp
 testzone ../src/testzone testzone_tests.cpp

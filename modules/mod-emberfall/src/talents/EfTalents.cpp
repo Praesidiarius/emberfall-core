@@ -374,6 +374,7 @@ namespace Emberfall::Talents
                     return by && removed.count(by->Id);
                 });
             }
+            std::vector<uint32> taught; // abilities (not passives) taught here, for the buttons emptied below
             for (auto const& [spell, source] : expected)
             {
                 bool const ours = st.granted.count(spell) != 0;
@@ -381,6 +382,8 @@ namespace Emberfall::Talents
                     continue; // known: ours already, or the core's / a GM's (never recorded as ours)
                 if (!sSpellMgr->GetSpellInfo(spell))
                     continue;
+                if (!IsPassiveSpell(spell))
+                    taught.push_back(spell);
                 // Leftovers of its chain go first; whatever learnSpell teaches besides the spell (a companion
                 // that was not known before and is not expected) is taken back right after.
                 std::vector<uint32> const companions = Companions(spell);
@@ -440,14 +443,24 @@ namespace Emberfall::Talents
             // is emptied, so no button points at an ability the character no longer has until it is bought again
             // (Emberfall 2026-11-16: the Frostguard's Frostbound Orb, free until then, a pick since; the core itself
             // would only drop such a button at the next login)
+            // An ability taught by the same change takes such a button, in button order (Emberfall 2026-11-20: the Corsair's
+            // Crosscurrent, free now, takes the button of Piercing Strike, a pick now, of a Corsair who had not bought it),
+            // unless a button holds it already.
             if (bars && !removed.empty())
+            {
+                std::erase_if(taught, [&](uint32 spell) { return !player->HasSpell(spell) || std::ranges::any_of(CurrentBars(player),
+                    [spell](BarButton const& b) { return b.type == ACTION_BUTTON_SPELL && b.action == spell; }); });
+                size_t next = 0;
                 for (uint32 button = 0; button < kMaxActionButtons; ++button)
                     if (ActionButton const* ab = player->GetActionButton(static_cast<uint8>(button)); ab
                         && ab->GetType() == ACTION_BUTTON_SPELL && removed.count(ab->GetAction()) && !player->HasSpell(ab->GetAction()))
                     {
                         player->removeActionButton(static_cast<uint8>(button));
+                        if (next < taught.size())
+                            player->addActionButton(static_cast<uint8>(button), taught[next++], ACTION_BUTTON_SPELL);
                         barsChanged = true;
                     }
+            }
             if (barsChanged)
                 player->SendActionButtons(1);
             // the active spec for everyone who sees the player (EfSpecField.h): every path that changes the spec or
@@ -1478,6 +1491,22 @@ namespace Emberfall::Talents
                 }
             } while (r->NextRow());
         }
+        // carries (Emberfall talents.md §3.7, 2026-11-20): a stored rank on a retired or now granted node moves onto its
+        // carrier at a data change; optional (a world without the table carries nothing)
+        if (QueryResult t = WorldDatabase.Query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
+                                                "AND TABLE_NAME = 'ef_talent_carry'"); t && t->Fetch()[0].Get<uint64>())
+            if (QueryResult r = WorldDatabase.Query("SELECT `from_node`, `to_node` FROM `ef_talent_carry`"))
+            {
+                do
+                {
+                    Field* f = r->Fetch();
+                    uint32 const from = f[0].Get<uint32>(), to = f[1].Get<uint32>();
+                    if (!nodes.count(to))
+                        problems.push_back("ef_talent_carry: node " + std::to_string(from) + " carried onto unknown node " + std::to_string(to));
+                    else
+                        data->carries[from] = to;
+                } while (r->NextRow());
+            }
         for (auto& [id, n] : nodes)
         {
             auto it = data->trees.find(n.tree);
