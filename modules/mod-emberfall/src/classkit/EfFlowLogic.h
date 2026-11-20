@@ -150,4 +150,103 @@ namespace Emberfall::ClassKit::Flow
     {
         return index <= 0 ? 0 : index * std::max<int32_t>(0, intervalMs);
     }
+
+    // ---- ankarna's "Gameplay & Survivability Rework" (2026-11-19; warrior-corsair.md §21) -----------------------------
+
+    // Flow as the scripts keep it in auras, for the tests (spell_ef_kit_flow, spell_ef_kit_flow_clear, spell_ef_kit_faces
+    // act on the auras the same way): the builders' marks held (a bit each), the prepared finisher (0: none) and whether
+    // No Quarter holds. The finishers a pair and a builder under No Quarter prepare are the data's (the marks' and No
+    // Quarter's effects), given here as tables: pair[i][j] for builders i and j, own[i] for builder i alone.
+    struct FlowState
+    {
+        uint8_t marks = 0;
+        uint8_t ready = 0;
+        bool noQuarter = false;
+    };
+
+    struct FlowTable
+    {
+        uint8_t pair[3][3] = {};
+        uint8_t own[3] = {};
+    };
+
+    // A builder `b` (0..2) cast at an enemy it reached (NextStep: a prepared finisher holds; No Quarter prepares the
+    // builder's own; a partner's mark prepares the pair's; else the mark).
+    constexpr FlowState AfterBuilder(FlowState s, FlowTable const& t, int b)
+    {
+        uint8_t const bit = uint8_t(1u << b);
+        int partner = -1;
+        for (int i = 0; i < 3; ++i)
+            if (i != b && (s.marks & (1u << i)))
+                partner = i;
+        switch (NextStep(s.ready != 0, s.noQuarter && t.own[b] != 0, partner >= 0))
+        {
+            case Step::Nothing:
+                break;
+            case Step::Override:
+                s.ready = t.own[b];
+                break;
+            case Step::Combine:
+                s.marks = 0;
+                s.ready = t.pair[b][partner];
+                break;
+            case Step::Mark:
+                s.marks = uint8_t(s.marks | bit);
+                break;
+        }
+        return s;
+    }
+
+    // No Quarter's cast: an incomplete Flow (the marks) is reset, a prepared finisher stays (spell_ef_kit_flow_clear).
+    constexpr FlowState AtNoQuarterCast(FlowState s)
+    {
+        s.marks = 0;
+        s.noQuarter = true;
+        return s;
+    }
+
+    // No Quarter's end (2026-11-19): a prepared finisher stays prepared; only the marks could go (No Quarter never lets
+    // one stand). Its effects name the marks as their triggers, so the core's clean-up of an ending aura's triggered
+    // auras (AuraEffect::CleanupTriggeredSpells) takes those and never the ready aura (it took it before the rework).
+    constexpr FlowState AtNoQuarterEnd(FlowState s)
+    {
+        s.marks = 0;
+        s.noQuarter = false;
+        return s;
+    }
+
+    // The Flow Finisher: the prepared finisher is unleashed and spent; nothing prepared, nothing happens.
+    constexpr FlowState AtFinisher(FlowState s)
+    {
+        s.ready = 0;
+        return s;
+    }
+
+    // The parry a character gets the moment it can parry at all (Player::UpdateParryPercentage's 5 % that does not
+    // diminish): a parry window for a character who could not parry before counts it in (Defensive Momentum: +20 % is
+    // 20 % in all, the aura's own amount then 15).
+    constexpr int32_t kEngineBaseParryPct = 5;
+
+    // The amount of a parry window's aura (spell_ef_kit_parry_window): `wanted` percent more parry; for a character who
+    // cannot parry without it, less the engine's base (never below 0).
+    constexpr int32_t ParryWindowAmount(int32_t wanted, bool parriesWithout)
+    {
+        if (wanted <= 0)
+            return 0;
+        return parriesWithout ? wanted : std::max<int32_t>(0, wanted - kEngineBaseParryPct);
+    }
+
+    // The reach a channel at one enemy keeps (Spell::UpdateChanneledTargetList: its range and 10 %, at most 3 yd more):
+    // spell_ef_kit_channel_reach refuses a cast beyond it (Cutlass Barrage: 5 yd -> 5.5), where the core's melee leeway for
+    // a moving caster (up to ~2.7 yd) would start a channel that ends at once, its cooldown spent and no strike struck.
+    constexpr float ChannelHoldRange(float range)
+    {
+        return range <= 0.0f ? 0.0f : range + std::min(3.0f, range * 0.1f);
+    }
+
+    // A linked aura (spell_ef_kit_aura_link): on while its carrier holds and the caster holds the rule that names it.
+    constexpr bool LinkedAuraOn(bool carrierUp, bool ruleHeld)
+    {
+        return carrierUp && ruleHeld;
+    }
 }

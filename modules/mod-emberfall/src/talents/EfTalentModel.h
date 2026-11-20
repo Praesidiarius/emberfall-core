@@ -116,6 +116,9 @@ namespace ef::talents
         std::map<uint32_t, EfSpec> preSpecs;        // by class ID (Finish)
         RuleTree emptyTree;                         // the pre-spec state's spec tree
         std::map<uint32_t, std::pair<uint32_t, uint32_t>> nodeIndex; // node ID -> (tree, ord)
+        // ef_talent_carry (Emberfall talents.md §3.7, 2026-11-20): a stored rank on the key (a retired node, or one granted
+        // now) moves onto the value at a data change (RemapNodes); not part of the data hash
+        std::map<uint32_t, uint32_t> carries;
 
         bool HasClass(uint32_t classId) const { return classes.count(classId) != 0; }
         const EfClass* Class(uint32_t classId) const { auto it = classes.find(classId); return it == classes.end() ? nullptr : &it->second; }
@@ -514,6 +517,20 @@ namespace ef::talents
             for (const auto& [id, p] : pairs)
             {
                 const EfNode* n = Node(id);
+                // a carry (ef_talent_carry, talents.md §3.7, 2026-11-20): the rank of a node no loadout holds any more (retired,
+                // or granted now) moves onto the node that carries it, unless the loadout holds that one already; nothing
+                // the player chose is lost (the Corsair's Crosscurrent point holds Piercing Strike, Relentless Strike's
+                // Defensive Momentum)
+                if (auto carry = carries.find(id); carry != carries.end() && (!n || !n->autoAt.empty()) && (p.rank || p.option))
+                {
+                    const EfNode* to = Node(carry->second);
+                    if (to && to->autoAt.empty() && to->kind != NodeKind::Choice && !pairs.count(to->id)
+                        && (to->tree == spec.treeId || (cls && to->tree == cls->classTree)))
+                    {
+                        out[to->id] = eft::Pair{static_cast<uint8_t>(std::min<uint32_t>(std::max<uint32_t>(p.rank, 1), to->maxRank)), 0};
+                        continue;
+                    }
+                }
                 if (!n || (n->tree != spec.treeId && (!cls || n->tree != cls->classTree)))
                 {
                     changed = true;

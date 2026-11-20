@@ -302,6 +302,39 @@ namespace
         std::cout << "picks: groups, storage, Remap\n";
     }
 
+    // Carries (Emberfall talents.md §3.7, 2026-11-20, the Corsair's rework: Crosscurrent granted and Piercing Strike a pick,
+    // Relentless Strike retired for Defensive Momentum) on the pick tree 830: a stored rank on the granted 8301 moves onto
+    // the pick 8303, one on a retired node (8399) onto the modifier 8302. Nothing the player chose is lost (`changed` stays
+    // false) and the loadout still fits; a loadout that holds the carrier already keeps its own rank; without a carry the
+    // granted node's stored rank is dropped as before.
+    void carryTests(std::map<long long, Json> const& treeJson)
+    {
+        auto m = model(treeJson.at(810), treeJson.at(830));
+        m->points[0][60] = {99, 99};
+        std::vector<std::string> problems;
+        m->Finish(problems);
+        check(problems.empty(), "carry model");
+        EfSpec const& spec = *m->Spec(91);
+        bool changed = true;
+        eft::Pairs const old = {{8301, {1, 0}}, {8399, {2, 0}}, {8304, {1, 0}}};
+        eft::Pairs const noCarry = m->Remap(spec, old, changed);
+        check(changed && !noCarry.count(8301) && !noCarry.count(8399) && !noCarry.count(8302),
+              "carries: without one a granted node's and a retired node's ranks are dropped");
+        m->carries = {{8301, 8303}, {8399, 8302}};
+        eft::Pairs const moved = m->Remap(spec, old, changed);
+        check(!changed && moved.count(8303) && moved.at(8303).rank == 1, "carries: the granted node's point holds the pick");
+        check(moved.count(8302) && moved.at(8302).rank == 2 && !moved.count(8399) && !moved.count(8301),
+              "carries: the retired node's ranks move onto its carrier");
+        check(m->Validate(spec, m->LoadoutString(spec, moved), 60).ok(), "carries: the moved loadout fits");
+        eft::Pairs const holds = {{8301, {1, 0}}, {8303, {1, 0}}};
+        eft::Pairs const kept = m->Remap(spec, holds, changed);
+        check(kept.count(8303) && kept.at(8303).rank == 1 && kept.size() == 1 && changed,
+              "carries: a loadout that holds the carrier keeps its own rank; the carried one is dropped");
+        eft::Pairs const current = {{8303, {1, 0}}, {8304, {2, 0}}};
+        check(m->Remap(spec, current, changed) == current && !changed, "carries: a loadout of the current data is untouched");
+        std::cout << "carries: moved, kept, untouched\n";
+    }
+
     // T6 on the example's spec tree (Emberfall's tools/py/emberfall_content/talents/vector_trees.py): the granted ability
     // shard (9101, at once) and the granted passive winterhide (9107: rank 1 at once, rank 2 at 4 points spent); the
     // pre-spec state on the class tree (its strip keen -> surge -> ward at levels 2, 3, 4).
@@ -519,6 +552,7 @@ namespace
 
         grantedTests(treeJson);
         pickTests(treeJson);
+        carryTests(treeJson);
         requireTests(doc, trees, treeJson);
         // Remap after a data change: a node removed, a max rank lowered, an option removed.
         auto m = model(treeJson.at(810), treeJson.at(811));

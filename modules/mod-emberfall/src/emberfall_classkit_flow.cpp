@@ -167,18 +167,23 @@ class spell_ef_kit_flow : public SpellScript
                                                     Emberfall::ClassKit::Reached(GetSpell(), caster)))
             return;
         uint32 const gate = uint32(mark->Effects[EFFECT_0].MiscValue);
-        // No Quarter: a non-passive aura of the caster's naming this mark with a ready aura (not a partner's mark, whose
-        // effect 1 names the gate)
+        // No Quarter: a non-passive aura of the caster's (not a partner's mark, whose effect 1 names the gate) with a dummy
+        // naming this mark as its trigger and the ready aura as its misc (since 2026-11-19: the core takes an ending aura's
+        // triggered auras off with it, so the trigger side is the mark, never the prepared finisher); the old way round
+        // (misc the mark, trigger the ready aura) is still read
         uint32 overrideReady = 0;
         for (AuraEffect const* eff : caster->GetAuraEffectsByType(SPELL_AURA_DUMMY))
         {
+            if (eff->GetBase()->IsPassive() || uint32(eff->GetSpellInfo()->Effects[EFFECT_0].MiscValue) == gate)
+                continue;
             uint32 const trigger = eff->GetSpellInfo()->Effects[eff->GetEffIndex()].TriggerSpell;
-            if (uint32(eff->GetMiscValue()) == mark->Id && trigger && !eff->GetBase()->IsPassive()
-                && uint32(eff->GetSpellInfo()->Effects[EFFECT_0].MiscValue) != gate)
-            {
+            uint32 const misc = uint32(eff->GetMiscValue());
+            if (trigger == mark->Id && misc)
+                overrideReady = misc;
+            else if (misc == mark->Id && trigger)
                 overrideReady = trigger;
+            if (overrideReady)
                 break;
-            }
         }
         uint32 partnerReady = 0;
         for (uint8 i = EFFECT_1; i < MAX_SPELL_EFFECTS; ++i)
@@ -248,23 +253,64 @@ class spell_ef_kit_flow : public SpellScript
     }
 };
 
+namespace
+{
+    // Whether `spellId` is a Flow mark: effect 1 a dummy aura naming the gate (misc), effect 2 naming a partner's mark
+    // (misc) and the ready aura the pair prepares (trigger). A ready aura has neither.
+    bool IsFlowMark(uint32 spellId)
+    {
+        SpellInfo const* info = spellId ? sSpellMgr->GetSpellInfo(spellId) : nullptr;
+        return info && info->Effects[EFFECT_0].ApplyAuraName == SPELL_AURA_DUMMY && info->Effects[EFFECT_0].MiscValue
+               && info->Effects[EFFECT_1].MiscValue && info->Effects[EFFECT_1].TriggerSpell;
+    }
+
+    // No Quarter's marks (the mark side of each of its dummies: the trigger since 2026-11-19, the misc before) taken off:
+    // an incomplete Flow is reset; the ready auras (a prepared finisher) stay (EfFlowLogic.h AtNoQuarterCast / End).
+    void ClearMarks(Unit* caster, SpellInfo const* info)
+    {
+        for (SpellEffectInfo const& eff : info->Effects)
+        {
+            if (eff.ApplyAuraName != SPELL_AURA_DUMMY)
+                continue;
+            for (uint32 side : { eff.TriggerSpell, uint32(eff.MiscValue) })
+                if (IsFlowMark(side))
+                    caster->RemoveAurasDueToSpell(side);
+        }
+    }
+}
+
 class spell_ef_kit_flow_clear : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_flow_clear);
 
     void After()
     {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-        for (SpellEffectInfo const& eff : GetSpellInfo()->Effects)
-            if (eff.ApplyAuraName == SPELL_AURA_DUMMY && eff.MiscValue)
-                caster->RemoveAurasDueToSpell(uint32(eff.MiscValue));
+        if (Unit* caster = GetCaster())
+            ClearMarks(caster, GetSpellInfo());
     }
 
     void Register() override
     {
         AfterCast += SpellCastFn(spell_ef_kit_flow_clear::After);
+    }
+};
+
+// No Quarter's end (ankarna's rework, 2026-11-19): a finisher prepared under it stays prepared; only marks go (it never
+// lets one stand: EfFlowLogic.h AtNoQuarterEnd). The core's clean-up of the triggered auras then finds nothing to take.
+class spell_ef_kit_flow_clear_aura : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_flow_clear_aura);
+
+    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Unit* owner = GetUnitOwner())
+            ClearMarks(owner, GetSpellInfo());
+    }
+
+    void Register() override
+    {
+        AfterEffectRemove += AuraEffectRemoveFn(spell_ef_kit_flow_clear_aura::HandleRemove, EFFECT_0, SPELL_AURA_DUMMY,
+                                                AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -698,10 +744,137 @@ class spell_ef_kit_channel_finale : public AuraScript
     }
 };
 
+namespace
+{
+    // Whether a player parries without the aura `except`: another parry aura, or a known spell that teaches parrying (the
+    // stock Parry's SPELL_EFFECT_PARRY; Emberfall's own classes have none).
+    bool ParriesWithout(Player const* player, uint32 except)
+    {
+        for (AuraEffect const* eff : player->GetAuraEffectsByType(SPELL_AURA_MOD_PARRY_PERCENT))
+            if (eff->GetId() != except)
+                return true;
+        for (auto const& [id, spell] : player->GetSpellMap())
+            if (spell && spell->State != PLAYERSPELL_REMOVED && spell->Active)
+                if (SpellInfo const* info = sSpellMgr->GetSpellInfo(id); info && info->HasEffect(SPELL_EFFECT_PARRY))
+                    return true;
+        return false;
+    }
+}
+
+// A carrier aura (Momentum): while it holds, the owner's `spell_ef_kit_rule_aura_link` rules naming it (Defensive
+// Momentum) keep their trigger aura on, its amount the rule's value; when it goes (not a refresh) they go with it. A refresh
+// casts them anew, so one whose rule is gone stays off (EfFlowLogic.h LinkedAuraOn).
+class spell_ef_kit_aura_link : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_aura_link);
+
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* owner = GetUnitOwner();
+        if (!owner)
+            return;
+        for (AuraEffect const* rule : Emberfall::ClassKit::Rules(owner, "spell_ef_kit_rule_aura_link", GetId()))
+            if (uint32 const linked = rule->GetSpellInfo()->Effects[rule->GetEffIndex()].TriggerSpell)
+            {
+                int32 const amount = rule->GetAmount();
+                owner->CastCustomSpell(owner, linked, &amount, nullptr, nullptr, true);
+            }
+    }
+
+    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* owner = GetUnitOwner();
+        if (!owner)
+            return;
+        for (AuraEffect const* rule : Emberfall::ClassKit::Rules(owner, "spell_ef_kit_rule_aura_link", GetId()))
+            if (uint32 const linked = rule->GetSpellInfo()->Effects[rule->GetEffIndex()].TriggerSpell)
+                owner->RemoveAurasDueToSpell(linked);
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_ef_kit_aura_link::HandleApply, EFFECT_0, SPELL_AURA_ANY,
+                                              AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_ef_kit_aura_link::HandleRemove, EFFECT_0, SPELL_AURA_ANY,
+                                                AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// A parry aura (Defensive Momentum's window): for a player who cannot parry without it, the engine's 5 % (the moment a
+// player can parry at all) is counted in, so the window's value is the parry in all (EfFlowLogic.h ParryWindowAmount),
+// and the ability to parry goes with the aura (Player::SetCanParry: the engine never takes it back by itself).
+class spell_ef_kit_parry_window : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_parry_window);
+
+    void CalcAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    {
+        if (Player const* player = GetUnitOwner() ? GetUnitOwner()->ToPlayer() : nullptr)
+            amount = Flow::ParryWindowAmount(amount, ParriesWithout(player, GetId()));
+    }
+
+    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Player* player = GetUnitOwner() ? GetUnitOwner()->ToPlayer() : nullptr)
+        {
+            if (!ParriesWithout(player, GetId()))
+                player->SetCanParry(false);
+            else
+                player->UpdateParryPercentage();
+        }
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_ef_kit_parry_window::CalcAmount, EFFECT_0,
+                                                     SPELL_AURA_MOD_PARRY_PERCENT);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_ef_kit_parry_window::HandleRemove, EFFECT_0,
+                                                SPELL_AURA_MOD_PARRY_PERCENT, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// A channel at one enemy (Cutlass Barrage, 2026-11-20): refused at the cast while its enemy is beyond the reach the channel
+// keeps (EfFlowLogic.h ChannelHoldRange); the core lets a melee spell start up to ~2.7 yd farther for a caster on the move,
+// and such a channel ended at once with its cooldown spent and no strike struck.
+class spell_ef_kit_channel_reach : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_channel_reach);
+
+    SpellCastResult Check()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetExplTargetUnit();
+        if (!caster || !target || target == caster)
+            return SPELL_CAST_OK;
+        float const hold = Flow::ChannelHoldRange(GetSpellInfo()->GetMaxRange(GetSpellInfo()->IsPositive()));
+        if (hold > 0.0f && !caster->IsWithinDistInMap(target, hold))
+            return SPELL_FAILED_OUT_OF_RANGE;
+        return SPELL_CAST_OK;
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_ef_kit_channel_reach::Check);
+    }
+};
+
+// The aura link's rule passive (Defensive Momentum): a marker the rules are found by (EfClassKit.h Rules); nothing happens
+// in it (the Corsair's own, beside src/emberfall_classkit_exec.cpp's spell_ef_kit_rule).
+class spell_ef_kit_flow_rule : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_flow_rule);
+
+    void Register() override { }
+};
+
 void AddEmberfallClassKitFlowScripts()
 {
     RegisterSpellScript(spell_ef_kit_flow);
-    RegisterSpellScript(spell_ef_kit_flow_clear);
+    RegisterSpellAndAuraScriptPair(spell_ef_kit_flow_clear, spell_ef_kit_flow_clear_aura);
+    RegisterSpellScript(spell_ef_kit_aura_link);
+    RegisterSpellScript(spell_ef_kit_parry_window);
+    RegisterSpellScript(spell_ef_kit_channel_reach);
+    RegisterSpellScriptWithArgs(spell_ef_kit_flow_rule, "spell_ef_kit_rule_aura_link");
     RegisterSpellScript(spell_ef_kit_faces);
     RegisterSpellScript(spell_ef_kit_offhand_strike);
     RegisterSpellScript(spell_ef_kit_split_dot);
