@@ -17,7 +17,8 @@
 
 // Standalone tests of the veins worked in swings (src/veins/EfVeinSwingsLogic.h; tests/run_tests.sh builds and runs
 // them): which chests are veins, the swings' range, what a release does (a vein always ends: no swing count keeps it
-// forever), and the merge of a swing's stacks of the same ore.
+// forever), a gathering cast at a node as it stands (gone, going, the last swing, another's swing), and the merge of a
+// swing's stacks of the same ore.
 
 #include "EfVeinSwingsLogic.h"
 
@@ -79,6 +80,51 @@ namespace
             }
     }
 
+    NodeState Node(bool spawned, bool goingAway, bool vein, bool swingOut, bool casters, uint32_t before, uint32_t total)
+    {
+        NodeState n;
+        n.spawned = spawned;
+        n.goingAway = goingAway;
+        n.vein = vein;
+        n.swingOut = swingOut;
+        n.swingIsCasters = casters;
+        n.swingsBefore = before;
+        n.total = total;
+        return n;
+    }
+
+    void Casts()
+    {
+        check(CheckCastAt(Node(true, false, false, false, false, 0, 0)) == CastAt::Ok, "an herb or chest that is there");
+        check(CheckCastAt(Node(true, false, true, false, false, 0, 3)) == CastAt::Ok, "a ready vein");
+        check(CheckCastAt(Node(false, false, false, false, false, 0, 0)) == CastAt::Gone, "a despawned herb: gone");
+        check(CheckCastAt(Node(false, false, true, false, false, 2, 3)) == CastAt::Gone, "a despawned vein: gone");
+        check(CheckCastAt(Node(true, true, false, false, false, 0, 0)) == CastAt::Gone,
+              "an herb whose load was just taken (it goes at the next update): gone");
+        check(CheckCastAt(Node(true, true, true, false, false, 3, 3)) == CastAt::Gone, "a vein just spent: gone");
+        check(CheckCastAt(Node(true, false, true, true, true, 0, 3)) == CastAt::Ok,
+              "the next swing while the own window of the first of three is open");
+        check(CheckCastAt(Node(true, false, true, true, true, 1, 3)) == CastAt::Ok,
+              "the next swing while the own window of the second of three is open");
+        check(CheckCastAt(Node(true, false, true, true, true, 2, 3)) == CastAt::Gone,
+              "the own window of the last swing is open: nothing comes after it");
+        check(CheckCastAt(Node(true, false, true, true, true, 1, 2)) == CastAt::Gone, "the last of two in the own window");
+        check(CheckCastAt(Node(true, false, true, true, false, 0, 3)) == CastAt::InUse, "another's swing out: theirs first");
+        check(CheckCastAt(Node(true, false, true, true, false, 2, 3)) == CastAt::InUse,
+              "another's last swing out: in use (it goes when they close it)");
+        check(CheckCastAt(Node(true, false, true, false, false, 2, 3)) == CastAt::Ok,
+              "a swing left with loot in it, nobody's window open: anyone takes the rest");
+        // every vein of every size: while a swing's own window is open, a click is refused exactly at the last swing
+        for (uint32_t total = 1; total <= 5; ++total)
+            for (uint32_t before = 0; before < total; ++before)
+            {
+                bool const last = AfterRelease(true, before, total) == Release::Spent;
+                check((CheckCastAt(Node(true, false, true, true, true, before, total)) == CastAt::Gone) == last,
+                      "the own window refuses a click exactly when its release spends the vein (" +
+                          std::to_string(before + 1) + " of " + std::to_string(total) + ")");
+            }
+    }
+
     void Merges()
     {
         std::vector<Stack> s = {{90611, 0, 1}, {90611, 0, 1}};
@@ -106,6 +152,7 @@ int main()
 {
     Veins();
     Releases();
+    Casts();
     Merges();
     std::cout << "veins: " << (g_checks - g_failed) << "/" << g_checks << " checks passed\n";
     return g_failed ? 1 : 0;
