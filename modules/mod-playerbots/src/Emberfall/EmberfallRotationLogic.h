@@ -116,6 +116,33 @@ namespace EmberfallRotation::Logic
         return true;
     }
 
+    // A kiting step (ef_bot_spec.kite, the Marksman since ankarna's notes of 2026-11-19: no Loose, the companion no longer
+    // holds the enemy, Patient Shot casts on the move): a ranged bot steps away from a foe that attacks it within
+    // `reach` yards, unless it is rooted, in a group (a tank there), or casting a shot that the step would break (a
+    // planted cast); one step every `everyMs` at most, so it shoots in between rather than running the whole fight.
+    struct KiteFacts
+    {
+        bool kite = false;           // the spec kites
+        bool ranged = false;         // it fights at range now (the spec's, or its pre-spec range below 10)
+        bool grouped = false;
+        bool rooted = false;
+        bool castingPlanted = false; // a cast that moving breaks (Full Draw) runs
+        float foeDistance = -1.0f;   // the nearest foe attacking the bot (-1: none)
+        float reach = 5.0f;
+        uint32_t nowMs = 0;
+        uint32_t lastStepMs = 0;     // 0: never
+        uint32_t everyMs = 6000;
+    };
+
+    inline bool KiteStep(KiteFacts const& k)
+    {
+        if (!k.kite || !k.ranged || k.grouped || k.rooted || k.castingPlanted)
+            return false;
+        if (k.foeDistance < 0.0f || k.foeDistance > k.reach)
+            return false;
+        return k.lastStepMs == 0 || k.nowMs - k.lastStepMs >= k.everyMs;
+    }
+
     // The target's time to live from two health samples: the health it had when the bot first fought it, the health
     // now, the seconds between. Unknown (-1) in the first `minSeconds` or while it has lost nothing.
     inline float TimeToLive(uint32_t healthAtStart, uint32_t healthNow, float seconds, float minSeconds = 3.0f)

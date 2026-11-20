@@ -448,6 +448,36 @@ namespace ef::talents
             return out;
         }
 
+        // The abilities the spec's granted rows give a character of `level` with `pairs` (Emberfall 2026-11-20, #655's open
+        // item: a new Marksman knew Full Draw, `auto: [0]`, but found it on no button): each active granted node's current
+        // spells that `passive` says are not passive, in tree order (class tree first). A replacing node is left out: it
+        // takes the button of the spell it replaces (RewriteReplacedBars), it needs no button of its own.
+        template <typename Passive>
+        std::vector<uint32_t> GrantedAbilities(const EfSpec& spec, const eft::Pairs& pairs, uint32_t level, Passive passive) const
+        {
+            std::vector<uint32_t> out;
+            const EfClass* cls = Class(spec.classId);
+            for (const uint32_t treeId : {cls ? cls->classTree : 0u, spec.treeId})
+            {
+                const EfTree* tree = Tree(treeId);
+                if (!tree)
+                    continue;
+                const uint32_t paid = PaidIn(*tree, pairs);
+                const RuleTree seen = Seen(spec, *tree, pairs, level);
+                for (size_t i = 0; i < tree->nodes.size(); ++i)
+                {
+                    const EfNode& n = tree->nodes[i];
+                    if (n.autoAt.empty() || n.replaces || n.kind != NodeKind::Active)
+                        continue;
+                    if (const std::vector<uint32_t>* now = CurrentSet(*tree, seen, i, pairs, paid, level))
+                        for (const uint32_t s : *now)
+                            if (!passive(s) && std::find(out.begin(), out.end(), s) == out.end())
+                                out.push_back(s);
+                }
+            }
+            return out;
+        }
+
         // Stored pairs after a data change (§3.7): nodes that left the spec's trees dropped, ranks clamped to
         // the new max rank, options the node no longer has dropped. And a node that became a pick (a pick group's,
         // talents.md §1.3 rule 7; the Wrathbringer's row abilities were granted until 2026-10-26) is picked when a node

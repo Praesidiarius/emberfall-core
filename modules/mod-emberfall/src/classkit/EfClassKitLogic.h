@@ -248,6 +248,20 @@ namespace Emberfall::ClassKit::Logic
         return base <= 0 ? base : int32_t(int64_t(base) * (100 + int64_t(pctPerStack) * stacks) / 100);
     }
 
+    // The same spender in its "each stack" form (effect 2's misc B 1: Full Draw since ankarna's Marksman notes of
+    // 2026-11-19, "30 % weapon damage for each Bead consumed"): `base` is the shot at 100 % and each of `stacks` stacks
+    // deals `pctPerStack` percent of it, so no stack deals nothing (the spender then needs a stack to be cast at all).
+    constexpr int32_t PerStackDamage(int32_t base, int32_t pctPerStack, uint32_t stacks)
+    {
+        return base <= 0 ? base : int32_t(int64_t(base) * int64_t(pctPerStack) * stacks / 100);
+    }
+
+    // Which of the two forms a spender's effect 2 asks for (its misc B): 1 each stack, anything else the base and more.
+    constexpr int32_t SpentDamage(int32_t base, int32_t pctPerStack, uint32_t stacks, int32_t mode)
+    {
+        return mode == 1 ? PerStackDamage(base, pctPerStack, stacks) : StackedDamage(base, pctPerStack, stacks);
+    }
+
     // Whether a dummy naming that spender acts as a spend bonus after `spent` stacks: it needs at least `need` (its misc
     // B; 0 or less: never one, it is a hit bonus or nothing); a passive acts with a trigger (Second Arrow, the Ranger's
     // splash) or without (Unbroken Aim's stacks kept); a buff only with a trigger, and the spend uses it up (Arrowfall's

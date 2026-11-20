@@ -340,9 +340,12 @@ namespace Emberfall::Talents
         // replaces (M6: removed and recorded as source 3, learned back when the node goes). Removals first, so a rank
         // change within a stock spell chain does not take the new rank with the old one. With `bars`, the buttons
         // follow the replacing nodes (RewriteReplacedBars) and the client gets them when one changed.
+        void PlaceNewAbilities(Player* player, std::vector<uint32> const& spells);
+
         void Reconcile(Player* player, PlayerState& st, EfTalentModel const& data, CharacterDatabaseTransaction trans, bool bars = true)
         {
             uint32 const guid = player->GetGUID().GetCounter();
+            std::vector<uint32> learned; // the spells taught here that the character did not know
             SpellSet expected;
             if (EfSpec const* spec = data.SpecOrPre(st.activeSpec, player->getClass()))
             {
@@ -392,6 +395,8 @@ namespace Emberfall::Talents
                         knownBefore.insert(c);
                 }
                 player->learnSpell(spell);
+                if (player->HasSpell(spell))
+                    learned.push_back(spell);
                 for (uint32 const c : companions)
                     if (!knownBefore.count(c) && !expected.count(c) && player->HasSpell(c))
                     {
@@ -450,6 +455,22 @@ namespace Emberfall::Talents
                     }
             if (barsChanged)
                 player->SendActionButtons(1);
+            // a granted row's ability taught here for the first time (a data change that grants it, as #655's Full Draw for
+            // the Marksmen of before; a granted node reached by level or points) goes into a free button of the first bar
+            // when no button holds it: never over a button the player placed, and only once (a spell the character knows
+            // is not taught again, so one taken off the bars stays off). The first spec choice puts them there itself
+            // (EnterSpec: Reconcile without bars, then FirstBars).
+            if (bars && !learned.empty())
+                if (EfSpec const* spec = data.SpecOrPre(st.activeSpec, player->getClass()))
+                {
+                    Loadout const* l = st.Active(spec->id);
+                    std::vector<uint32> place;
+                    for (uint32 const s : data.GrantedAbilities(*spec, l ? l->pairs : eft::Pairs{}, player->GetLevel(), IsPassiveSpell))
+                        if (std::find(learned.begin(), learned.end(), s) != learned.end())
+                            place.push_back(s);
+                    if (!place.empty())
+                        PlaceNewAbilities(player, place);
+                }
             // the active spec for everyone who sees the player (EfSpecField.h): every path that changes the spec or
             // its spells ends here (the login's re-validation, a spec choice or switch, an apply, a bot's build)
             uint8 const shown = SpecField::Encode(st.activeSpec);
@@ -822,6 +843,12 @@ namespace Emberfall::Talents
                 for (auto const& [spell, level] : baseline)
                     if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spell); info && !info->IsPassive())
                         spells.push_back(spell);
+                // then the abilities of the spec's granted rows (Emberfall 2026-11-20: the Marksman's Full Draw since #655,
+                // the Spirit Caller's Spirit Challenge), each into a free button of the first bar like the baseline
+                if (Loadout const* l = st.Active(spec))
+                    for (uint32 const spell : data.GrantedAbilities(*s, l->pairs, player->GetLevel(), IsPassiveSpell))
+                        if (std::find(spells.begin(), spells.end(), spell) == spells.end())
+                            spells.push_back(spell);
                 // Replacements take over their slots (T6/M6): a button holding any replacing node's spell of the class
                 // holds its replaced spell again, then the new spec's invested replacements take it over (Magic Bolt ->
                 // Frostbolt at the first choice; Frostbolt -> Magic Bolt in a spec without it), before unknown spells go.

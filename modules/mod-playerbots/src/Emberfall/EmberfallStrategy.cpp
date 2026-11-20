@@ -42,14 +42,13 @@
 
 std::vector<NextAction> EmberfallCombatStrategy::getDefaultActions()
 {
-    // The routine first; a melee spec swings when nothing in its table can go, a ranged spec with a bow keeps its Auto
-    // Shot going (a caster waits for its power).
+    // The routine first; a melee spec swings when nothing in its table can go, a ranged spec waits for its power (no
+    // ranged auto shot since ankarna's Marksman notes of 2026-11-19: the hunter's Loose went for the whole class).
     std::vector<NextAction> actions = {NextAction("ef rotation", ACTION_DEFAULT + 0.5f)};
     if (!EmberfallBots::FightsRanged(botAI->GetBot()))
         actions.push_back(NextAction("melee", ACTION_DEFAULT));
     else
     {
-        actions.push_back(NextAction("ef auto shot", ACTION_DEFAULT + 0.2f));
         // a ranged spec with claws (the Ranger after its leap): white swings while a foe is in reach, without walking in
         if (EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(botAI->GetBot()); spec && spec->swing)
             actions.push_back(NextAction("ef swing", ACTION_DEFAULT + 0.1f));
@@ -61,6 +60,64 @@ void EmberfallCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     // above everything of the fight: a lost fight is left (EmberfallStrategy.h)
     triggers.push_back(new TriggerNode("ef escape", {NextAction("ef escape", ACTION_EMERGENCY + 5)}));
+    // a kiting spec's step away from a foe in its reach, before the routine (EmberfallStrategy.h)
+    triggers.push_back(new TriggerNode("ef kite", {NextAction("ef kite", ACTION_MOVE)}));
+}
+
+namespace
+{
+    // The nearest living foe of the fight that attacks the bot, and its distance (nullptr: none).
+    Unit* NearestAttacker(Player* bot, float* distance)
+    {
+        Unit* nearest = nullptr;
+        float best = 0.0f;
+        for (auto const& [guid, ref] : bot->GetCombatManager().GetPvECombatRefs())
+            if (Unit* other = ref->GetOther(bot); other && other->IsAlive() && other->GetVictim() == bot)
+            {
+                float const d = bot->GetDistance(other);
+                if (!nearest || d < best)
+                {
+                    nearest = other;
+                    best = d;
+                }
+            }
+        if (distance)
+            *distance = nearest ? best : -1.0f;
+        return nearest;
+    }
+}
+
+bool EmberfallKiteTrigger::IsActive()
+{
+    EmberfallBots::Spec const* spec = EmberfallBots::SpecOf(bot);
+    if (!spec || !spec->kite || !bot->IsAlive() || !bot->IsInCombat())
+        return false;
+    EmberfallRotation::Logic::KiteFacts k;
+    k.kite = true;
+    k.ranged = EmberfallBots::FightsRanged(bot);
+    k.grouped = bot->GetGroup() != nullptr;
+    k.rooted = bot->HasUnitState(UNIT_STATE_ROOT) || bot->HasAuraType(SPELL_AURA_MOD_ROOT);
+    if (Spell const* cast = bot->GetCurrentSpell(CURRENT_GENERIC_SPELL))
+        k.castingPlanted = cast->GetSpellInfo() && (cast->GetSpellInfo()->InterruptFlags & SPELL_INTERRUPT_FLAG_MOVEMENT);
+    NearestAttacker(bot, &k.foeDistance);
+    k.nowMs = getMSTime();
+    k.lastStepMs = lastStep;
+    if (!EmberfallRotation::Logic::KiteStep(k))
+        return false;
+    lastStep = k.nowMs ? k.nowMs : 1;
+    return true;
+}
+
+bool EmberfallKiteAction::Execute(Event /*event*/)
+{
+    // away from the nearest foe that attacks the bot, a few strides (8 yd); the routine shoots on (Patient Shot on the move)
+    float distance = -1.0f;
+    Unit* nearest = NearestAttacker(bot, &distance);
+    if (!nearest)
+        return false;
+    LOG_DEBUG("playerbots", "Emberfall kite: {} (level {}) steps away from {} at {:.1f} yd", bot->GetName(), bot->GetLevel(),
+              nearest->GetName(), distance);
+    return MoveAway(nearest, 8.0f);
 }
 
 bool EmberfallEscapeTrigger::IsActive()
@@ -415,33 +472,6 @@ bool EmberfallRotationAction::Execute(Event /*event*/)
     LOG_DEBUG("playerbots", "Emberfall rotation: {} (level {}) casts {} on {}: {}", bot->GetName(), bot->GetLevel(), spell,
               on->GetName(), ok ? "ok" : "failed");
     return ok;
-}
-
-namespace
-{
-    uint32 constexpr SPELL_AUTO_SHOT = 75;
-}
-
-bool EmberfallAutoShotAction::isPossible()
-{
-    Unit* target = GetTarget();
-    if (!target || !target->IsAlive() || !bot->HasSpell(SPELL_AUTO_SHOT))
-        return false;
-    Item* ranged = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED);
-    if (!ranged || ranged->GetTemplate()->Class != ITEM_CLASS_WEAPON)
-        return false;
-    // already shooting at it
-    if (Spell* current = bot->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
-        if (current->m_targets.GetUnitTargetGUID() == target->GetGUID())
-            return false;
-    SpellInfo const* info = sSpellMgr->GetSpellInfo(SPELL_AUTO_SHOT);
-    return info && InReach(bot, target, info) && botAI->CanCastSpell(SPELL_AUTO_SHOT, target);
-}
-
-bool EmberfallAutoShotAction::Execute(Event /*event*/)
-{
-    Unit* target = GetTarget();
-    return target && botAI->CastSpell(SPELL_AUTO_SHOT, target);
 }
 
 bool EmberfallSwingAction::isPossible()

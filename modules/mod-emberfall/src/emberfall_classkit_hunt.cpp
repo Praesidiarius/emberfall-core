@@ -23,7 +23,10 @@
 //
 //   spell_ef_kit_spend_self_stacks  a spender of the caster's own stacks (Full Draw): effect 2 (dummy on the caster):
 //                                   misc = the self aura, value = percent more damage for each stack (spell mods in:
-//                                   Patient Kill); the cast takes every stack and effect 1's damage grows by them; effect
+//                                   Patient Kill); the cast takes every stack and effect 1's damage grows by them (misc
+//                                   B 1: each stack deals that percent of effect 1's damage instead, none deals
+//                                   nothing: Full Draw's "30 % weapon damage a Bead", the Marksman notes of
+//                                   2026-11-19, Logic::SpentDamage); effect
 //                                   3 (dummy on the caster): with the aura's full stacks (its cap) spent and its value
 //                                   (spell mods in: Killing Draw) above 0, its trigger cast on the caster (Killing Draw's
 //                                   buff, feedback #347), or without a trigger that value in points of the caster's power
@@ -142,6 +145,7 @@ class spell_ef_kit_spend_self_stacks : public SpellScript
 
     uint32 _spent = 0;
     int32 _pct = 0;
+    int32 _mode = 0;             // effect 2's misc B: 1 = each stack deals _pct % of the shot (Logic::SpentDamage)
     bool _first = true;
     int32 _firstDamage = 0;
     ObjectGuid _firstTarget;
@@ -162,6 +166,7 @@ class spell_ef_kit_spend_self_stacks : public SpellScript
         if (!caster)
             return;
         _pct = GetSpellInfo()->Effects[EFFECT_1].CalcValue(caster);
+        _mode = GetSpellInfo()->Effects[EFFECT_1].MiscValueB;
         _spent = Emberfall::ClassKit::TakeStacks(caster, caster, StackSpell(), 0);
     }
 
@@ -170,8 +175,9 @@ class spell_ef_kit_spend_self_stacks : public SpellScript
         Unit* target = GetHitUnit();
         if (!target || target == GetCaster())
             return;
-        int32 const damage = Emberfall::ClassKit::Logic::StackedDamage(GetHitDamage(), _pct, _spent);
-        if (_spent && GetHitDamage() > 0)
+        int32 const damage = Emberfall::ClassKit::Logic::SpentDamage(GetHitDamage(), _pct, _spent, _mode);
+        // the "each stack" form scales every hit (no stack: nothing); the other only with a stack spent
+        if ((_spent || _mode == 1) && GetHitDamage() > 0)
             SetHitDamage(damage);
         if (_firstTarget.IsEmpty())
         {

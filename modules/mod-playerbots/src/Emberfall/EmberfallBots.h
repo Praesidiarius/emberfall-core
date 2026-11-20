@@ -62,6 +62,7 @@ namespace EmberfallBots
         bool shield = false;        // may carry a shield in the off hand
         bool prespecRanged = false; // keeps its distance before the spec choice (levels 1-9: the hunter's shots)
         bool swing = false;         // a ranged spec that swings its melee weapon when a foe is in reach (the Ranger's claws)
+        bool kite = false;          // a ranged spec that steps away from a foe in its reach (the Marksman: Patient Shot on the move)
         // gear: the stat weights for the module's item scores (strength, agility, intellect, spirit, stamina,
         // spell_power, attack_power); empty: the module's stock weights
         std::vector<std::pair<std::string, float>> statWeights;

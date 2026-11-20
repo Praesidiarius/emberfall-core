@@ -80,14 +80,23 @@ private:
     EmberfallTargetClock clock;
 };
 
-// Auto Shot (75) under the routine for a bot with a bow, gun or crossbow, as a player hunter has it on the bar from level
-// 1: without it a hunter bot fired one shot every 6 s before 10 and lost fights to level-1 beasts.
-class EmberfallAutoShotAction : public Action
+// A kiting step (ef_bot_spec.kite: the Marksman since ankarna's notes of 2026-11-19, when Loose, the hunter's Auto Shot,
+// went for the whole class and its "ef auto shot" action with it): a ranged bot steps away from a foe that attacks it in
+// its reach, one step every 6 s (EmberfallRotationLogic.h KiteStep), and shoots between (Patient Shot on the move).
+class EmberfallKiteTrigger : public Trigger
 {
 public:
-    EmberfallAutoShotAction(PlayerbotAI* botAI) : Action(botAI, "ef auto shot") {}
-    std::string const GetTargetName() override { return "current target"; }
-    bool isPossible() override;
+    EmberfallKiteTrigger(PlayerbotAI* botAI) : Trigger(botAI, "ef kite", 1) {}
+    bool IsActive() override;
+
+private:
+    uint32 lastStep = 0;  // ms
+};
+
+class EmberfallKiteAction : public MovementAction
+{
+public:
+    EmberfallKiteAction(PlayerbotAI* botAI) : MovementAction(botAI, "ef kite") {}
     bool Execute(Event event) override;
 };
 
@@ -191,7 +200,7 @@ public:
     EmberfallActionContext()
     {
         creators["ef rotation"] = &EmberfallActionContext::rotation;
-        creators["ef auto shot"] = &EmberfallActionContext::auto_shot;
+        creators["ef kite"] = &EmberfallActionContext::kite;
         creators["ef prepare"] = &EmberfallActionContext::prepare;
         creators["ef quest"] = &EmberfallActionContext::quest;
         creators["ef rest"] = &EmberfallActionContext::rest;
@@ -202,7 +211,7 @@ public:
 
 private:
     static Action* rotation(PlayerbotAI* botAI) { return new EmberfallRotationAction(botAI); }
-    static Action* auto_shot(PlayerbotAI* botAI) { return new EmberfallAutoShotAction(botAI); }
+    static Action* kite(PlayerbotAI* botAI) { return new EmberfallKiteAction(botAI); }
     static Action* prepare(PlayerbotAI* botAI) { return new EmberfallPrepareAction(botAI); }
     static Action* quest(PlayerbotAI* botAI) { return new EmberfallQuestAction(botAI); }
     static Action* rest(PlayerbotAI* botAI) { return new EmberfallRestAction(botAI); }
@@ -221,6 +230,7 @@ public:
         creators["ef rest"] = &EmberfallTriggerContext::rest;
         creators["ef group"] = &EmberfallTriggerContext::group;
         creators["ef escape"] = &EmberfallTriggerContext::escape;
+        creators["ef kite"] = &EmberfallTriggerContext::kite;
     }
 
 private:
@@ -229,6 +239,7 @@ private:
     static Trigger* rest(PlayerbotAI* botAI) { return new EmberfallRestTrigger(botAI); }
     static Trigger* group(PlayerbotAI* botAI) { return new EmberfallGroupTrigger(botAI); }
     static Trigger* escape(PlayerbotAI* botAI) { return new EmberfallEscapeTrigger(botAI); }
+    static Trigger* kite(PlayerbotAI* botAI) { return new EmberfallKiteTrigger(botAI); }
 };
 
 #endif

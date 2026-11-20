@@ -914,6 +914,218 @@ namespace
     }
 }
 
+namespace
+{
+    // A spec tree's granted rows on the first bar (Emberfall 2026-11-20, #655's open item: a new Marksman knew Full Draw,
+    // granted with `auto: [0]`, but found it on no button). EfTalentModel::GrantedAbilities names a granted ACTIVE node's
+    // spells (not a replacing one's: it takes its replaced spell's button; not a passive's, not a pick's), and FirstBars
+    // puts each into a free button of the first bar, never over a button the player placed and never twice.
+    void grantedTests()
+    {
+        using namespace ef::talents;
+        EfTalentModel m;
+        m.points[0] = {{1, {0, 0}}, {10, {0, 1}}, {14, {0, 5}}};
+        auto node = [](uint32_t id, uint32_t tree, uint32_t ord, NodeKind kind) {
+            EfNode n;
+            n.id = id;
+            n.tree = tree;
+            n.ord = ord;
+            n.kind = kind;
+            n.requiredLevel = tree == 2 ? 10 : 0; // the spec's rows from the spec choice
+            n.ranks.push_back({id * 10 + 1});
+            return n;
+        };
+        EfTree ct;
+        ct.id = 1;
+        ct.classId = 1;
+        ct.nodes = {node(11, 1, 0, NodeKind::Passive)};
+        m.trees[1] = ct;
+        EfTree st;
+        st.id = 2;
+        st.classId = 1;
+        st.specId = 91;
+        // 41 a granted replacing builder, 42 a granted spender (Full Draw), 43 a granted passive at 4 points, 44 a pick,
+        // 45 a granted node whose spell is passive, 46 a granted active at 4 points spent
+        st.nodes = {node(41, 2, 0, NodeKind::Active), node(42, 2, 1, NodeKind::Active), node(43, 2, 2, NodeKind::Passive),
+                    node(44, 2, 3, NodeKind::Active), node(45, 2, 4, NodeKind::Active), node(46, 2, 5, NodeKind::Active),
+                    node(47, 2, 6, NodeKind::Passive)};
+        st.nodes[0].autoAt = {0};
+        st.nodes[0].replaces = 999;
+        st.nodes[1].autoAt = {0};
+        st.nodes[2].autoAt = {4};
+        st.nodes[3].group = 1;
+        st.nodes[4].autoAt = {0};
+        st.nodes[5].autoAt = {4};
+        st.nodes[6].maxRank = 5;
+        st.nodes[6].ranks = {{471}, {472}, {473}, {474}, {475}};
+        st.groups = {RuleGroup{true, {1}}};
+        m.trees[2] = st;
+        EfSpec spec;
+        spec.id = 91;
+        spec.classId = 1;
+        spec.sort = 1;
+        spec.treeId = 2;
+        m.specs[91] = spec;
+        std::vector<std::string> problems;
+        m.Finish(problems);
+        check(problems.empty(), "granted: model problems: " + (problems.empty() ? std::string() : problems[0]));
+        auto passive = [](uint32_t spell) { return spell == 451; };
+        EfSpec const& s = m.specs[91];
+        check(m.GrantedAbilities(s, {}, 10, passive) == std::vector<uint32_t>{421},
+              "granted: the granted active rows' abilities (no replacing node, no passive, no pick, none not reached yet)");
+        check(m.GrantedAbilities(s, {{44, {1, 0}}}, 10, passive) == std::vector<uint32_t>{421}, "granted: a pick is no granted row");
+        check(m.GrantedAbilities(s, {{47, {4, 0}}}, 14, passive) == (std::vector<uint32_t>{421, 461}),
+              "granted: a row granted at 4 points spent comes with them");
+        check(m.GrantedAbilities(s, {}, 9, passive).empty(), "granted: nothing below the spec's rows' level");
+
+        // the first spec choice: the baseline, then the granted rows, each into a free button of the first bar
+        auto known = [](uint32_t) { return true; };
+        std::vector<BarButton> const placed{{0, 7001, 0}, {1, 7002, 0}, {3, 5, 0x80}};
+        check(FirstBars(placed, known, {7101, 421}) == (std::vector<BarButton>{{0, 7001, 0}, {1, 7002, 0}, {2, 7101, 0}, {3, 5, 0x80}, {4, 421, 0}}),
+              "granted: into the free buttons, the player's buttons kept");
+        check(FirstBars({{0, 7001, 0}, {60, 421, 0}}, known, {421}) == (std::vector<BarButton>{{0, 7001, 0}, {60, 421, 0}}),
+              "granted: a spell on any button already is not placed again");
+        std::vector<BarButton> full;
+        for (uint32_t b = 0; b < kFirstBarButtons; ++b)
+            full.push_back({b, 8000 + b, 0});
+        check(FirstBars(full, known, {421}) == full, "granted: a full first bar keeps every button (the spell stays in the book)");
+        std::cout << "granted rows: the first bar\n";
+    }
+
+    // #655's data change (2026-11-19) on a Marksman-shaped tree: Full Draw (3203) granted with the spec, Set On (3204) a
+    // pick of group 1 in its place (Set On granted and Full Draw that pick before). What a login's Revalidate does to the
+    // loadouts stored before (EfTalentModel::Remap, then Validate, Refit only when that fails), as small jobs 20 checked
+    // live: a level-12 Marksman who picked Full Draw and bought Broadhead, and the spec bench's level-45 plan (Full Draw,
+    // Arrowfall, Tangle Trap and Held Breath picked, Set On's row bought).
+    void marksmanRemapTests()
+    {
+        using namespace ef::talents;
+        EfTalentModel m;
+        // the Hunter's schedule: class 2-9, spec 10, then class on the odd and spec on the even levels until 22 class
+        // points (37), then spec only: 22 + 37 at 60
+        uint32_t c = 0, sp = 0;
+        for (uint32_t level = 1; level <= 60; ++level)
+        {
+            if (level >= 2 && level <= 9)
+                ++c;
+            else if (level == 10)
+                ++sp;
+            else if (level > 10 && level % 2 == 1 && c < 22)
+                ++c;
+            else if (level > 10)
+                ++sp;
+            m.points[0][level] = {c, sp};
+        }
+        check(m.points[0][12] == std::pair<uint32_t, uint32_t>{9, 2} && m.points[0][45] == std::pair<uint32_t, uint32_t>{22, 22} &&
+              m.points[0][60] == std::pair<uint32_t, uint32_t>{22, 37}, "marksman remap: the Hunter's point schedule");
+        auto node = [](uint32_t id, uint32_t tree, NodeKind kind, uint32_t parent, uint32_t ranks = 1) {
+            EfNode n;
+            n.id = id;
+            n.tree = tree;
+            n.kind = kind;
+            n.parent = parent;
+            n.maxRank = ranks;
+            for (uint32_t r = 1; r <= ranks; ++r)
+                n.ranks.push_back({id * 10 + r});
+            return n;
+        };
+        EfTree ct;
+        ct.id = 301;
+        ct.classId = 3;
+        for (uint32_t i = 0; i < 8; ++i) // the strip, levels 2-9, each opened by the one before
+        {
+            ct.nodes.push_back(node(3030 + i, 301, i == 1 ? NodeKind::Active : NodeKind::Passive, i ? 3029 + i : 0));
+            ct.nodes.back().requiredLevel = 2 + i;
+            ct.nodes.back().ord = i;
+        }
+        EfTree st;
+        st.id = 303;
+        st.classId = 3;
+        st.specId = 32;
+        auto row = [&](std::vector<std::pair<uint32_t, uint32_t>> const& nodes) { // (id, ranks); the first is the ability
+            for (size_t i = 0; i < nodes.size(); ++i)
+                st.nodes.push_back(node(nodes[i].first, 303, i ? NodeKind::Passive : NodeKind::Active, i ? nodes[i - 1].first : 0,
+                                        nodes[i].second));
+        };
+        row({{3201, 1}, {3239, 1}, {3208, 2}, {3214, 1}, {3234, 1}});   // Patient Shot (granted, replaces)
+        row({{3202, 1}, {3220, 1}, {3209, 2}, {3210, 1}, {3235, 1}});   // Hard Draw (granted, replaces)
+        row({{3203, 1}, {3213, 1}, {3216, 2}, {3212, 1}, {3229, 1}});   // Full Draw (granted since #655)
+        row({{3204, 1}, {3211, 1}, {3231, 2}, {3225, 1}, {3222, 1}});   // Set On (a pick since #655)
+        row({{3206, 1}, {3226, 1}, {3223, 2}, {3219, 1}, {3215, 1}});   // Arrowfall (a pick)
+        row({{3218, 1}, {3221, 1}, {3236, 1}, {3237, 1}});              // Tangle Trap (a pick)
+        row({{3224, 1}, {3230, 1}, {3227, 2}, {3228, 1}});              // Held Breath (group 2)
+        st.nodes.push_back(node(3205, 303, NodeKind::Passive, 0));      // Steady Eye, granted at 4 points
+        for (uint32_t i = 0; i < st.nodes.size(); ++i)
+            st.nodes[i].ord = i;
+        auto at = [&](uint32_t id) -> EfNode& { return *std::find_if(st.nodes.begin(), st.nodes.end(), [&](EfNode const& n) { return n.id == id; }); };
+        for (uint32_t const id : {3201u, 3202u, 3203u})
+            at(id).autoAt = {0};
+        at(3201).replaces = 93001;
+        at(3202).replaces = 93002;
+        at(3205).autoAt = {4};
+        for (uint32_t const id : {3204u, 3206u, 3218u})
+            at(id).group = 1;
+        at(3224).group = 2;
+        st.groups = {RuleGroup{true, {1, 6, 11}}, RuleGroup{true, {21}}};
+        m.trees[301] = ct;
+        m.trees[303] = st;
+        EfSpec spec;
+        spec.id = 32;
+        spec.classId = 3;
+        spec.sort = 2;
+        spec.treeId = 303;
+        m.specs[32] = spec;
+        std::vector<std::string> problems;
+        m.Finish(problems);
+        check(problems.empty(), "marksman remap: model problems: " + (problems.empty() ? std::string() : problems[0]));
+        EfSpec const& s = m.specs[32];
+        eft::Pairs strip;
+        for (uint32_t i = 0; i < 8; ++i)
+            strip[3030 + i] = {1, 0};
+        auto with = [&](eft::Pairs p) { p.insert(strip.begin(), strip.end()); return p; };
+        auto knows = [&](eft::Pairs const& p, uint32_t level, uint32_t node) { return m.Expected(s, p, level).count(node * 10 + 1) != 0; };
+
+        // level 12: Full Draw picked at 10, Broadhead bought at 12 (Set On was granted, never stored)
+        bool changed = false;
+        eft::Pairs const old12 = with({{3203, {1, 0}}, {3213, {1, 0}}});
+        eft::Pairs const new12 = m.Remap(s, old12, changed);
+        check(changed && !new12.count(3203) && new12.count(3213) && !new12.count(3204),
+              "marksman remap 12: the Full Draw pick goes (granted now), Broadhead stays, Set On is not picked (its row empty)");
+        check(m.Validate(s, m.LoadoutString(s, new12), 12).ok(), "marksman remap 12: valid as remapped (no Refit)");
+        check(m.Refit(s, new12, 12) == new12, "marksman remap 12: Refit keeps a valid loadout as it is");
+        check(m.PaidIn(m.trees[303], new12) == 1, "marksman remap 12: one of the 2 spec points comes back (the pick's)");
+        check(knows(new12, 12, 3203) && !knows(new12, 12, 3204), "marksman remap 12: knows Full Draw, not Set On");
+        eft::Pairs then12 = new12;
+        then12[3204] = {1, 0};
+        check(m.Validate(s, m.LoadoutString(s, then12), 12).ok(), "marksman remap 12: the point back buys Set On in group 1's open slot");
+
+        // level 45, the bench plan: picks Full Draw, Arrowfall, Tangle Trap, Held Breath; Set On's row bought; 22 of 22
+        eft::Pairs const old45 = with({{3203, {1, 0}}, {3206, {1, 0}}, {3218, {1, 0}}, {3224, {1, 0}},
+                                       {3211, {1, 0}}, {3231, {2, 0}}, {3225, {1, 0}}, {3222, {1, 0}},
+                                       {3239, {1, 0}}, {3208, {2, 0}}, {3214, {1, 0}}, {3234, {1, 0}},
+                                       {3220, {1, 0}}, {3209, {2, 0}}, {3210, {1, 0}}, {3235, {1, 0}},
+                                       {3213, {1, 0}}, {3216, {2, 0}}});
+        uint32_t stored = 0; // the old data's paid points: every stored spec node (Full Draw a paid pick then)
+        for (auto const& [id, p] : old45)
+            if (id >= 3200)
+                stored += p.rank;
+        check(stored == 22, "marksman remap 45: the old loadout spends all 22 spec points");
+        eft::Pairs const new45 = m.Remap(s, old45, changed);
+        check(changed && !new45.count(3203) && new45.count(3204) && new45.count(3206) && new45.count(3218) && new45.count(3224),
+              "marksman remap 45: Full Draw's pick goes, Set On is picked (its row is held), the other picks stay");
+        check(m.Validate(s, m.LoadoutString(s, new45), 45).ok(), "marksman remap 45: the three group 1 picks fit their slots");
+        check(m.PaidIn(m.trees[303], new45) == 22, "marksman remap 45: nothing refunded, 22 of 22 spent");
+        check(knows(new45, 45, 3203) && knows(new45, 45, 3204) && knows(new45, 45, 3206) && knows(new45, 45, 3218) && knows(new45, 45, 3224),
+              "marksman remap 45: every ability known");
+
+        // in between (level 20): Full Draw and Arrowfall picked, Set On's row not bought: Full Draw's point comes back
+        eft::Pairs const new20 = m.Remap(s, with({{3203, {1, 0}}, {3206, {1, 0}}, {3213, {1, 0}}}), changed);
+        check(changed && !new20.count(3203) && !new20.count(3204) && new20.count(3206) && m.Validate(s, m.LoadoutString(s, new20), 20).ok(),
+              "marksman remap 20: the pick's point comes back, a slot of group 1 opens");
+        std::cout << "marksman remap: #655's loadouts at 12, 20 and 45\n";
+    }
+}
+
 int main(int argc, char** argv)
 {
     try
@@ -924,6 +1136,8 @@ int main(int argc, char** argv)
         loadoutTests();
         stripTests();
         permanentTests();
+        grantedTests();
+        marksmanRemapTests();
         fuzz();
     }
     catch (std::exception const& e)
