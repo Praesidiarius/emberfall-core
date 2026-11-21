@@ -18,6 +18,8 @@
 #include "PetAI.h"
 #include "CharmInfo.h"
 #include "Creature.h"
+#include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
+#include "EmberfallPetTaunt.h" // EMBERFALL: the companion's autocast taunt (PATCHES.md #44)
 #include "Errors.h"
 #include "Group.h"
 #include "ObjectAccessor.h"
@@ -325,6 +327,12 @@ void PetAI::UpdateAI(uint32 diff)
             }
             else if (me->GetVictim() && CanAttack(me->GetVictim(), spellInfo) && spellInfo->CanBeUsedInCombat())
             {
+                // EMBERFALL: #44 a companion's autocast taunt waits until the enemy attacks someone else
+                if (Emberfall::PetTaunt::AutocastWaits(Emberfall::OwnData(), me->IsPet() && me->ToPet()->getPetType() == HUNTER_PET,
+                        spellInfo->HasEffect(SPELL_EFFECT_ATTACK_ME) || spellInfo->HasAura(SPELL_AURA_MOD_TAUNT),
+                        me->GetVictim()->GetVictim() != nullptr, me->GetVictim()->GetVictim() == me))
+                    continue;
+
                 Spell* spell = new Spell(me, spellInfo, TRIGGERED_NONE);
                 if (spell->CanAutoCast(me->GetVictim()))
                     targetSpellStore.emplace_back(me->GetVictim(), spell);
