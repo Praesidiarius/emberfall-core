@@ -169,6 +169,9 @@ services:
       # mod-emberfall's stat rules (src/emberfall_stat_rules.cpp; Emberfall docs/design/classes.md §4.10): attack power a
       # point of Strength, 2 since 2026-11-20 (feedback #679); 1 is the rule of 2026-11-15 (the spec bench's "before").
       AC_EMBERFALL_STATS_STRENGTH_ATTACK_POWER: "${EF_STRENGTH_ATTACK_POWER:-2}"
+      # attack power a point of Agility where the rules give any (a hunter, the Earthwarden's form): 2 since 2026-11-21; 1 the
+      # rule of 2026-11-15.
+      AC_EMBERFALL_STATS_AGILITY_ATTACK_POWER: "${EF_AGILITY_ATTACK_POWER:-2}"
       # Races players may not create (stock CharacterCreating.Disabled.RaceMask, bit 1 << (race - 1)): Emberfall's
       # ef_server.sh sets EF_CREATE_DISABLED_RACE_MASK (0: every race, the ylvar's 2048 included).
       AC_CHARACTER_CREATING_DISABLED_RACE_MASK: "${EF_CREATE_DISABLED_RACE_MASK:-0}"

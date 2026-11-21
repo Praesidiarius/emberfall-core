@@ -19,8 +19,10 @@
 // 2026-11-15), for players, with Emberfall.OwnData = 1 and Emberfall.Stats.Rules (default 1):
 //   - Intellect gives spell power one for one (the core's #40 hunk; this script switches it on);
 //   - Strength gives two attack power a point (Nathanael 2026-11-20, feedback #679; one until then;
-//     Emberfall.Stats.StrengthAttackPower, default 2), a hunter's Agility one for one (OnPlayerAfterUpdateAttackPowerAndDamage:
-//     the base in place of upstream's class formula; src/stats/EfStatRulesLogic.h AttackPowerBase);
+//     Emberfall.Stats.StrengthAttackPower, default 2), a hunter's Agility two a point (Nathanael 2026-11-21; one until then;
+//     Emberfall.Stats.AgilityAttackPower, default 2), the same number on an aura's percent of Agility (the Earthwarden's
+//     form) (OnPlayerAfterUpdateAttackPowerAndDamage: the base in place of upstream's class formula;
+//     src/stats/EfStatRulesLogic.h AttackPowerBase, AgilityAuraExtra);
 //   - the mana pool is its class and level's (ef_player_mana, rows from Emberfall's formulas.yaml player_stats.mana;
 //     OnPlayerAfterUpdateMaxPower: the pool in place of create mana and Intellect's bonus, talents on top);
 //   - mana comes back at the row's rate a second, in and out of a fight, while casting too (the core's #40 hunk reads
@@ -39,6 +41,7 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
+#include "SpellAuraEffects.h"
 #include "WorldScript.h"
 #include "stats/EfStatRulesLogic.h"
 
@@ -50,6 +53,20 @@ namespace
 
     std::unordered_map<uint16, ManaRow> s_mana;
     float s_strengthAttackPower = STRENGTH_ATTACK_POWER;
+    float s_agilityAttackPower = AGILITY_ATTACK_POWER;
+
+    // upstream's attack power of the auras of a percent of Agility (Player::UpdateAttackPowerAndDamage's loop over
+    // SPELL_AURA_MOD_(RANGED_)ATTACK_POWER_OF_STAT_PERCENT with misc value Agility)
+    float AgilityAuraShare(Player const* player, bool ranged)
+    {
+        float share = 0.0f;
+        float const agility = player->GetStat(STAT_AGILITY);
+        for (AuraEffect const* eff : player->GetAuraEffectsByType(ranged ? SPELL_AURA_MOD_RANGED_ATTACK_POWER_OF_STAT_PERCENT
+                                                                          : SPELL_AURA_MOD_ATTACK_POWER_OF_STAT_PERCENT))
+            if (eff->GetMiscValue() == STAT_AGILITY)
+                share += CalculatePct(agility, eff->GetAmount());
+        return share;
+    }
 
     ManaRow const* RowOf(Player const* player)
     {
@@ -119,11 +136,15 @@ namespace
             s_strengthAttackPower = sConfigMgr->GetOption<float>("Emberfall.Stats.StrengthAttackPower", STRENGTH_ATTACK_POWER, false);
             if (s_strengthAttackPower < 0.0f)
                 s_strengthAttackPower = STRENGTH_ATTACK_POWER;
+            s_agilityAttackPower = sConfigMgr->GetOption<float>("Emberfall.Stats.AgilityAttackPower", AGILITY_ATTACK_POWER, false);
+            if (s_agilityAttackPower < 0.0f)
+                s_agilityAttackPower = AGILITY_ATTACK_POWER;
             if (Emberfall::OwnData())
             {
                 if (settings.on)
                     LOG_INFO("server.loading", ">> Emberfall stat rules: on (Intellect = spell power, {} attack power a point of Strength, "
-                        "the mana pool by class and level, flat mana regen, no Spirit, percent mana costs of the pool)", s_strengthAttackPower);
+                        "{} a point of Agility where it gives any, the mana pool by class and level, flat mana regen, no Spirit, "
+                        "percent mana costs of the pool)", s_strengthAttackPower, s_agilityAttackPower);
                 else
                     LOG_INFO("server.loading", ">> Emberfall stat rules: off (upstream's stats)");
             }
@@ -159,15 +180,19 @@ namespace
         }
 
         // Player::UpdateAttackPowerAndDamage, after upstream's class formula: the base from Strength (two a point, the
-        // config's number) and a hunter's Agility (one a point), upstream's BASE_PCT on it; the auras' flat and percent
-        // parts as they were; with the rules off upstream's base stays. The unit modifier's BASE_VALUE keeps upstream's
+        // config's number) and a hunter's Agility (two a point, the config's number), upstream's BASE_PCT on it; the auras'
+        // flat and percent parts as they were, but an aura's attack power of a percent of Agility (the Earthwarden's form)
+        // times the Agility number; with the rules off upstream's base and auras stay. The unit modifier's BASE_VALUE keeps upstream's
         // number (setting it would call this function again); nothing else reads it.
-        void OnPlayerAfterUpdateAttackPowerAndDamage(Player* player, float& /*level*/, float& base_attPower, float& /*attPowerMod*/,
+        void OnPlayerAfterUpdateAttackPowerAndDamage(Player* player, float& /*level*/, float& base_attPower, float& attPowerMod,
                                                      float& /*attPowerMultiplier*/, bool ranged) override
         {
             UnitMods const mod = ranged ? UNIT_MOD_ATTACK_POWER_RANGED : UNIT_MOD_ATTACK_POWER;
             base_attPower = AttackPowerUnderRules(On(), player->getClass(), player->GetStat(STAT_STRENGTH),
-                player->GetStat(STAT_AGILITY), s_strengthAttackPower, player->GetPctModifierValue(mod, BASE_PCT), base_attPower);
+                player->GetStat(STAT_AGILITY), s_strengthAttackPower, s_agilityAttackPower,
+                player->GetPctModifierValue(mod, BASE_PCT), base_attPower);
+            if (On())
+                attPowerMod += AgilityAuraExtra(AgilityAuraShare(player, ranged), s_agilityAttackPower);
         }
 
         // An item's Spirit gives nothing (rule 5; Emberfall's items carry none since 2026-11-15, this holds for old data).
