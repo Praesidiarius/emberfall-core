@@ -110,10 +110,13 @@ namespace EmberfallTelegraphs
 
         bool Reached(uint32 now, uint32 at) { return int32(now - at) >= 0; }
 
-        uint64 Us(std::chrono::steady_clock::time_point since)
+        // nanoseconds (the looks take well under a microsecond)
+        uint64 Ns(std::chrono::steady_clock::time_point since)
         {
-            return uint64(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - since).count());
+            return uint64(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - since).count());
         }
+        // the cost since the start (not reset with the counts)
+        Cost s_cost;
 
         bool IsEfBot(Player* player) { return player && EmberfallBots::Enabled() && GET_PLAYERBOT_AI(player) != nullptr; }
 
@@ -258,8 +261,8 @@ namespace EmberfallTelegraphs
                 else if (bot->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
                     step.breakCast = true;
             }
-            s_total.checkUs += Us(t0);
-            ++s_total.checkCalls;
+            s_cost.checkNs += Ns(t0);
+            ++s_cost.checkCalls;
             return best != nullptr;
         }
 
@@ -351,8 +354,8 @@ namespace EmberfallTelegraphs
                     Count(&Counts::casts);
                     Count(&Counts::inside, inside);
                 }
-                s_total.hookUs += Us(t0);
-                ++s_total.hookCalls;
+                s_cost.hookNs += Ns(t0);
+                ++s_cost.hookCalls;
             }
         };
 
@@ -431,6 +434,8 @@ namespace EmberfallTelegraphs
 
     bool On() { return s_on.load(std::memory_order_relaxed) && EmberfallBots::Enabled(); }
 
+    void SetSwitch(bool on) { s_on.store(on, std::memory_order_relaxed); }
+
     void AddScripts()
     {
         EmberfallArena::AddScripts();  // the test stacks' measurement (off unless Playerbots.Emberfall.TelegraphArena)
@@ -443,6 +448,12 @@ namespace EmberfallTelegraphs
     {
         std::lock_guard<std::mutex> guard(s_lock);
         return s_total;
+    }
+
+    Cost Costs()
+    {
+        std::lock_guard<std::mutex> guard(s_lock);
+        return s_cost;
     }
 
     uint32 HitsOn(Player* bot)
@@ -587,8 +598,10 @@ bool EmberfallTelegraphAction::Execute(Event /*event*/)
 namespace EmberfallTelegraphs
 {
     bool On() { return false; }
+    void SetSwitch(bool) {}
     void AddScripts() { EmberfallArena::AddScripts(); }
     Counts Total() { return Counts(); }
+    Cost Costs() { return Cost(); }
     uint32 HitsOn(Player*) { return 0; }
     uint32 SteppedOut(Player*) { return 0; }
     std::map<uint32, SpellCount> Spells() { return {}; }

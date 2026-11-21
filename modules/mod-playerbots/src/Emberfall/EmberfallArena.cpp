@@ -6,8 +6,10 @@
 
 /*
  * The telegraph arena (Emberfall docs/design/playerbots-pilot.md §20): a test stack's measurement of the bots' step out
- * of telegraphs, no client needed. Playerbots.Emberfall.TelegraphArena = "SPAWN BOTS PULLS" (empty, the default: off;
- * never on a realm): once the bots are in the world, BOTS random bots within 5 levels of the creature of `creature`
+ * of telegraphs, no client needed. Playerbots.Emberfall.TelegraphArena = "SPAWN BOTS PULLS [ab] [NAME...]" (empty, the default: off;
+ * never on a realm): once the bots are in the world, BOTS random bots (of those NAMEs, if given: the same team for
+ * the switch off and on; with `ab` the pulls alternate the switch off and on, one team in one world) within 5
+ * levels of the creature of `creature`
  * row SPAWN are put in one group (up to five; more fight ungrouped), taken to it (into its instance for a dungeon
  * boss) and set on it, PULLS times; after each pull the dead are raised, everyone healed and the creature reset. One
  * "Emberfall arena:" line a pull (its length, the creature's end, the deaths, the avoidable casts and the hits per bot,
@@ -59,6 +61,8 @@ namespace EmberfallArena
         struct Arena
         {
             uint32 spawn = 0, bots = 0, pulls = 0;
+            std::vector<std::string> names;  // a fixed team (the same bots off and on), else the first that fit
+            bool alternate = false;          // "ab": the switch off on odd pulls, on on even ones (one team, one world)
             Phase phase = Phase::Off;
             uint32 since = 0, last = 0;
             uint32 map = 0, level = 0, pull = 0;
@@ -92,12 +96,55 @@ namespace EmberfallArena
             return out;
         }
 
+        void Raise(Player* p)
+        {
+            if (!p->IsAlive())
+            {
+                p->ResurrectPlayer(1.0f);
+                p->SpawnCorpseBones();
+            }
+            p->CombatStop(true);
+            p->SetFullHealth();
+            if (p->GetMaxPower(POWER_MANA) > 0)
+                p->SetPower(POWER_MANA, p->GetMaxPower(POWER_MANA));
+        }
+
         Creature* FindCreature(Player* anyone)
         {
-            if (!anyone || !anyone->IsInWorld() || anyone->GetMapId() != s_arena.map)
+            if (!anyone || !anyone->IsInWorld() || anyone->IsBeingTeleported() || anyone->GetMapId() != s_arena.map)
                 return nullptr;
             auto range = anyone->GetMap()->GetCreatureBySpawnIdStore().equal_range(s_arena.spawn);
             return range.first == range.second ? nullptr : range.first->second;
+        }
+
+        // the creature, seen from whoever of the team is on its map (a dead bot released in a dungeon is outside)
+        Creature* FindCreature(std::vector<Player*> const& team)
+        {
+            for (Player* p : team)
+                if (Creature* c = FindCreature(p))
+                    return c;
+            return nullptr;
+        }
+
+        void StartFight(std::vector<Player*> const& team, Creature* c, bool engage)
+        {
+            if (s_arena.alternate)
+                EmberfallTelegraphs::SetSwitch(s_arena.pull % 2 == 1);
+            EmberfallTelegraphs::ResetCounts();
+            s_arena.died.assign(s_arena.team.size(), false);
+            s_arena.tickSum = s_arena.tickN = s_arena.tickMax = 0;
+            if (engage)
+            {
+                for (Player* p : team)
+                {
+                    Raise(p);
+                    c->EngageWithTarget(p);
+                }
+                if (c->IsAIEnabled && !team.empty())
+                    c->AI()->AttackStart(team[0]);
+            }
+            s_arena.creature = c->GetGUID();
+            Go(Phase::Fight);
         }
 
         // where a bot stands at a pull's start: round the creature's spawn, 3 yd out
@@ -125,10 +172,13 @@ namespace EmberfallArena
             std::vector<Player*> pool;
             for (auto const& [guid, p] : ObjectAccessor::GetPlayers())
             {
-                if (!p || !p->IsInWorld() || !p->IsAlive() || p->IsBeingTeleported() || p->GetGroup() || p->IsInCombat() ||
-                    p->IsInFlight() || !GET_PLAYERBOT_AI(p) || !EmberfallBots::SpecOf(p))
+                if (!p || !p->IsInWorld() || !p->IsAlive() || p->IsBeingTeleported() || (p->GetGroup() && s_arena.names.empty()) ||
+                    p->IsInCombat() || p->IsInFlight() || !GET_PLAYERBOT_AI(p) || !EmberfallBots::SpecOf(p))
                     continue;
                 if (std::abs(int32(p->GetLevel()) - int32(s_arena.level)) > 5)
+                    continue;
+                if (!s_arena.names.empty() &&
+                    std::find(s_arena.names.begin(), s_arena.names.end(), p->GetName()) == s_arena.names.end())
                     continue;
                 pool.push_back(p);
             }
@@ -139,6 +189,10 @@ namespace EmberfallArena
             s_arena.team.clear();
             for (Player* p : pool)
                 s_arena.team.push_back(p->GetGUID());
+            // a named team may still be grouped from an earlier run (groups are kept): out of it first
+            for (Player* p : pool)
+                if (Group* old = p->GetGroup())
+                    old->RemoveMember(p->GetGUID());
             if (pool.size() > 1 && pool.size() <= kMaxGroup)
             {
                 Group* g = new Group();
@@ -161,19 +215,6 @@ namespace EmberfallArena
                      s_arena.spawn, data->id, s_arena.level, s_arena.map, s_arena.pulls, EmberfallTelegraphs::On() ? "on" : "off",
                      names.str());
             return true;
-        }
-
-        void Raise(Player* p)
-        {
-            if (!p->IsAlive())
-            {
-                p->ResurrectPlayer(1.0f);
-                p->SpawnCorpseBones();
-            }
-            p->CombatStop(true);
-            p->SetFullHealth();
-            if (p->GetMaxPower(POWER_MANA) > 0)
-                p->SetPower(POWER_MANA, p->GetMaxPower(POWER_MANA));
         }
 
         void EndPull(Creature* c, char const* how)
@@ -253,7 +294,7 @@ namespace EmberfallArena
                     for (Player* p : team)
                         there = there && p->IsInWorld() && !p->IsBeingTeleported() && p->GetMapId() == s_arena.map &&
                                 p->GetInstanceId() == team[0]->GetInstanceId();
-                    Creature* c = there ? FindCreature(team[0]) : nullptr;
+                    Creature* c = FindCreature(team);
                     if (s_arena.phase == Phase::Reset)
                     {
                         // the creature back to full, the team raised and back at the spot, then a pause
@@ -280,15 +321,15 @@ namespace EmberfallArena
                         {
                             float const n = float(std::max<uint32>(1, s_arena.pulls));
                             float const b = float(std::max<size_t>(1, s_arena.team.size()));
-                            EmberfallTelegraphs::Counts const t = EmberfallTelegraphs::Total();
+                            EmberfallTelegraphs::Cost const t = EmberfallTelegraphs::Costs();
                             LOG_INFO("playerbots",
                                      "Emberfall arena: done, {} pulls, telegraphs {}: killed {}, {:.2f} deaths a pull, {:.2f} hits a bot a "
-                                     "pull, {:.2f} steps out a bot a pull, {:.1f} s a pull; hook {} calls {:.1f} us each, looks {} "
-                                     "{:.2f} us each",
+                                     "pull, {:.2f} steps out a bot a pull, {:.1f} s a pull; since the start: hook {} calls {:.1f} us each, "
+                                     "looks {} {:.3f} us each",
                                      s_arena.pulls, EmberfallTelegraphs::On() ? "on" : "off", s_arena.kills, s_arena.deaths / n,
                                      s_arena.hits / n / b, s_arena.stepped / n / b, s_arena.seconds / n, t.hookCalls,
-                                     t.hookCalls ? double(t.hookUs) / t.hookCalls : 0.0, t.checkCalls,
-                                     t.checkCalls ? double(t.checkUs) / t.checkCalls : 0.0);
+                                     t.hookCalls ? double(t.hookNs) / 1000.0 / double(t.hookCalls) : 0.0, t.checkCalls,
+                                     t.checkCalls ? double(t.checkNs) / 1000.0 / double(t.checkCalls) : 0.0);
                             Go(Phase::Done);
                             return;
                         }
@@ -316,34 +357,29 @@ namespace EmberfallArena
                 case Phase::Pull:
                 {
                     std::vector<Player*> const team = Team();
-                    Creature* c = team.empty() ? nullptr : FindCreature(team[0]);
+                    Creature* c = FindCreature(team);
                     if (!c)
+                    {
+                        // the team is not at the creature (released outside a dungeon, or still arriving): fetch it again
+                        if (getMSTimeDiff(s_arena.since, now) >= 15000)
+                            Go(Phase::Gather);
                         return;
+                    }
                     if (!c->IsAlive())
                     {
                         c->Respawn(true);
                         return;
                     }
-                    if (c->IsInEvadeMode() || c->IsInCombat())
+                    if (c->IsInEvadeMode())
                         return;
-                    EmberfallTelegraphs::ResetCounts();
-                    s_arena.died.assign(s_arena.team.size(), false);
-                    s_arena.tickSum = s_arena.tickN = s_arena.tickMax = 0;
-                    for (Player* p : team)
-                    {
-                        Raise(p);
-                        c->EngageWithTarget(p);
-                    }
-                    if (c->IsAIEnabled)
-                        c->AI()->AttackStart(team[0]);
-                    s_arena.creature = c->GetGUID();
-                    Go(Phase::Fight);
+                    // it found the team first (they arrive within its reach): the fight is on already
+                    StartFight(team, c, !c->IsInCombat());
                     return;
                 }
                 case Phase::Fight:
                 {
                     std::vector<Player*> const team = Team();
-                    Creature* c = team.empty() ? nullptr : FindCreature(team[0]);
+                    Creature* c = FindCreature(team);
                     uint32 const t = sWorldUpdateTime.GetLastUpdateTime();
                     s_arena.tickSum += t;
                     ++s_arena.tickN;
@@ -357,10 +393,12 @@ namespace EmberfallArena
                             else
                                 allDead = false;
                         }
-                    if (!c || !c->IsAlive())
-                        EndPull(c, "killed");
-                    else if (allDead)
+                    if (allDead)
                         EndPull(c, "wiped");
+                    else if (c && !c->IsAlive())
+                        EndPull(c, "killed");
+                    else if (!c)
+                        EndPull(c, "lost");
                     else if (getMSTimeDiff(s_arena.since, now) >= kFightMs)
                         EndPull(c, "timeout");
                     else if (getMSTimeDiff(s_arena.since, now) >= 10000 && !c->IsInCombat())
@@ -384,6 +422,13 @@ namespace EmberfallArena
                 Arena a;
                 if (spec.empty() || !(in >> a.spawn >> a.bots >> a.pulls) || !a.spawn || !a.bots || !a.pulls)
                     return;
+                for (std::string name; in >> name;)
+                {
+                    if (name == "ab")
+                        a.alternate = true;
+                    else
+                        a.names.push_back(name);
+                }
                 s_arena = a;
                 Go(Phase::Wait);
                 LOG_INFO("playerbots", "Emberfall arena: set for creature {}, {} bots, {} pulls", a.spawn, a.bots, a.pulls);

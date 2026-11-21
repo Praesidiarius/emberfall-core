@@ -33,6 +33,8 @@ namespace EmberfallTelegraphs
 {
     // Playerbots.Emberfall.AvoidTelegraphs and Emberfall mode.
     bool On();
+    // The switch set for the running world (the arena's alternating pulls; a config reload sets it again).
+    void SetSwitch(bool on);
     // The cast hook, the hit count, the config switch, the realm's summary line.
     void AddScripts();
 
@@ -45,12 +47,18 @@ namespace EmberfallTelegraphs
         uint32 inTime = 0;     // of them, out before the hit by the plan (reaction and walk)
         uint32 noWay = 0;      // no checked spot out: the bot stays
         uint32 hits = 0;       // avoidable hits that landed on a bot
-        uint64 hookUs = 0;     // time in the cast hook (its slow path)
-        uint32 hookCalls = 0;
-        uint64 checkUs = 0;    // time in the bots' looks while casts were running
-        uint32 checkCalls = 0;
     };
     Counts Total();
+    // What it costs the map thread since the start: the cast hook's slow path (an avoidable cast) and the bots' looks
+    // while such a cast runs (the fast path, one atomic load, is not timed).
+    struct Cost
+    {
+        uint64 hookNs = 0;
+        uint64 hookCalls = 0;
+        uint64 checkNs = 0;
+        uint64 checkCalls = 0;
+    };
+    Cost Costs();
     // Per spell: its avoidable casts, those with a bot inside at the start, its hits on bots; the shape (c cone, r ring
     // round the caster, g circle at a place, l line).
     struct SpellCount
