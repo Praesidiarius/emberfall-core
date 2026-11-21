@@ -77,6 +77,7 @@
 
 #include "EfClassKit.h"
 #include "EfFlowLogic.h"
+#include "EfHeatLogic.h"
 #include "EfLustLogic.h"
 
 #include "DataMap.h"
@@ -513,14 +514,35 @@ class spell_ef_kit_tally_aura : public AuraScript
 
 // Bloodthirsty Berserker, Undying Flame: value ms (negative) a point really spent off the rule's trigger's cooldown
 // (EfClassKit.h SpendCuts; spell_ef_kit_spend_rules for a cost, spell_ef_kit_spend_all for what Falling Sun takes beyond it).
+// misc B > 1 (Undying Flame: 10, the Pyromancer's handoff of 2026-11-20): only whole steps of that many points count, the
+// remainder is carried on the caster to its next spend (EfHeatLogic.h StepPoints); 0 or 1: every point (the Barbarian).
+namespace
+{
+    constexpr char const* kSpendCarryKey = "ef_spend_carry";
+    struct SpendCarry : public DataMap::Base
+    {
+        std::map<uint32, int32> byRule;   // the rule's spell -> the points carried
+    };
+}
+
 void Emberfall::ClassKit::SpendCuts(Unit* caster, uint32 spellId, int32 points)
 {
     if (!caster || points <= 0)
         return;
     for (AuraEffect const* rule : Rules(caster, "spell_ef_kit_rule_spend_cut", spellId))
         if (uint32 const trigger = TriggerOf(rule))
-            if (int32 const cut = LustLogic::SpendCutMs(points, rule->GetAmount()); cut > 0)
+        {
+            int32 counted = points;
+            if (int32 const step = rule->GetMiscValueB(); step > 1)
+            {
+                int32& carry = caster->CustomData.GetDefault<SpendCarry>(kSpendCarryKey)->byRule[rule->GetId()];
+                Heat::StepCount const c = Heat::StepPoints(points, carry, step);
+                carry = c.carry;
+                counted = c.points;
+            }
+            if (int32 const cut = LustLogic::SpendCutMs(counted, rule->GetAmount()); cut > 0)
                 ShortenCooldown(caster, trigger, cut);
+        }
 }
 
 class spell_ef_kit_spend_rules : public SpellScript

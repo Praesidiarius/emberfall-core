@@ -64,7 +64,6 @@ namespace Emberfall::ClassKit
             uint32 markerOutMs = 0;                 // out of that fight so long (the spec power's markers delay)
             int64 specRegenCarry = 0;   // a spec power's regeneration (millionths of a stored unit)
             int32 keptUnits = 0;    // a kept spec power (Openings) as it stood on the last tick (a level up empties it)
-            int32 floorUnits = 0;   // Eternal Ember: the drain stops here until the next fight (0: no floor)
         };
 
         bool TableExists(char const* name)
@@ -449,21 +448,9 @@ namespace Emberfall::ClassKit
             st->inCombat = true;
             st->outOfCombatMs = 0;
             st->carry = 0;
-            st->floorUnits = 0;
             return;
         }
-        if (st->inCombat)
-        {
-            st->inCombat = false;
-            // Eternal Ember (spell_ef_kit_rule_power_floor, value = points): leaving the fight at or above its value, the
-            // bar cools only down to it; below it, to 0 as always (the Pyromancer's DEV handoff, 2026-11-15)
-            int32 floor = 0;
-            for (AuraEffect const* eff : Rules(player, "spell_ef_kit_rule_power_floor", 0))
-                floor = std::max(floor, eff->GetAmount() * PowerScale(st->power->power));
-            Powers const slot = Powers(st->power->power);
-            int32 const now = player->getPowerType() == slot ? int32(player->GetPower(slot)) : 0;
-            st->floorUnits = Heat::FloorAtFightEnd(now, floor);
-        }
+        st->inCombat = false;
         st->outOfCombatMs += diff;
         if (st->holds > 0)
             return;
@@ -473,8 +460,14 @@ namespace Emberfall::ClassKit
         float const multiplier = player->GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_POWER_REGEN_PERCENT, slot);
         // a larger pool (Brooding Sky) drains in proportion: as long to empty from full as the spec's own maximum
         uint32 const perSecond = Logic::DrainRate(st->power->drainPerSecond, player->GetMaxPower(slot), st->power->max);
+        // Eternal Ember (spell_ef_kit_rule_power_floor, value = points; corrected 2026-11-20): out of a fight the bar never
+        // cools at or below its value, whatever it was when the fight ended; above it, it cools only down to it
+        // (Heat::CooledTo). Explicit effects still set it (Overheat's end: 0).
+        int32 floor = 0;
+        for (AuraEffect const* eff : Rules(player, "spell_ef_kit_rule_power_floor", 0))
+            floor = std::max(floor, eff->GetAmount() * PowerScale(st->power->power));
         int32 const drain = Heat::DrainAboveFloor(int32(player->GetPower(slot)),
-            Logic::Drain(perSecond, multiplier, diff, st->outOfCombatMs, st->power->drainDelayMs, st->carry), st->floorUnits);
+            Logic::Drain(perSecond, multiplier, diff, st->outOfCombatMs, st->power->drainDelayMs, st->carry), floor);
         if (drain > 0)
             player->ModifyPower(slot, -drain);
     }

@@ -16,9 +16,9 @@
  */
 
 // Emberfall class kits, the Mage's Pyromancer (Emberfall docs/design/classes/mage-pyromancer.md, ankarna's card sheet as
-// Nathanael adopted it on 2026-10-23): Heat, a spec power with tiers (Blazing at 30, Inferno at 70, Maximum at 100;
-// EfSpecPower.cpp keeps the tier auras, whose spell mods carry most of the tier bonuses as data), and what data cannot
-// do. Generic like the scripts of src/emberfall_classkit.cpp: each reads its numbers from the spell's own effects
+// Nathanael adopted it on 2026-10-23; ankarna's DEV handoff of 2026-11-15 and its revision of 2026-11-20): Heat, a spec
+// power with tiers (since 2026-11-20 only at 100: Maximum, Supernova and Sunpiercer with their talents; EfSpecPower.cpp
+// keeps the tier auras), and what data cannot do. Generic like the scripts of src/emberfall_classkit.cpp: each reads its numbers from the spell's own effects
 // (Emberfall's classkit/model.py SCRIPTS checks the contracts):
 //
 //   spell_ef_kit_power_tiers     tier effects: the spell's dummy effects on the caster whose misc is an aura the caster
@@ -29,7 +29,7 @@
 //                                target as the cast goes off (since 2026-11-15: its damage and spell mods are set before the
 //                                tier auras follow the cost; given the spell's missile speed it lands with it: Solar Flare's
 //                                Supernova at Maximum). A trigger that a cast override of the caster's turns into another
-//                                spell is cast as that one (Solar Collapse over Supernova). Without a trigger: the spell's
+//                                spell is cast as that one (Concentrated Supernova over Supernova). Without a trigger: the spell's
 //                                damage is the value in percent higher, its direct hits and its persistent area aura's
 //                                ticks alike, set when it is cast
 //   spell_ef_kit_ramp_channel    a channel whose effect 1 is periodic damage on the target (Sunlance): effect 2 (dummy on
@@ -48,7 +48,7 @@
 //   spell_ef_kit_snapshot_field  a ground field (effect 1 a persistent area aura with periodic damage: Burning Sigil): a
 //                                dummy on the caster with a trigger (a self aura: the field's Heat) and misc (its second
 //                                instance) casts the trigger on the caster at the cast as its own instance (the misc while
-//                                the first still runs: Twin Sigils); the caster's dummy auras naming the spell are read as
+//                                the first still runs); the caster's dummy auras naming the spell are read as
 //                                the field is placed and kept for its life: no trigger, their value in percent more on every
 //                                tick (Inferno Sigil); a trigger, cast once at each enemy the field reaches, at most once
 //                                per enemy per field (Burning Chains' root)
@@ -56,7 +56,7 @@
 //                                Sun: needs 100 Heat, consumes all; free in Overheat, it takes nothing); what it takes counts
 //                                for the spend rules naming it (Undying Flame, EfClassKit.h SpendCuts)
 //   spell_ef_kit_rule_*          rule markers (EfClassKit.h Rules): _channel_extend and _fill_power (above), _power_floor
-//                                (EfSpecPower.cpp: Eternal Ember's floor out of a fight)
+//                                (EfSpecPower.cpp: Eternal Ember's floor out of a fight: never cools at or below it)
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
@@ -79,7 +79,7 @@
 
 namespace
 {
-    // A tier effect: a dummy on the caster whose misc names an aura (Blazing, Inferno, Maximum).
+    // A tier effect: a dummy on the caster whose misc names an aura (Maximum, Supernova's tier aura, a talent).
     bool IsTierEffect(SpellEffectInfo const& eff)
     {
         return eff.Effect == SPELL_EFFECT_DUMMY && eff.TargetA.GetTarget() == TARGET_UNIT_CASTER && eff.MiscValue > 0;
@@ -160,7 +160,7 @@ class spell_ef_kit_power_tiers : public SpellScript
         }
     }
 
-    // A cast override of the caster's on the trigger (Solar Collapse over Supernova), or the trigger.
+    // A cast override of the caster's on the trigger (Concentrated Supernova over Supernova), or the trigger.
     static uint32 Overridden(Unit* caster, uint32 trigger)
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
@@ -224,7 +224,7 @@ class aura_ef_kit_power_tiers : public AuraScript
     }
 };
 
-// Sunlance: six ticks, each 10 % more than the last; Blazing's final tick +25 %; at Maximum every tick pierces.
+// Sunlance: six ticks, each 10 % more than the last; Final Incineration's final tick; with Sunpiercer at 100 every tick pierces.
 class spell_ef_kit_ramp_channel : public AuraScript
 {
     PrepareAuraScript(spell_ef_kit_ramp_channel);
@@ -346,7 +346,7 @@ class spell_ef_kit_power_hold : public AuraScript
     }
 };
 
-// Burning Sigil: its Heat as its own instance (Twin Sigils), its bonuses set when it is placed.
+// Burning Sigil: its Heat as its own instance, its bonuses set when it is placed.
 class spell_ef_kit_snapshot_field : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_snapshot_field);
