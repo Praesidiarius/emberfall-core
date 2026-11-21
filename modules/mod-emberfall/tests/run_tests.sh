@@ -61,6 +61,7 @@
 # and the spec field tests (tests/specfield_tests.cpp: src/talents/EfSpecField.h, the active spec in UNIT_FIELD_BYTES_1
 # for every client in view; the golden value is the client's VehicleTests' too).
 # and the escort tests (tests/escort_tests.cpp: src/escorts/EfEscortLogic.h, who sees a walk and its escortee, who sets one off).
+# and the ride tests (tests/ride_tests.cpp: src/rides/EfRideLogic.h, who of a group rides along, where, when the cart goes).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -144,6 +145,7 @@ respawnfloor ../src/respawnfloor respawnfloor_tests.cpp
 veins ../src/veins veins_tests.cpp
 sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp
 escorts ../src/escorts escort_tests.cpp
+rides ../src/rides ride_tests.cpp
 botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp
 botrest ../../mod-playerbots/src/Emberfall botrest_tests.cpp
 botrotation ../../mod-playerbots/src/Emberfall botrotation_tests.cpp
