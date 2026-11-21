@@ -152,6 +152,9 @@ int main()
     }
     // Flowing Remedy
     check(JumpPct(0, 10) == 100 && JumpPct(2, 10) == 120 && JumpPct(4, 10) == 140 && JumpPct(3, 0) == 100, "the jumps' percents");
+    // Mana Reclamation: a percent of the whole bar, whole points
+    check(ManaBack(4725, 5) == 236 && ManaBack(1725, 5) == 86 && ManaBack(0, 5) == 0 && ManaBack(4725, 0) == 0
+          && ManaBack(4725, -3) == 0, "Mana Reclamation: a share of the whole mana bar");
 
     std::cout << "classkit infuse tests: " << (g_checks - g_failed) << "/" << g_checks << " passed\n";
     return g_failed ? 1 : 0;
