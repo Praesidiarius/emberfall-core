@@ -15,10 +15,11 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// The arithmetic of the Pyromancer's DEV handoff (ankarna, 2026-11-15; Emberfall docs/design/classes/mage-pyromancer.md
-// §16) that needs no core: Undying Flame's cooldown cut for the Heat really spent, a tier read before the cost, the
-// field's bonuses set when it is placed, the second field's own instance (Twin Sigils), Burning Chains' once per enemy,
-// Eternal Ember's floor out of a fight, Falling Sun's "consumes all" and Endless Inferno's lengthening.
+// The arithmetic of the Pyromancer's DEV handoff (ankarna, 2026-11-15, revised 2026-11-20; Emberfall
+// docs/design/classes/mage-pyromancer.md §16, §18) that needs no core: Undying Flame's cooldown cut for the Heat really
+// spent (in steps of 10, the remainder carried), a tier read before the cost, the field's bonuses set when it is placed,
+// the second field's own instance, Burning Chains' once per enemy, Eternal Ember's floor out of a fight, Falling Sun's
+// "consumes all" and Endless Inferno's lengthening.
 // src/emberfall_classkit_heat.cpp and src/classkit/EfSpecPower.cpp use it; tests/classkit_heat_tests.cpp
 // (tests/run_tests.sh) checks it.
 
@@ -32,8 +33,25 @@
 namespace Emberfall::ClassKit::Heat
 {
     // Undying Flame is the Barbarian's spend rule (spell_ef_kit_rule_spend_cut, EfLustLogic.h SpendCutMs) at -1000 ms a
-    // point: 10 Heat take 10 s, 137 Heat 137 s; nothing below 10 is lost (the handoff's "every 10 Heat ... 10 seconds" at a
-    // finer grain, so no remainder needs carrying). A free cast in Overheat spent 0.
+    // point, counted in steps (the rule's misc B: 10, the handoff's "for every 10 Heat actually spent ... 10 seconds"):
+    // only whole steps count, the rest is carried to the next spend (2026-11-20 [proposal], the handoff's open remainder
+    // rule), so 137 Heat take 130 s and the 7 left over count with the next spend. A free cast in Overheat spent 0.
+    struct StepCount
+    {
+        int32_t points = 0;   // the points that count now (whole steps)
+        int32_t carry = 0;    // the remainder carried to the next spend
+    };
+
+    // `points` spent now with `carry` left over from before, counted in steps of `step` points (1 or less: every point,
+    // nothing carried; the Barbarian's rule).
+    constexpr StepCount StepPoints(int32_t points, int32_t carry, int32_t step)
+    {
+        int32_t const now = std::max(0, points);
+        if (step <= 1)
+            return { now, 0 };
+        int32_t const total = std::max(0, carry) + now;
+        return { total / step * step, total % step };
+    }
 
     // What one cast really spends: its cost as paid (0 under Overheat's spell mod) plus what a "consumes all" spender
     // took beyond it (Falling Sun: the rest of the bar once its 100 were paid).
@@ -76,9 +94,9 @@ namespace Emberfall::ClassKit::Heat
         return true;
     }
 
-    // Twin Sigils: which instance of the field's self aura a new field takes (each sigil makes its own Heat): 0 the first
-    // when it is not running, else 1 the second when that is not running, else the one with less time left (a third sigil
-    // cannot be up at once: two charges, 25 s each, a sigil lasts at most 10 s).
+    // Which instance of the field's self aura a new field takes (each field makes its own Heat): 0 the first when it is
+    // not running, else 1 the second when that is not running, else the one with less time left. (Twin Sigils' two
+    // charges used it until 2026-11-20; with one charge, 25 s, and a sigil of at most 10 s the first is always free.)
     constexpr int32_t FieldInstance(bool firstRuns, int32_t firstLeftMs, bool secondRuns, int32_t secondLeftMs)
     {
         if (!firstRuns)
@@ -88,14 +106,17 @@ namespace Emberfall::ClassKit::Heat
         return secondLeftMs < firstLeftMs ? 1 : 0;
     }
 
-    // Eternal Ember: the floor (stored units) a fight's end leaves: `floor` when the bar then stood at or above it, else 0
-    // (it still cools to 0). No rule: 0.
-    constexpr int32_t FloorAtFightEnd(int32_t power, int32_t floor)
+    // Eternal Ember (corrected 2026-11-20, the handoff's "Heat at or below 70 never naturally decays outside combat"):
+    // where natural cooling out of a fight leaves the bar (stored units): never below the floor, never above what it
+    // holds: 20 stays 20, 50 stays 50, 70 stays 70, 100 and 150 cool to 70; without the rule (floor 0), to 0. Not a
+    // fight-end condition: any Heat at or below the floor is kept, also Heat gained out of a fight.
+    constexpr int32_t CooledTo(int32_t power, int32_t floor)
     {
-        return floor > 0 && power >= floor ? floor : 0;
+        return floor > 0 ? std::clamp(power, 0, floor) : 0;
     }
 
-    // The drain out of a fight that keeps the bar at or above the floor (above it, it cools at the normal rate down to it).
+    // The drain out of a fight that keeps the bar at or above the floor (above it, it cools at the normal rate down to it;
+    // at or below it, nothing).
     constexpr int32_t DrainAboveFloor(int32_t power, int32_t drain, int32_t floor)
     {
         if (drain <= 0 || power <= floor)
