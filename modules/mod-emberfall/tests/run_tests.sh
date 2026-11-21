@@ -64,6 +64,7 @@
 # and the escort tests (tests/escort_tests.cpp: src/escorts/EfEscortLogic.h, who sees a walk and its escortee, who sets one off).
 # and the telegraph tests (tests/telegraph_tests.cpp: src/telegraphs/EfTelegraphLogic.h, the areas the companions and the
 # bots step out of: the cover at the cast's end, the escape point on a made-up floor, the reaction, the own cast, the rule).
+# and the ride tests (tests/ride_tests.cpp: src/rides/EfRideLogic.h, who of a group rides along, where, when the cart goes).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -149,6 +150,7 @@ respawnfloor ../src/respawnfloor respawnfloor_tests.cpp
 veins ../src/veins veins_tests.cpp
 sun ../src/sun:../src/fishing:../src/encounters sun_tests.cpp
 escorts ../src/escorts escort_tests.cpp
+rides ../src/rides ride_tests.cpp
 botfollow ../../mod-playerbots/src/Emberfall botfollow_tests.cpp
 botrest ../../mod-playerbots/src/Emberfall botrest_tests.cpp
 botrotation ../../mod-playerbots/src/Emberfall botrotation_tests.cpp
