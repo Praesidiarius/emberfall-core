@@ -404,6 +404,14 @@ namespace Emberfall::ClassKit::Logic
         return atShown > 0 && scale > 0 && int64_t(stored) >= int64_t(atShown) * scale;
     }
 
+    // The spell a script reads from an effect's misc: a weapon effect's misc is its weapon percent (PATCHES.md #28, since
+    // 2026-10-30), so the script's spell is in its misc B; any other effect keeps it in its misc (Heavenfall's strike,
+    // spell_ef_kit_lone_strike: Wide Heavens; a weapon strike since feedback #703, 2026-11-21).
+    inline int32_t ScriptMisc(bool weaponEffect, int32_t misc, int32_t miscB)
+    {
+        return weaponEffect ? miscB : misc;
+    }
+
     // A ramping channel's tick (Sunlance, spell_ef_kit_ramp_channel): tick n (1-based) deals `base` x (1 + rampPct /
     // 100)^(n - 1), each tick rampPct percent more than the last; the final tick `finalPct` percent more on top (Blazing).
     inline int32_t RampTick(int32_t base, int32_t rampPct, uint32_t tick, bool final, int32_t finalPct)

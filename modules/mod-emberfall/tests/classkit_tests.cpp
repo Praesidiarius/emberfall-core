@@ -249,6 +249,8 @@ int main()
     check(TierReached(1000, 100, 10) && !TierReached(990, 100, 10), "Maximum at 100 only");
     check(!TierReached(1000, 0, 10), "no threshold: never");
     // a ramping channel: each tick a percent more than the last; a bonus on the final tick
+    check(ScriptMisc(true, 200, 92142) == 92142 && ScriptMisc(false, 92142, 0) == 92142,
+          "a weapon effect's script spell is in its misc B, any other's in its misc");
     check(RampTick(100, 10, 1, false, 0) == 100, "first tick: the base");
     check(RampTick(100, 10, 2, false, 0) == 110, "second: +10 %");
     check(RampTick(100, 10, 6, false, 0) == 161, "sixth: 1.1^5");

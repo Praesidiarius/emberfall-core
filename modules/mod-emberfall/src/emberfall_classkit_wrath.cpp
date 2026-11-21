@@ -251,7 +251,8 @@ class spell_ef_kit_cooldown_cut : public SpellScript
     }
 };
 
-// Heavenfall's strike (feedback #384): the enemy at the spot alone, unless the caster knows Wide Heavens (effect 1's misc).
+// Heavenfall's strike (feedback #384): the enemy at the spot alone, unless the caster knows Wide Heavens (effect 1's misc;
+// its misc B since the strike is a weapon strike, feedback #703: the misc is its weapon percent).
 class spell_ef_kit_lone_strike : public SpellScript
 {
     PrepareSpellScript(spell_ef_kit_lone_strike);
@@ -259,7 +260,9 @@ class spell_ef_kit_lone_strike : public SpellScript
     void FilterTargets(std::list<WorldObject*>& targets)
     {
         Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        int32 const talent = GetSpellInfo()->Effects[EFFECT_0].MiscValue;
+        SpellEffectInfo const& strike = GetSpellInfo()->Effects[EFFECT_0];
+        int32 const talent = Emberfall::ClassKit::Logic::ScriptMisc(Emberfall::ClassKit::IsWeaponEffect(strike), strike.MiscValue,
+            strike.MiscValueB);
         if (player && talent > 0 && player->HasSpell(uint32(talent)))
             return;
         WorldLocation const* spot = GetExplTargetDest();
