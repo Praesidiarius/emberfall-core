@@ -68,7 +68,8 @@ int main()
     Check(SpellPowerFromIntellect(34.8f) == 34, "one for one, whole points");
     Check(SpellPowerFromIntellect(275.0f) == 275, "one for one at 60");
 
-    // ---- rule 2: attack power from Strength, two a point since 2026-11-20 (feedback #679; a hunter's Agility one a point)
+    // ---- rule 2: attack power from Strength, two a point since 2026-11-20 (feedback #679); a hunter's Agility two a point
+    // since 2026-11-21 (one before)
     Check(Near(STRENGTH_ATTACK_POWER, 2.0f), "two attack power a point of Strength by default");
     for (uint8_t cls : {1, 2, 8, 9, 11})
     {
@@ -83,23 +84,50 @@ int main()
         Check(Near(AttackPowerBase(1, str60, 67.2f) - AttackPowerBase(1, str60 - 10.0f, 67.2f), 20.0f, 0.01f),
               "ten points of Strength from gear: twenty attack power");
     }
-    // an Agility-based spec: the hunter's Agility gives one a point as before, its Strength two
-    Check(Near(AttackPowerBase(3, 81.0f, 67.0f), 229.0f), "a hunter: Strength two a point, Agility one");
-    Check(Near(AttackPowerBase(3, 81.0f, 77.0f) - AttackPowerBase(3, 81.0f, 67.0f), 10.0f), "a hunter's ten Agility: ten, unchanged");
-    Check(Near(AttackPowerBase(3, -4.0f, 10.0f), 10.0f), "a debuffed Strength below 0 counts as 0");
+    // the hunter: Strength two a point, Agility two a point (2026-11-21), at two levels (its class line's Strength
+    // 22 + 1.0 a level, the shared Agility line 20 + 0.8 a level: formulas.yaml)
+    Check(Near(AGILITY_ATTACK_POWER, 2.0f), "two attack power a point of Agility by default");
+    Check(Near(AttackPowerBase(3, 81.0f, 67.0f), 296.0f), "a hunter: Strength two a point, Agility two");
+    {
+        float const str10 = 22.0f + 9.0f, agi10 = 20.0f + 0.8f * 9.0f, str60 = 22.0f + 59.0f, agi60 = 20.0f + 0.8f * 59.0f;
+        Check(Near(AttackPowerBase(3, str10, agi10), 2.0f * str10 + 2.0f * agi10, 0.01f), "a hunter at 10: 116.4");
+        Check(Near(AttackPowerBase(3, str60, agi60), 296.4f, 0.01f), "a hunter at 60: 81 Strength, 67.2 Agility, 296.4");
+        Check(Near(AttackPowerBase(3, str60, agi60 + 10.0f) - AttackPowerBase(3, str60, agi60), 20.0f, 0.01f),
+              "a hunter's ten Agility from gear: twenty attack power");
+    }
+    Check(Near(AttackPowerBase(3, 81.0f, 67.0f, STRENGTH_ATTACK_POWER, 1.0f), 229.0f), "the Agility config's 1: one a point");
+    Check(Near(AttackPowerBase(3, 81.0f, 67.0f, STRENGTH_ATTACK_POWER, -1.0f), 162.0f), "a negative Agility ratio gives nothing");
+    Check(Near(AttackPowerBase(3, -4.0f, 10.0f), 20.0f), "a debuffed Strength below 0 counts as 0");
+    // a Strength class keeps nothing from Agility, whatever the Agility number
+    for (float perAgi : {1.0f, 2.0f, 3.0f})
+        Check(Near(AttackPowerBase(1, 94.8f, 67.2f, STRENGTH_ATTACK_POWER, perAgi), 189.6f, 0.01f),
+              "a warrior's Agility gives nothing at " + std::to_string(int(perAgi)) + " a point");
+    // the Earthwarden's form passive (an aura of 100 % of Agility, upstream's CalculatePct): one a point as written, the
+    // rules add as much again at two a point; at 1 nothing; at 10 and 60 (Agility in its leather: 40 and 245)
+    for (float agi : {40.0f, 245.0f})
+    {
+        float const share = agi * 100.0f / 100.0f;
+        Check(Near(share + AgilityAuraExtra(share, AGILITY_ATTACK_POWER), 2.0f * agi), "the Earthwarden's form: two a point of "
+              + std::to_string(int(agi)) + " Agility");
+        Check(Near(AgilityAuraExtra(share, 1.0f), 0.0f), "the Agility config's 1: the form's one a point as written");
+    }
+    Check(Near(AgilityAuraExtra(100.0f, -1.0f), 0.0f), "a negative Agility ratio adds nothing to the auras");
+    Check(Near(AgilityAuraExtra(0.0f, 2.0f), 0.0f), "no aura of Agility, nothing added");
     Check(Near(AttackPowerBase(1, 95.0f, 67.0f, 1.0f), 95.0f), "the config's 1: the rule of 2026-11-15, one for one");
     Check(Near(AttackPowerBase(1, 95.0f, 67.0f, -1.0f), 0.0f), "a negative ratio gives nothing");
     // at level 1 the rule gives a warrior 48 (upstream 3 + 48 - 20 = 31) and a mage 36 (upstream 8): above 0 for all
     Check(Near(AttackPowerBase(1, 24.0f, 20.0f), 48.0f) && Near(AttackPowerBase(8, 18.0f, 20.0f), 36.0f), "level 1 attack power");
     // the hook: on, the rule's base times upstream's BASE_PCT; off, upstream's own base (its class formula) untouched
-    Check(Near(AttackPowerUnderRules(true, 1, 94.8f, 67.2f, STRENGTH_ATTACK_POWER, 1.0f, 350.0f), 189.6f, 0.01f),
+    Check(Near(AttackPowerUnderRules(true, 1, 94.8f, 67.2f, STRENGTH_ATTACK_POWER, AGILITY_ATTACK_POWER, 1.0f, 350.0f), 189.6f, 0.01f),
           "the rules on: the rule's base in place of upstream's 350");
-    Check(Near(AttackPowerUnderRules(true, 1, 94.8f, 67.2f, STRENGTH_ATTACK_POWER, 1.1f, 350.0f), 208.56f, 0.01f),
+    Check(Near(AttackPowerUnderRules(true, 1, 94.8f, 67.2f, STRENGTH_ATTACK_POWER, AGILITY_ATTACK_POWER, 1.1f, 350.0f), 208.56f, 0.01f),
           "the rules on: BASE_PCT on the rule's base");
-    Check(Near(AttackPowerUnderRules(false, 1, 94.8f, 67.2f, STRENGTH_ATTACK_POWER, 1.1f, 350.0f), 350.0f),
+    Check(Near(AttackPowerUnderRules(false, 1, 94.8f, 67.2f, STRENGTH_ATTACK_POWER, AGILITY_ATTACK_POWER, 1.1f, 350.0f), 350.0f),
           "the switch off: upstream's base stays");
-    Check(Near(AttackPowerUnderRules(false, 3, 81.0f, 67.0f, STRENGTH_ATTACK_POWER, 1.0f, 248.0f), 248.0f),
+    Check(Near(AttackPowerUnderRules(false, 3, 81.0f, 67.0f, STRENGTH_ATTACK_POWER, AGILITY_ATTACK_POWER, 1.0f, 248.0f), 248.0f),
           "the switch off: a hunter's upstream base stays");
+    Check(Near(AttackPowerUnderRules(true, 3, 81.0f, 67.0f, STRENGTH_ATTACK_POWER, AGILITY_ATTACK_POWER, 1.0f, 248.0f), 296.0f),
+          "the rules on: a hunter's base, two a point of each");
 
     // ---- rule 3: the pool in place of create mana and Intellect's bonus
     {

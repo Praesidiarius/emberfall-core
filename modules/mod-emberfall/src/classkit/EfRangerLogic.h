@@ -18,11 +18,12 @@
 #pragma once
 
 // Emberfall class kits: the Hunter Ranger's v1.0 rules without the core (Emberfall docs/design/classes/hunter-ranger.md,
-// ankarna's and sonaetiger's "Developer Handoff v1.0" of 2026-11-19), so tests/classkit_ranger_tests.cpp can check them
-// against the hand-off's acceptance tests. src/emberfall_classkit_ranger.cpp uses them. Generic: the numbers come from
+// ankarna's and sonaetiger's "Developer Handoff v1.0" of 2026-11-19, and its "Rework Update" of 2026-11-20: the delayed
+// out-of-combat reset, Quick Nock), so tests/classkit_ranger_tests.cpp can check them against the hand-off's acceptance tests. src/emberfall_classkit_ranger.cpp uses them. Generic: the numbers come from
 // the spells' own effects.
 
 #include <algorithm>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -31,9 +32,14 @@ namespace Emberfall::ClassKit::Ranger
 {
     // ---- the stance rest (spell_ef_kit_stance_rest) ----
 
-    // One tick of the stance rest: what to change on the owner. Out of a fight the other stance comes off, the resting
-    // stance goes on and the spec power is filled (every fight starts in Falcon's Eye with 100 Energy); in a fight only a
-    // missing stance is mended (the resting one, when neither holds), never the Energy.
+    // The Rework Update of 2026-11-20: the reset waits this long out of a fight (3 uninterrupted seconds).
+    constexpr int32_t kRestDelayMs = 3000;
+
+    // One tick of the stance rest: what to change on the owner. Out of a fight, once `outMs` reaches `delayMs`, the other
+    // stance comes off, the resting stance goes on and the spec power is filled (every fight starts in Falcon's Eye with
+    // 100 Energy); before that the stance and the Energy stay as they are. With no stance at all (a login, a death that
+    // took Bear's Claw) the resting one comes at once, out of a fight with the Energy too, as before the delay. In a fight
+    // only a missing stance is mended (the resting one, when neither holds), never the Energy.
     struct RestAction
     {
         bool addRest = false;
@@ -41,11 +47,49 @@ namespace Emberfall::ClassKit::Ranger
         bool fill = false;
     };
 
-    constexpr RestAction Rest(bool inCombat, bool hasRest, bool hasOther, int32_t power, int32_t maxPower)
+    constexpr RestAction Rest(bool inCombat, int32_t outMs, bool hasRest, bool hasOther, int32_t power, int32_t maxPower,
+                              int32_t delayMs = kRestDelayMs)
     {
-        if (!inCombat)
-            return { !hasRest, hasOther, power < maxPower };
-        return { !hasRest && !hasOther, false, false };
+        if (inCombat)
+            return { !hasRest && !hasOther, false, false };
+        if (!hasRest && !hasOther)
+            return { true, false, power < maxPower };
+        if (outMs < delayMs)
+            return {};
+        return { !hasRest, hasOther, power < maxPower };
+    }
+
+    // The rest's clock: how long out of a fight, by the game clock. `sinceMs` is when the rest first saw the owner out of
+    // the fight (0: in a fight, or not seen out of one yet); the first tick out of a fight starts it. A fight resets it.
+    struct RestClock
+    {
+        uint64_t sinceMs = 0;
+        int32_t outMs = 0;
+    };
+
+    constexpr RestClock RestTick(uint64_t sinceMs, bool inCombat, uint64_t nowMs)
+    {
+        if (inCombat)
+            return { 0, 0 };
+        uint64_t const since = sinceMs ? sinceMs : (nowMs ? nowMs : 1);
+        uint64_t const out = nowMs > since ? nowMs - since : 0;
+        return { since, int32_t(std::min<uint64_t>(out, uint64_t(INT32_MAX))) };
+    }
+
+    // ---- Quick Nock (spell_ef_kit_spent_at_start) ----
+
+    // A buff that shortens the next cast of the spells it names (its cast-time modifier: the engine applies it as the cast
+    // begins) is spent as that cast BEGINS: an interrupted or cancelled cast has spent it too. A cast of a spell it does not
+    // name, or a triggered cast (never the player's own), leaves it.
+    constexpr bool SpentAtStart(bool held, bool names, bool triggered)
+    {
+        return held && names && !triggered;
+    }
+
+    // The cast it leaves: `baseMs` less `cutMs`, never below 0 (Falcon Shot 1.5 s - 0.5 s = 1.0 s).
+    constexpr int32_t ShortenedCastMs(int32_t baseMs, int32_t cutMs)
+    {
+        return std::max<int32_t>(0, baseMs - std::max<int32_t>(0, cutMs));
     }
 
     // ---- Energy: the forced loop ----
@@ -133,7 +177,7 @@ namespace Emberfall::ClassKit::Ranger
         return int32_t(int64_t(damage) * pct / 100);
     }
 
-    // A stacking mark after one more application (each critical Aimed Shot): one more, at most `cap` (2); the shared
+    // A stacking mark after one more application (each critical Heartseeker): one more, at most `cap` (2); the shared
     // timer renews at the cap too (the engine's stacking aura renews its duration on every application).
     constexpr int32_t StacksAfterAdd(int32_t have, int32_t cap)
     {
