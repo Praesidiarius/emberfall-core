@@ -17,6 +17,7 @@
 #include "EmberfallFights.h"
 #include "EmberfallFollow.h"
 #include "EmberfallPower.h"
+#include "EmberfallTelegraphs.h"
 #include "PlayerbotsDatabase.h"
 #include <mysqld_error.h>
 #include "AllMapScript.h"
@@ -641,6 +642,7 @@ void AddPlayerbotsScripts()
     new PlayerBotsBGScript();
     EmberfallFights::AddScripts(); // EMBERFALL: the bots' fight records (deaths measurements, EmberfallFights.h)
     EmberfallPower::AddScripts();  // EMBERFALL: the bots' spec power checks (EmberfallPower.h)
+    EmberfallTelegraphs::AddScripts(); // EMBERFALL: the bots step out of telegraphs (EmberfallTelegraphs.h)
     AddPlayerbotsSecureLoginScripts();
     AddPlayerbotsSelfBotAfkScripts();
     AddPlayerbotsCommandscripts();

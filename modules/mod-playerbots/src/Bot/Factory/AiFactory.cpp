@@ -762,6 +762,9 @@ void AiFactory::AddDefaultReactionStrategies(Player* player, PlayerbotAI* const 
                                              ReactionEngine* reactionEngine)
 {
     reactionEngine->addStrategies("react", "chat", nullptr);
+    // EMBERFALL: out of telegraphed areas before the hit (EmberfallTelegraphs.h): a reaction, so a casting bot sees it too
+    if (EmberfallBots::SpecOf(player))
+        reactionEngine->addStrategy("ef telegraph", false);
 
     if (sRandomPlayerbotMgr.IsRandomBot(player))
         reactionEngine->ChangeStrategy(sPlayerbotAIConfig.RandomBotReactStrategies);

@@ -17,6 +17,7 @@
 #include "Action.h"
 #include "MovementActions.h"
 #include "EmberfallQuests.h"
+#include "EmberfallTelegraphs.h"
 #include "NamedObjectContext.h"
 #include "ObjectGuid.h"
 #include "Strategy.h"
@@ -187,11 +188,13 @@ public:
     {
         creators["ef"] = &EmberfallStrategyContext::combat;
         creators["ef nc"] = &EmberfallStrategyContext::noncombat;
+        creators["ef telegraph"] = &EmberfallStrategyContext::telegraph;
     }
 
 private:
     static Strategy* combat(PlayerbotAI* botAI) { return new EmberfallCombatStrategy(botAI); }
     static Strategy* noncombat(PlayerbotAI* botAI) { return new EmberfallNonCombatStrategy(botAI); }
+    static Strategy* telegraph(PlayerbotAI* botAI) { return new EmberfallTelegraphStrategy(botAI); }
 };
 
 class EmberfallActionContext : public NamedObjectContext<Action>
@@ -207,6 +210,7 @@ public:
         creators["ef group leave"] = &EmberfallActionContext::group_leave;
         creators["ef escape"] = &EmberfallActionContext::escape;
         creators["ef swing"] = &EmberfallActionContext::swing;
+        creators["ef telegraph"] = &EmberfallActionContext::telegraph;
     }
 
 private:
@@ -218,6 +222,7 @@ private:
     static Action* group_leave(PlayerbotAI* botAI) { return new EmberfallGroupLeaveAction(botAI); }
     static Action* escape(PlayerbotAI* botAI) { return new EmberfallEscapeAction(botAI); }
     static Action* swing(PlayerbotAI* botAI) { return new EmberfallSwingAction(botAI); }
+    static Action* telegraph(PlayerbotAI* botAI) { return new EmberfallTelegraphAction(botAI); }
 };
 
 class EmberfallTriggerContext : public NamedObjectContext<Trigger>
@@ -231,6 +236,7 @@ public:
         creators["ef group"] = &EmberfallTriggerContext::group;
         creators["ef escape"] = &EmberfallTriggerContext::escape;
         creators["ef kite"] = &EmberfallTriggerContext::kite;
+        creators["ef telegraph"] = &EmberfallTriggerContext::telegraph;
     }
 
 private:
@@ -240,6 +246,7 @@ private:
     static Trigger* group(PlayerbotAI* botAI) { return new EmberfallGroupTrigger(botAI); }
     static Trigger* escape(PlayerbotAI* botAI) { return new EmberfallEscapeTrigger(botAI); }
     static Trigger* kite(PlayerbotAI* botAI) { return new EmberfallKiteTrigger(botAI); }
+    static Trigger* telegraph(PlayerbotAI* botAI) { return new EmberfallTelegraphTrigger(botAI); }
 };
 
 #endif

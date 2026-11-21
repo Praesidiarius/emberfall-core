@@ -61,6 +61,8 @@
 # and the spec field tests (tests/specfield_tests.cpp: src/talents/EfSpecField.h, the active spec in UNIT_FIELD_BYTES_1
 # for every client in view; the golden value is the client's VehicleTests' too).
 # and the escort tests (tests/escort_tests.cpp: src/escorts/EfEscortLogic.h, who sees a walk and its escortee, who sets one off).
+# and the telegraph tests (tests/telegraph_tests.cpp: src/telegraphs/EfTelegraphLogic.h, the areas the companions and the
+# bots step out of: the cover at the cast's end, the escape point on a made-up floor, the reaction, the own cast, the rule).
 # No core, no database:
 #
 #   modules/mod-emberfall/tests/run_tests.sh [VECTORS.json ...]
@@ -100,7 +102,8 @@ JOBS=${EF_BUILD_JOBS:-$(( $(nproc 2>/dev/null || echo 4) / 4 ))}
 
 # name, include directories, source; run in this order
 TESTS="talent ../src/talents talent_tests.cpp
-companions ../src/companions companion_tests.cpp
+companions ../src/companions:../src/telegraphs companion_tests.cpp
+telegraphs ../src/telegraphs telegraph_tests.cpp
 dungeons ../src/dungeons dungeon_tests.cpp
 unstuck ../src/unstuck unstuck_tests.cpp
 absorbs ../src/absorbs absorb_tests.cpp

@@ -22,6 +22,7 @@
 #include "StringFormat.h"
 #include "DynamicObject.h"
 #include "EfCompanions.h"
+#include "EfTelegraphs.h"
 #include "Log.h"
 #include "MotionMaster.h"
 #include "MoveSpline.h"
@@ -384,55 +385,12 @@ namespace Emberfall::Companions
             }
 
             // The area a hostile's telegraphed cast will hit (mob-abilities.md: a cone ahead of it, a circle round it, a
-            // circle at a point), with the core's own leeway: the effect radius plus both bodies. Nothing for casts that
-            // cover a whole room (Keen's 30 yd: those are for interrupting, not dodging).
+            // circle at a point, a line), with the core's own leeway: the effect radius plus both bodies. Nothing for casts
+            // that cover a whole room (Keen's 30 yd: those are for interrupting, not dodging). The reading the bots use too
+            // (telegraphs/EfTelegraphs.h).
             bool DangerOf(Unit* caster, Spell* spell, Danger& d) const
             {
-                SpellInfo const* info = spell->GetSpellInfo();
-                for (SpellEffectInfo const& eff : info->Effects)
-                {
-                    if (!eff.Effect)
-                        continue;
-                    float const radius = eff.CalcRadius(caster);
-                    if (radius <= 0.0f || radius > 15.0f)
-                        continue;
-                    uint32 const a = eff.TargetA.GetTarget(), b = eff.TargetB.GetTarget();
-                    auto is = [&](uint32 t) { return a == t || b == t; };
-                    if (is(TARGET_UNIT_CONE_ENEMY_104) || is(TARGET_UNIT_CONE_ENEMY_54) || is(TARGET_UNIT_CONE_ENEMY_24))
-                    {
-                        d.shape = DangerShape::Cone;
-                        d.origin = Vec2{ caster->GetPositionX(), caster->GetPositionY() };
-                        d.radius = radius + caster->GetCombatReach() + me->GetCombatReach();
-                        float deg = is(TARGET_UNIT_CONE_ENEMY_24) ? 24.0f : is(TARGET_UNIT_CONE_ENEMY_54) ? 54.0f : 104.0f;
-                        if (SpellCone const* sc = sSpellMgr->GetSpellCone(info->Id))
-                            deg = float(sc->cone_degrees);
-                        d.angle = deg * float(M_PI) / 180.0f;
-                        // The caster faces its explicit target from the cast's start (mob-abilities.md §3).
-                        Unit* t = spell->m_targets.GetUnitTarget();
-                        d.facing = t && t != caster ? caster->GetAbsoluteAngle(t) : caster->GetOrientation();
-                        return true;
-                    }
-                    if (is(TARGET_UNIT_SRC_AREA_ENEMY))
-                    {
-                        d.shape = DangerShape::Circle;
-                        d.origin = Vec2{ caster->GetPositionX(), caster->GetPositionY() };
-                        d.radius = radius + me->GetCombatReach();
-                        return true;
-                    }
-                    if (is(TARGET_UNIT_DEST_AREA_ENEMY) || (eff.Effect == SPELL_EFFECT_PERSISTENT_AREA_AURA && spell->m_targets.HasDst()))
-                    {
-                        d.shape = DangerShape::Circle;
-                        if (spell->m_targets.HasDst())
-                            d.origin = Vec2{ spell->m_targets.GetDstPos()->GetPositionX(), spell->m_targets.GetDstPos()->GetPositionY() };
-                        else if (Unit* t = spell->m_targets.GetUnitTarget())
-                            d.origin = Vec2{ t->GetPositionX(), t->GetPositionY() };
-                        else
-                            continue;
-                        d.radius = radius + me->GetCombatReach();
-                        return true;
-                    }
-                }
-                return false;
+                return Telegraphs::DangerOf(caster, spell, me->GetCombatReach(), 15.0f, d);
             }
 
             // Out of a telegraph before its cast ends: the shortest walk to outside its edge (round a cone's side, out of
