@@ -26,10 +26,13 @@
 //   mage, warlock          Strength - 10                         ranged: Agility - 10
 // Here: two attack power a point of Strength for every class, melee and ranged alike (Nathanael 2026-11-20, Emberfall
 // feedback #679: "1 strength = 2 attack power"; one for one from 2026-11-15 until then; Emberfall.Stats.StrengthAttackPower
-// sets it, default STRENGTH_ATTACK_POWER); a hunter (whose items carry Agility, the class's main stat) adds its Agility one
-// for one [proposal]. No level term: from level 1 the rule gives a warrior 48 against upstream's 31 and a mage 36 against
-// upstream's 8 (the swing is the auto attack's level rule anyway).
-// Talents and auras (the TOTAL modifiers: the Earthwarden's attack power from Agility in its form) stay on top.
+// sets it, default STRENGTH_ATTACK_POWER); a hunter (whose items carry Agility, the class's main stat) adds two a point of
+// its Agility (Nathanael 2026-11-21: "yes agility 2 ap for hunters and earthwarden too"; one for one until then;
+// Emberfall.Stats.AgilityAttackPower, default AGILITY_ATTACK_POWER). No level term: from level 1 the rule gives a warrior
+// 48 against upstream's 31 and a mage 36 against upstream's 8 (the swing is the auto attack's level rule anyway).
+// Talents and auras (the TOTAL modifiers) stay on top; an aura's attack power of a percent of Agility (the Earthwarden's
+// form passive: 100 %, one a point as written) is scaled by the same Agility number (AgilityAuraExtra), so its written
+// percent is the share at one a point.
 // Upstream's mana pool: create mana (player_class_stats BaseMana, which the costs are percents of) plus Intellect's bonus
 // (20 + 15 a point above 20). Here: the class and level's pool (ef_player_mana) in place of both; the max-mana auras
 // (talents) stay on top.
@@ -47,22 +50,36 @@ namespace Emberfall::StatRules
     // 2026-11-20, feedback #679). The config's Emberfall.Stats.StrengthAttackPower overrides it (1: the rule of 2026-11-15).
     constexpr float STRENGTH_ATTACK_POWER = 2.0f;
 
+    // Attack power a point of Agility where the rules give it (a hunter's base; an aura's percent of Agility, the
+    // Earthwarden's form): Emberfall's formulas.yaml player_stats.attack_power_per_agility, 2 since 2026-11-21. The config's
+    // Emberfall.Stats.AgilityAttackPower overrides it (1: the rule of 2026-11-15).
+    constexpr float AGILITY_ATTACK_POWER = 2.0f;
+
     // The base attack power (upstream's val2, before the BASE_PCT modifiers) of a player's Strength and Agility: Strength
-    // times `perStrength`, a hunter's Agility one for one; the same for melee and ranged. Never below 0.
-    constexpr float AttackPowerBase(uint8_t classId, float strength, float agility, float perStrength = STRENGTH_ATTACK_POWER)
+    // times `perStrength`, a hunter's Agility times `perAgility`; the same for melee and ranged. Never below 0.
+    constexpr float AttackPowerBase(uint8_t classId, float strength, float agility, float perStrength = STRENGTH_ATTACK_POWER,
+                                    float perAgility = AGILITY_ATTACK_POWER)
     {
         float ap = strength > 0.0f && perStrength > 0.0f ? strength * perStrength : 0.0f;
-        if (classId == CLASS_HUNTER_ID && agility > 0.0f)
-            ap += agility;
+        if (classId == CLASS_HUNTER_ID && agility > 0.0f && perAgility > 0.0f)
+            ap += agility * perAgility;
         return ap;
     }
 
     // The base attack power Player::UpdateAttackPowerAndDamage goes on with: with the rules on, the rule's base times
     // upstream's BASE_PCT modifier; with them off, upstream's own base (its class formula), untouched.
     constexpr float AttackPowerUnderRules(bool rulesOn, uint8_t classId, float strength, float agility, float perStrength,
-                                          float basePct, float upstreamBase)
+                                          float perAgility, float basePct, float upstreamBase)
     {
-        return rulesOn ? AttackPowerBase(classId, strength, agility, perStrength) * basePct : upstreamBase;
+        return rulesOn ? AttackPowerBase(classId, strength, agility, perStrength, perAgility) * basePct : upstreamBase;
+    }
+
+    // What the rules add to the attack power the auras of a percent of Agility gave (upstream's sum of CalculatePct(Agility,
+    // amount), `agilityShare`): their written percent is the share at one a point, so at `perAgility` a point they give
+    // perAgility times as much. 0 with the rules off (the caller's switch), at 1 a point, or for a ratio below 0.
+    constexpr float AgilityAuraExtra(float agilityShare, float perAgility)
+    {
+        return perAgility > 0.0f ? agilityShare * (perAgility - 1.0f) : 0.0f;
     }
 
     // The max mana upstream computed, `value` = ((flat base + create) x basePct + flat total + intellectBonus) x totalPct,
