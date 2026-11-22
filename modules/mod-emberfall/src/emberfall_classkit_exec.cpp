@@ -81,17 +81,39 @@
 //   spell_ef_kit_rule_*     the rules' own aura scripts: markers (nothing happens in them)
 //   spell_ef_kit_once_a_cast  a proc aura that procs at most once a cast (ankarna's feedback of 2026-10-26: the Deathblow
 //                           window; Whirling Steel, Earthbreaker and Reaping Arc critting several enemies open it once)
+//
+// The Executioner v4.0's queued swings (ankarna 2026-11-22, warrior-executioner.md §21; the arithmetic EfExecLogic.h, its
+// tests tests/classkit_exec_tests.cpp). Brutal Swing, Final Verdict and Whirling Steel are the engine's on-next-swing
+// spells (SPELL_ATTR0_ON_NEXT_SWING_NO_DAMAGE): the core queues them in CURRENT_MELEE_SPELL, one at a time (a new one
+// interrupts the old), casts the one queued at the main hand's swing in place of its white hit (Unit::AttackerStateUpdate),
+// takes the cost and starts the cooldown at that cast, and a cancel costs nothing; gcd 0 keeps them off the global
+// cooldown. What it lacks is here:
+//   spell_ef_kit_next_swing   on a queued swing: a second press while that spell waits is refused without a word (the
+//                           first press stays queued, with its sweet spot); another queued swing still replaces it
+//   emberfall_classkit_exec_swing (the prepare hook): when a queued swing is queued, every sweet-spot rule of the caster
+//                           that names it (spell_ef_kit_rule_sweet_spot: value and misc B the window in percent of the
+//                           swing, trigger the buff) is decided from the server's own attack timer at that moment; inside
+//                           the window the buff is cast (its crit chance spell mod, one charge, spent by the swing's cast),
+//                           outside an old one of that rule goes
+//   spell_ef_kit_swing_caught the buff's own check (its periodic dummy): gone once nothing it improves is queued (a
+//                           cancel, another queue, the attack stopped), so a bonus never outlives its queue
+//   emberfall_classkit_exec_swing (the cast hook): a cast of the player's that CancelsQueue (an ability of the rule's kit
+//                           family, not triggered, not a queued swing, not named by spell_ef_kit_rule_swing_keep: Killing
+//                           Instinct) cancels the queued swing, free
 
 #include "EfClassKit.h"
 #include "EfClassKitLogic.h"
+#include "EfExecLogic.h"
 #include "EfFlowLogic.h"
 #include "EfSpiritLogic.h"
 
+#include "AllSpellScript.h"
 #include "CellImpl.h"
 #include "Creature.h"
 #include "GameTime.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "Log.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
@@ -628,9 +650,138 @@ public:
     void OnPlayerPVPKill(Player* killer, Player* /*killed*/) override { KillCuts(killer, 0); }
 };
 
+// ---- the Executioner v4.0's queued swings (the module doc above; EfExecLogic.h)
+namespace
+{
+    // the unit's queued swing (an on-next-swing spell waiting for the main hand), or null
+    Spell* QueuedSwing(Unit* unit)
+    {
+        Spell* spell = unit ? unit->GetCurrentSpell(CURRENT_MELEE_SPELL) : nullptr;
+        return spell && spell->IsNextMeleeSwingSpell() && spell->getState() != SPELL_STATE_FINISHED ? spell : nullptr;
+    }
+
+    // the unit's swing-keep rule (spell_ef_kit_rule_swing_keep: what it names keeps a queued swing), or null
+    AuraEffect const* SwingKeepRule(Unit* unit)
+    {
+        for (AuraEffect const* eff : unit->GetAuraEffectsByType(SPELL_AURA_DUMMY))
+            if (eff->GetBase()->GetScriptByName("spell_ef_kit_rule_swing_keep"))
+                return eff;
+        return nullptr;
+    }
+}
+
+// On a queued swing: pressed again while the same spell waits, nothing happens (the first press stays queued with its
+// sweet spot; a quiet refusal, no error text). Another queued swing replaces it (the core's SetCurrentCastedSpell), and
+// the swing's own cast of it is never refused.
+class spell_ef_kit_next_swing : public SpellScript
+{
+    PrepareSpellScript(spell_ef_kit_next_swing);
+
+    SpellCastResult CheckQueue()
+    {
+        Spell* queued = QueuedSwing(GetCaster());
+        uint32 const queuedId = queued ? queued->GetSpellInfo()->Id : 0;
+        if (Emberfall::ClassKit::Exec::RefusesPress(queuedId, GetSpellInfo()->Id, queued == GetSpell()))
+            return SPELL_FAILED_DONT_REPORT;
+        return SPELL_CAST_OK;
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_ef_kit_next_swing::CheckQueue);
+    }
+};
+
+// The sweet spot's buff (Perfect Swing, Decisive Strike, Deadly Whirl caught): its first effect improves the queued
+// swing (a crit chance spell mod, one charge: the swing's cast spends it); its periodic check takes the buff away as soon
+// as nothing it improves waits for the swing any more.
+class spell_ef_kit_swing_caught : public AuraScript
+{
+    PrepareAuraScript(spell_ef_kit_swing_caught);
+
+    void Check(AuraEffect const* /*aurEff*/)
+    {
+        Unit* owner = GetUnitOwner();
+        AuraEffect const* mod = GetEffect(EFFECT_0);
+        Spell* queued = QueuedSwing(owner);
+        if (!mod || !queued || !mod->IsAffectedOnSpell(queued->GetSpellInfo()))
+            Remove(AURA_REMOVE_BY_CANCEL);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_ef_kit_swing_caught::Check, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// When a queued swing is queued: its sweet-spot rules decided from the server's swing timer at that moment.
+class emberfall_classkit_exec_swing_prepare : public AllSpellScript
+{
+public:
+    emberfall_classkit_exec_swing_prepare() : AllSpellScript("emberfall_classkit_exec_swing_prepare", { ALLSPELLHOOK_ON_PREPARE }) { }
+
+    void OnSpellPrepare(Spell* spell, Unit* caster, SpellInfo const* spellInfo) override
+    {
+        if (!spell || !caster || !spellInfo || !spell->IsNextMeleeSwingSpell() || spell->IsTriggered())
+            return;
+        std::vector<AuraEffect const*> const rules =
+            Emberfall::ClassKit::Rules(caster, "spell_ef_kit_rule_sweet_spot", spellInfo->Id);
+        if (rules.empty())
+            return;
+        // the main hand's running swing: the attack timer counts down from the swing's time (haste in) to 0
+        int32 const left = caster->getAttackTimer(BASE_ATTACK);
+        float const swing = caster->GetFloatValue(UNIT_FIELD_BASEATTACKTIME);
+        for (AuraEffect const* eff : rules)
+        {
+            uint32 const caught = TriggerOf(eff);
+            if (!caught)
+                continue;
+            caster->RemoveAurasDueToSpell(caught);   // a queue decides anew
+            bool const in = Emberfall::ClassKit::Exec::SweetSpot(left, swing, eff->GetAmount(), eff->GetMiscValueB());
+            LOG_DEBUG("module", "Emberfall exec: {} queues {} at {:.1f} % of the swing ({} ms of {:.0f} left): {}",
+                      caster->GetName(), spellInfo->Id, Emberfall::ClassKit::Exec::SwingProgressPct(left, swing), left,
+                      swing, in ? "sweet spot" : "outside");
+            if (in)
+                caster->CastSpell(caster, caught, true);
+        }
+    }
+};
+
+// A cast of the player's that cancels the queued swing (any other ability of the kit; not Killing Instinct, which the
+// rule names): free, the swing goes back to a plain auto attack.
+class emberfall_classkit_exec_swing_cancel : public PlayerScript
+{
+public:
+    emberfall_classkit_exec_swing_cancel() : PlayerScript("emberfall_classkit_exec_swing_cancel", { PLAYERHOOK_ON_SPELL_CAST }) { }
+
+    void OnPlayerSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
+    {
+        Spell* queued = QueuedSwing(player);
+        if (!spell || !queued || queued == spell)
+            return;
+        AuraEffect const* keep = SwingKeepRule(player);
+        if (!keep)
+            return;
+        SpellInfo const* info = spell->GetSpellInfo();
+        Emberfall::ClassKit::Exec::CastFacts f;
+        f.queued = true;
+        f.triggered = spell->IsTriggered();
+        f.passive = info->IsPassive();
+        f.nextSwing = spell->IsNextMeleeSwingSpell();
+        f.kitFamily = info->SpellFamilyName == keep->GetSpellInfo()->SpellFamilyName;
+        f.exempt = uint32(keep->GetMiscValue()) == info->Id || (keep->HasSpellClassMask() && keep->IsAffectedOnSpell(info));
+        if (Emberfall::ClassKit::Exec::CancelsQueue(f))
+            player->InterruptSpell(CURRENT_MELEE_SPELL);
+    }
+};
+
 void AddEmberfallClassKitExecScripts()
 {
     RegisterSpellScript(spell_ef_kit_finisher);
+    RegisterSpellScript(spell_ef_kit_next_swing);
+    RegisterSpellScript(spell_ef_kit_swing_caught);
+    new emberfall_classkit_exec_swing_prepare();
+    new emberfall_classkit_exec_swing_cancel();
     RegisterSpellScript(spell_ef_kit_sweep);
     RegisterSpellScript(spell_ef_kit_sweep_hit);
     RegisterSpellScript(spell_ef_kit_rules);
@@ -641,6 +792,8 @@ void AddEmberfallClassKitExecScripts()
                               "spell_ef_kit_rule_cooldown_cut", "spell_ef_kit_rule_low_health_damage",
                               "spell_ef_kit_rule_count_damage", "spell_ef_kit_rule_single_damage",
                               "spell_ef_kit_rule_count_trigger", "spell_ef_kit_rule_hit_heal", "spell_ef_kit_rule_delayed_area",
+                              // the Executioner v4.0's (the queued swings above)
+                              "spell_ef_kit_rule_sweet_spot", "spell_ef_kit_rule_swing_keep",
                               // the Corsair v2.0's (here and in src/emberfall_classkit_flow.cpp)
                               "spell_ef_kit_rule_crit_cooldown_cut", "spell_ef_kit_rule_lone_echo",
                               "spell_ef_kit_rule_count_buff", "spell_ef_kit_rule_follow_through", "spell_ef_kit_rule_rhythm",

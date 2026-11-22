@@ -20,6 +20,9 @@
  *   E  VALUE or more enemies in the fight near the target (the target counted)
  *   L  the target lives VALUE seconds or more by the damage it has taken (unknown: holds)
  *   C  the target casts a spell that can be interrupted
+ *   N  a swing is queued: an on-next-swing spell waits for the bot's main hand (the Executioner v4.0's Brutal Swing,
+ *      Final Verdict, Whirling Steel: Emberfall docs/design/classes/warrior-executioner.md §21)
+ *   W  the main hand's running swing is at VALUE percent of its time or more (no running swing: 100; the sweet spot)
  */
 
 #ifndef PLAYERBOTS_EMBERFALLROTATIONLOGIC_H
@@ -55,6 +58,8 @@ namespace EmberfallRotation::Logic
         virtual uint32_t Enemies() = 0;
         virtual float TimeToLive() = 0;                                // seconds; < 0: unknown
         virtual bool TargetCastsInterruptible() = 0;
+        virtual bool SwingQueued() { return false; }                   // an on-next-swing spell waits
+        virtual float SwingProgress() { return 100.0f; }               // percent of the running swing (none: 100)
     };
 
     // The items of an encoded string; malformed items are left out (the generator's check refuses them).
@@ -82,7 +87,7 @@ namespace EmberfallRotation::Logic
             c.op = item[i];
             c.spell = static_cast<uint32_t>(std::strtoul(item.c_str() + a + 1, nullptr, 10));
             c.value = std::strtof(item.c_str() + b + 1, nullptr);
-            if (std::string("PSTKURELC").find(c.op) == std::string::npos)
+            if (std::string("PSTKURELCNW").find(c.op) == std::string::npos)
                 continue;
             out.push_back(c);
         }
@@ -102,6 +107,8 @@ namespace EmberfallRotation::Logic
             case 'E': return float(f.Enemies()) >= c.value;
             case 'L': { float const ttl = f.TimeToLive(); return ttl < 0.0f || ttl >= c.value; }
             case 'C': return f.TargetCastsInterruptible();
+            case 'N': return f.SwingQueued();
+            case 'W': return f.SwingProgress() >= c.value;
         }
         return true;
     }

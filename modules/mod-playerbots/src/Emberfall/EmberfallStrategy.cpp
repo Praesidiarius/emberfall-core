@@ -304,6 +304,22 @@ namespace
             return false;
         }
 
+        // the Executioner v4.0's queued swings (EmberfallRotationLogic.h N, W)
+        bool SwingQueued() override
+        {
+            Spell const* s = bot->GetCurrentSpell(CURRENT_MELEE_SPELL);
+            return s && s->IsNextMeleeSwingSpell() && s->getState() != SPELL_STATE_FINISHED;
+        }
+
+        float SwingProgress() override
+        {
+            float const swing = bot->GetFloatValue(UNIT_FIELD_BASEATTACKTIME);
+            int32 const left = bot->getAttackTimer(BASE_ATTACK);
+            if (swing <= 0.0f || left <= 0)
+                return 100.0f;
+            return 100.0f * (1.0f - std::min(float(left), swing) / swing);
+        }
+
     private:
         static float Left(Aura const* aura)
         {
