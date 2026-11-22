@@ -62,6 +62,7 @@ void AddEmberfallSkillRecipesScripts();
 void AddEmberfallRespawnFloorScripts();
 void AddEmberfallVeinSwingsScripts();
 void AddEmberfallRideScripts();
+void AddEmberfallQuestFlightScripts();
 
 void Addmod_emberfallScripts()
 {
@@ -110,4 +111,5 @@ void Addmod_emberfallScripts()
     AddEmberfallRespawnFloorScripts();
     AddEmberfallVeinSwingsScripts();
     AddEmberfallRideScripts();
+    AddEmberfallQuestFlightScripts();
 }
