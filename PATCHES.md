@@ -132,6 +132,13 @@ carries the playerbots fork's small patch (mod-playerbots/azerothcore-wotlk `Pla
 | `NAV_GROUND_STEEP` (0x10, was unused): the steep-slope area the fork's mmaps generator tags; Emberfall's mmaps do not carry it yet, so it never matches | `src/common/Collision/Maps/MapDefines.h` |
 | The `Playerbots` log appender and logger | `src/server/apps/worldserver/worldserver.conf.dist` |
 
+Emberfall mode's own hunks in the module's stock files are short and each marked `EMBERFALL:`; the telegraph step out
+(Emberfall docs/design/playerbots-pilot.md §20, 2026-11-21) added two: `src/Bot/Factory/AiFactory.cpp`
+(`AddDefaultReactionStrategies`: the reaction strategy `ef telegraph` for a bot with an Emberfall spec) and
+`src/Script/Playerbots.cpp` (`AddPlayerbotsScripts`: `EmberfallTelegraphs::AddScripts`). The rest is in
+`src/Emberfall/` (`EmberfallTelegraphs.*`, the arena of the test stacks `EmberfallArena.*`) and mod-emberfall
+(`src/telegraphs/`, shared with the companions). No core hunk.
+
 The pilot branch also merged upstream to 977614be0 (37 commits, 2026-11-06), which the module's async
 `ModuleDatabasePool` (#27773) needs; its one characters update is `data/sql/updates/db_characters/2026_11_03_00.sql`.
 

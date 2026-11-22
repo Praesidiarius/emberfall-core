@@ -246,6 +246,18 @@ On Emberfall's own world the archetypes are content: the world SQL fills `ef_com
 `ef_companion_spell` from Emberfall's `content/data/companions/companions.yaml` (a shield bearer, a lay healer, a
 hedge-mage and a sellsword with Emberfall's own spells and looks; companions.md §9), so `.efparty` works there too.
 
+### Telegraphed areas (Emberfall `docs/design/mob-abilities.md` §2, §13; `docs/design/playerbots-pilot.md` §20)
+
+The one reading of a creature's telegraphed cast for the companions (`DangerOf` in `EfCompanionAI.cpp`) and the bots
+(mod-playerbots' `src/Emberfall/EmberfallTelegraphs.cpp`, which steps a bot out before the hit). No script, no switch
+of its own (the bots' is `Playerbots.Emberfall.AvoidTelegraphs`).
+
+| File | What |
+|---|---|
+| `src/telegraphs/EfTelegraphLogic.h` | without the core: the areas (a cone, a circle round the caster or at a place, a line), inside with a margin, the escape point and its candidates, the avoidable rule's test (`Avoidable`: a marker, direct damage, a cast bar of at least 1.5 s, not triggered, a creature's), the bots' reaction figures, their own-cast rule |
+| `src/telegraphs/EfTelegraphs.{h,cpp}` | the client's `EfSpellTelegraph.dbc` from the server's dbc folder (read once at the first use; boot line `>> Emberfall telegraphs: N telegraphed spells, M with direct damage`; none on stock data), the rule's facts of a running cast (`FactsOf`), its area (`DangerOf`, the core's leeway) |
+| `tests/telegraph_tests.cpp` | the standalone tests of `EfTelegraphLogic.h` (`tests/run_tests.sh`; `companion_tests.cpp` checks the shared shapes too) |
+
 ## Dungeons (Emberfall `docs/design/dungeon-barrows.md`)
 
 `src/emberfall_dungeons.cpp`; the logic without the core is `src/dungeons/EfDungeonLogic.h` (`tests/dungeon_tests.cpp`).

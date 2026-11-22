@@ -31,6 +31,8 @@
 #include <string_view>
 #include <vector>
 
+#include "EfTelegraphLogic.h"
+
 namespace Emberfall::Companions
 {
     // ---- roles ---------------------------------------------------------------------------------------------------
@@ -428,73 +430,16 @@ namespace Emberfall::Companions
     }
 
     // ---- boss mechanics (companions.md §3 "Mechanics", dungeon-barrows.md §5a) -------------------------------------
-    // Plain 2D geometry: the AI turns a hostile's telegraphed cast (a cone, a circle round the caster, a circle at a
-    // point) into a danger area and walks out of it before the cast ends; a run-out mark sends its bearer away from the
-    // group and the others away from the bearer.
-    struct Vec2
-    {
-        float x = 0, y = 0;
-    };
-
-    inline float Dist(Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
-
-    // The smallest absolute difference between two angles (radians), 0..pi.
-    inline float AngleDiff(float a, float b)
-    {
-        float d = std::fmod(std::fabs(a - b), 6.2831853f);
-        return d > 3.14159265f ? 6.2831853f - d : d;
-    }
-
-    enum class DangerShape : uint8_t { None, Cone, Circle };
-
-    // A telegraphed area: a cone from `origin` facing `facing` (full `angle`, radians) or a circle round `origin`.
-    struct Danger
-    {
-        DangerShape shape = DangerShape::None;
-        Vec2 origin;
-        float radius = 0;    // the effect radius plus the caster's and our own size (the core's test, mob-abilities.md §3)
-        float facing = 0;    // cone only
-        float angle = 0;     // cone only
-    };
-
-    // Inside, with `margin` yards to spare (a step short of the edge still counts as inside).
-    inline bool InDanger(Danger const& d, Vec2 p, float margin)
-    {
-        float const dist = Dist(d.origin, p);
-        if (d.shape == DangerShape::Circle)
-            return dist <= d.radius + margin;
-        if (d.shape != DangerShape::Cone || dist > d.radius + margin)
-            return false;
-        if (dist < 1.0f)
-            return true;   // at the caster's feet: inside its boundary, which the core counts as in front
-        float const toP = std::atan2(p.y - d.origin.y, p.x - d.origin.x);
-        // The cone's edge widened by the margin at this distance.
-        return AngleDiff(toP, d.facing) <= d.angle * 0.5f + std::atan2(margin, dist);
-    }
-
-    // Where to step to get out: for a circle straight out from its middle to `clear` yards past the edge (from the very
-    // middle towards `prefer`); for a cone round the side nearer to us, past its edge by an angle worth `clear` yards,
-    // at least 4 yd from the caster. The shortest walk that ends outside.
-    inline Vec2 EscapePoint(Danger const& d, Vec2 p, float clear, Vec2 prefer)
-    {
-        float const dist = Dist(d.origin, p);
-        if (d.shape == DangerShape::Circle)
-        {
-            float a = std::atan2(p.y - d.origin.y, p.x - d.origin.x);
-            if (dist < 0.3f)
-                a = std::atan2(prefer.y - d.origin.y, prefer.x - d.origin.x);
-            float const r = d.radius + clear;
-            return Vec2{ d.origin.x + std::cos(a) * r, d.origin.y + std::sin(a) * r };
-        }
-        float const r = std::max(dist, 4.0f);
-        float const toP = dist < 0.3f ? std::atan2(prefer.y - d.origin.y, prefer.x - d.origin.x) : std::atan2(p.y - d.origin.y, p.x - d.origin.x);
-        // Which side: the sign of the angle from the facing to us (wrapped to -pi..pi).
-        float const rel = std::remainder(toP - d.facing, 6.2831853f);
-        float const side = rel >= 0 ? 1.0f : -1.0f;
-        float const out = d.angle * 0.5f + std::atan2(clear, r) + 0.15f;
-        float const a = d.facing + side * out;
-        return Vec2{ d.origin.x + std::cos(a) * r, d.origin.y + std::sin(a) * r };
-    }
+    // The AI turns a hostile's telegraphed cast (a cone, a circle round the caster, a circle at a point, a line) into a
+    // danger area and walks out of it before the cast ends; a run-out mark sends its bearer away from the group and the
+    // others away from the bearer. The areas' geometry is the one the bots use too (telegraphs/EfTelegraphLogic.h).
+    using Telegraphs::AngleDiff;
+    using Telegraphs::Danger;
+    using Telegraphs::DangerShape;
+    using Telegraphs::Dist;
+    using Telegraphs::EscapePoint;
+    using Telegraphs::InDanger;
+    using Telegraphs::Vec2;
 
     // A run-out mark on `self`: a spot `walk` yards away that is `radius` + `clear` yards from every other member, trying
     // eight directions starting away from the others' middle; else the one farthest from them. `open(point)`: the spot
