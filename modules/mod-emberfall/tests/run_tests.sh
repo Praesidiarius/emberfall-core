@@ -30,6 +30,7 @@
 # and the miss rules tests (tests/missrules_tests.cpp: the core's src/server/game/Spells/EmberfallMissRules.h)
 # and the kit weapon tests (tests/kitweapon_tests.cpp: the core's src/server/game/Spells/EmberfallKitWeapon.h)
 # and the auto shot tests (tests/autoshot_tests.cpp: the core's src/server/game/Spells/EmberfallAutoShot.h, Loose on the move)
+# and the skin loot tests (tests/skinloot_tests.cpp: the core's src/server/game/Loot/EmberfallSkinLoot.h, a skin with the killer offline)
 # and the pet aura tests (tests/petaura_tests.cpp: the core's src/server/game/Spells/Auras/EmberfallPetAura.h, a companion's aura)
 # and the pet taunt tests (tests/pettaunt_tests.cpp: the core's src/server/game/AI/CoreAI/EmberfallPetTaunt.h, Growl's autocast)
 # and the leash tests (tests/leash_tests.cpp: src/leash/EfLeashLogic.h, which landed hit renews a mob's leash)
@@ -133,6 +134,7 @@ periodiccrit ../../../src/server/game/Spells/Auras periodiccrit_tests.cpp
 missrules ../../../src/server/game/Spells missrules_tests.cpp
 kitweapon ../../../src/server/game/Spells kitweapon_tests.cpp
 autoshot ../../../src/server/game/Spells autoshot_tests.cpp
+skinloot ../../../src/server/game/Loot skinloot_tests.cpp
 petaura ../../../src/server/game/Spells/Auras petaura_tests.cpp
 pettaunt ../../../src/server/game/AI/CoreAI pettaunt_tests.cpp
 leash ../src/leash leash_tests.cpp

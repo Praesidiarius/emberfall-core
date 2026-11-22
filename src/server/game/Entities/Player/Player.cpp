@@ -19,6 +19,7 @@
 #include "EmberfallCombatLog.h"
 #include "EmberfallOwnData.h"
 #include "EmberfallStatRules.h" // EMBERFALL: the stat rules (PATCHES.md #40)
+#include "EmberfallSkinLoot.h" // EMBERFALL: a skin with the killer offline (PATCHES.md #45)
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "AreaDefines.h"
@@ -8281,7 +8282,9 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type)
         Creature* creature = GetMap()->GetCreature(guid);
 
         // must be in range and creature must be alive for pickpocket and must be dead for another loot
-        if (!creature || creature->IsAlive() != (loot_type == LOOT_PICKPOCKETING) || !creature->IsWithinDistInMap(this, INTERACTION_DISTANCE))
+        // EMBERFALL: a skin's reach (EmberfallSkinLoot.h, PATCHES.md #45)
+        bool const skin = creature && (loot_type == LOOT_SKINNING || creature->loot.loot_type == LOOT_SKINNING);
+        if (!creature || creature->IsAlive() != (loot_type == LOOT_PICKPOCKETING) || !creature->IsWithinDistInMap(this, Emberfall::SkinLoot::LootReach(skin, INTERACTION_DISTANCE)))
         {
             SendLootRelease(guid);
             return;
@@ -8333,7 +8336,8 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type)
             // the player whose group may loot the corpse
             Player* recipient = creature->GetLootRecipient();
             Group* recipientGroup = creature->GetLootRecipientGroup();
-            if (!recipient && !recipientGroup)
+            // EMBERFALL: a skin is sent with the killer offline too (EmberfallSkinLoot.h, PATCHES.md #45)
+            if (!recipient && !recipientGroup && Emberfall::SkinLoot::NeedsRecipientOnline(loot_type == LOOT_SKINNING))
                 return;
 
             if (loot->loot_type == LOOT_NONE)
