@@ -269,6 +269,14 @@ namespace Emberfall::ClassKit::Infuse
     {
         return 100 + std::int32_t(jump) * std::max(0, momentum);
     }
+
+    // ---- Mana Reclamation ----
+    // The mana a hit gives back: `pct` percent of the whole mana bar (`maxMana`, the costs' base since Emberfall 0.4.37;
+    // feedback #681, 2026-11-21: 5 %; it was 2 % of base mana before), cut to whole points; 0 for no bar or no percent.
+    inline std::uint32_t ManaBack(std::uint32_t maxMana, std::int32_t pct)
+    {
+        return pct > 0 ? std::uint32_t(std::uint64_t(maxMana) * std::uint32_t(pct) / 100u) : 0u;
+    }
 }
 
 #endif

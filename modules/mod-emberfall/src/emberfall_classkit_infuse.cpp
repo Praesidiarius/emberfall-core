@@ -484,10 +484,10 @@ class spell_ef_kit_infuse_rules : public SpellScript
     {
         using namespace Emberfall::ClassKit;
         uint32 const id = GetSpellInfo()->Id;
-        // Mana Reclamation: a share of base mana on a hit
+        // Mana Reclamation: a share of the whole mana bar on a hit (feedback #681: of base mana before)
         for (AuraEffect const* eff : Rules(caster, "spell_ef_kit_rule_mana_back", id))
-            if (int32 const mana = int32(caster->GetCreateMana()) * eff->GetAmount() / 100; mana > 0)
-                caster->EnergizeBySpell(caster, id, uint32(mana), POWER_MANA);
+            if (uint32 const mana = Infuse::ManaBack(caster->GetMaxPower(POWER_MANA), eff->GetAmount()); mana > 0)
+                caster->EnergizeBySpell(caster, id, mana, POWER_MANA);
         // Arcane Recovery: a crit restores potions; Accelerated Infusion: a crit takes time off a cooldown (what is left of
         // it, never below 0)
         if (HitCrit(GetSpell(), target))
