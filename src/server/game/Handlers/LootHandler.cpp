@@ -17,6 +17,7 @@
 
 #include "Corpse.h"
 #include "Creature.h"
+#include "EmberfallSkinLoot.h" // EMBERFALL: a skin's reach (PATCHES.md #45)
 #include "GameObject.h"
 #include "Group.h"
 #include "ItemRecovery.h"
@@ -94,7 +95,7 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket& recvData)
         Creature* creature = GetPlayer()->GetMap()->GetCreature(lguid);
 
         bool lootAllowed = creature && creature->IsAlive() == (player->IsClass(CLASS_ROGUE, CLASS_CONTEXT_ABILITY) && creature->loot.loot_type == LOOT_PICKPOCKETING);
-        if (!lootAllowed || !creature->IsWithinDistInMap(_player, INTERACTION_DISTANCE))
+        if (!lootAllowed || !creature->IsWithinDistInMap(_player, Emberfall::SkinLoot::LootReach(creature->loot.loot_type == LOOT_SKINNING, INTERACTION_DISTANCE))) // EMBERFALL: a skin's reach (PATCHES.md #45)
         {
             player->SendLootError(lguid, lootAllowed ? LOOT_ERROR_TOO_FAR : LOOT_ERROR_DIDNT_KILL);
             return;
@@ -453,7 +454,7 @@ void WorldSession::DoLootRelease(ObjectGuid lguid)
         Creature* creature = GetPlayer()->GetMap()->GetCreature(lguid);
 
         bool lootAllowed = creature && creature->IsAlive() == (player->IsClass(CLASS_ROGUE, CLASS_CONTEXT_ABILITY) && creature->loot.loot_type == LOOT_PICKPOCKETING);
-        if (!lootAllowed || !creature->IsWithinDistInMap(_player, INTERACTION_DISTANCE))
+        if (!lootAllowed || !creature->IsWithinDistInMap(_player, Emberfall::SkinLoot::LootReach(creature->loot.loot_type == LOOT_SKINNING, INTERACTION_DISTANCE))) // EMBERFALL: a skin's reach (PATCHES.md #45)
             return;
 
         loot = &creature->loot;
