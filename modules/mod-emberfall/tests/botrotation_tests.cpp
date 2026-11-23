@@ -60,6 +60,10 @@ namespace
         uint32_t Enemies() override { ++enemyAsks; return enemies; }
         float TimeToLive() override { return ttl; }
         bool TargetCastsInterruptible() override { return casting; }
+        bool queued = false;
+        float swing = 100.0f;
+        bool SwingQueued() override { return queued; }
+        float SwingProgress() override { return swing; }
     };
 
     bool Run(std::string const& text, Fake& f) { return AllHold(Parse(text), f); }
@@ -114,6 +118,21 @@ int main()
     check(!Run("C:0:0", f), "no interrupt without a cast");
     f.casting = true;
     check(Run("C:0:0", f), "the interrupt on an interruptible cast");
+
+    // the Executioner v4.0's queued swings: the GCD buttons wait while one is queued, the queue waits for the sweet spot
+    check(!Run("N:0:0", f) && Run("!N:0:0", f), "nothing queued: `not queued` holds");
+    f.queued = true;
+    check(Run("N:0:0", f) && !Run("!N:0:0", f), "a swing queued: Deathblow waits (`not queued` fails)");
+    f.queued = false;
+    std::string const sweet = "!N:0:0;W:0:60;!W:0:80";
+    f.swing = 59.0f;
+    check(!Run(sweet, f), "59 % of the swing: Final Verdict waits for the sweet spot");
+    f.swing = 70.0f;
+    check(Run(sweet, f), "70 %: queued in the sweet spot");
+    f.swing = 80.0f;
+    check(!Run(sweet, f), "80 %: `swing < 80` no longer holds");
+    f.swing = 100.0f;
+    check(!Run("!W:0:80", f), "no running swing (100 %): never the sweet spot");
 
     Fake lazy;
     lazy.power = 0.0f;
