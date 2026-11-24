@@ -25,6 +25,7 @@
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <vector>
 
 using namespace Emberfall::ClassKit::Exec;
 
@@ -68,6 +69,14 @@ int main()
     check(!SweetSpot(3300, 3300.0f, 60, 80), "a swing that just began: never");
     check(!InWindow(70.0f, 80, 60), "an empty window never holds");
     check(!InWindow(70.0f, 70, 70), "a window of no width never holds");
+    // a talent's several windows (feedback #718: 60-80 % and the swing's last 1 %): any of them holds
+    std::vector<Window> const both{ { 60, 80 }, { 99, 100 } };
+    check(AnyWindow(990, 3300.0f, both), "70 %: in the first window");
+    check(AnyWindow(30, 3300.0f, both), "99.1 %: in the last 1 %");
+    check(AnyWindow(0, 3300.0f, both), "no running swing (100 %, the fight's first swing): in the last 1 %");
+    check(!AnyWindow(600, 3300.0f, both), "81.8 %: between the two windows");
+    check(!AnyWindow(3300, 3300.0f, both), "a swing that just began: in neither");
+    check(!AnyWindow(0, 3300.0f, std::vector<Window>{}), "no window: never");
     // the same share of the swing at another speed: the window follows the weapon and haste
     check(SweetSpot(1050, 3500.0f, 60, 80) && SweetSpot(780, 2600.0f, 60, 80), "70 % of a 3.5 s and of a 2.6 s swing");
 

@@ -93,8 +93,9 @@
 //   emberfall_classkit_exec_swing (the prepare hook): when a queued swing is queued, every sweet-spot rule of the caster
 //                           that names it (spell_ef_kit_rule_sweet_spot: value and misc B the window in percent of the
 //                           swing, trigger the buff) is decided from the server's own attack timer at that moment; inside
-//                           the window the buff is cast (its crit chance spell mod, one charge, spent by the swing's cast),
-//                           outside an old one of that rule goes
+//                           a window the buff is cast (its crit chance spell mod, one charge, spent by the swing's cast),
+//                           outside an old one of that rule goes. A talent's several windows (its rule effects with the
+//                           same buff: 60-80 % and the swing's last 1 %, feedback #718) decide its buff once, any of them
 //   spell_ef_kit_swing_caught the buff's own check (its periodic dummy): gone once nothing it improves is queued (a
 //                           cancel, another queue, the attack stopped), so a bonus never outlives its queue
 //   emberfall_classkit_exec_swing (the cast hook): a cast of the player's that CancelsQueue (an ability of the rule's kit
@@ -131,6 +132,7 @@
 #include <algorithm>
 #include <cmath>
 #include <list>
+#include <map>
 #include <utility>
 #include <vector>
 
@@ -731,13 +733,16 @@ public:
         // the main hand's running swing: the attack timer counts down from the swing's time (haste in) to 0
         int32 const left = caster->getAttackTimer(BASE_ATTACK);
         float const swing = caster->GetFloatValue(UNIT_FIELD_BASEATTACKTIME);
+        // a talent's windows by the buff they give (feedback #718: 60-80 % and the last 1 %, two rule effects of one
+        // talent): the buff decided once, given when any of its windows holds
+        std::map<uint32, std::vector<Emberfall::ClassKit::Exec::Window>> windows;
         for (AuraEffect const* eff : rules)
+            if (uint32 const caught = TriggerOf(eff))
+                windows[caught].push_back({ eff->GetAmount(), eff->GetMiscValueB() });
+        for (auto const& [caught, list] : windows)
         {
-            uint32 const caught = TriggerOf(eff);
-            if (!caught)
-                continue;
             caster->RemoveAurasDueToSpell(caught);   // a queue decides anew
-            bool const in = Emberfall::ClassKit::Exec::SweetSpot(left, swing, eff->GetAmount(), eff->GetMiscValueB());
+            bool const in = Emberfall::ClassKit::Exec::AnyWindow(left, swing, list);
             LOG_DEBUG("module", "Emberfall exec: {} queues {} at {:.1f} % of the swing ({} ms of {:.0f} left): {}",
                       caster->GetName(), spellInfo->Id, Emberfall::ClassKit::Exec::SwingProgressPct(left, swing), left,
                       swing, in ? "sweet spot" : "outside");

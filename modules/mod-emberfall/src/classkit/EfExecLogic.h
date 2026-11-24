@@ -22,8 +22,11 @@
 // The engine carries most of it (an on-next-swing spell, SPELL_ATTR0_ON_NEXT_SWING_NO_DAMAGE: the core's
 // CURRENT_MELEE_SPELL slot, one at a time, cast by the main hand's swing, cost and cooldown at that cast, a cancel free).
 // What it lacks, and these rules add:
-//   - the sweet spot: a queue that arrives while the main hand's running swing is between the window's start and end
-//     (percent of its time, both ends in) gets its talent's bonus, decided once, when the queue arrives (SweetSpot);
+//   - the sweet spot: a queue that arrives while the main hand's running swing is between a window's start and end
+//     (percent of its time, both ends in) gets its talent's bonus, decided once, when the queue arrives (SweetSpot); a
+//     talent may carry several windows (one rule effect each: the Executioner's 60-80 % and, feedback #717-#720's
+//     #718, the swing's last 1 %, 99-100 %, which a swing that ran out or none running is in: the first swing of a
+//     fight), its bonus given once when any of them holds (AnyWindow);
 //   - a second press of the swing that is queued does nothing: the first stays with its sweet-spot result (RefusesPress);
 //   - any other ability of the kit the player uses cancels the queued swing, unless the rule names it (Killing Instinct;
 //     CancelsQueue).
@@ -57,6 +60,23 @@ namespace Emberfall::ClassKit::Exec
     inline bool SweetSpot(int32_t timerLeftMs, float swingMs, int32_t startPct, int32_t endPct)
     {
         return InWindow(SwingProgressPct(timerLeftMs, swingMs), startPct, endPct);
+    }
+
+    // A talent's windows ({start, end} pairs, its rule effects that share one caught buff): whether any of them holds.
+    struct Window
+    {
+        int32_t startPct = 0;
+        int32_t endPct = 0;
+    };
+
+    template <typename Windows>
+    inline bool AnyWindow(int32_t timerLeftMs, float swingMs, Windows const& windows)
+    {
+        float const progress = SwingProgressPct(timerLeftMs, swingMs);
+        for (Window const& w : windows)
+            if (InWindow(progress, w.startPct, w.endPct))
+                return true;
+        return false;
     }
 
     // A press of a queued swing (`pressedSpell`) while the player has `queuedSpell` waiting (0: none): refused when it is
