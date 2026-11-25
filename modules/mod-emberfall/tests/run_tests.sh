@@ -35,6 +35,8 @@
 # and the skin loot tests (tests/skinloot_tests.cpp: the core's src/server/game/Loot/EmberfallSkinLoot.h, a skin with the killer offline)
 # and the pet aura tests (tests/petaura_tests.cpp: the core's src/server/game/Spells/Auras/EmberfallPetAura.h, a companion's aura)
 # and the pet taunt tests (tests/pettaunt_tests.cpp: the core's src/server/game/AI/CoreAI/EmberfallPetTaunt.h, Growl's autocast)
+# and the beasts tests (tests/beasts_tests.cpp: src/beasts/EfBeastsLogic.h and the core's EmberfallPetPriority.h: the stalls,
+# the tame choice, the companion's priority, the refused hand casts, EFB)
 # and the leash tests (tests/leash_tests.cpp: src/leash/EfLeashLogic.h, which landed hit renews a mob's leash)
 # and the stat rules tests (tests/statrules_tests.cpp: src/stats/EfStatRulesLogic.h and the core's EmberfallStatRules.h)
 # and the extra action tests (tests/extraaction_tests.cpp: src/extraaction/EfExtraActionLogic.h, which marker grants which spell)
@@ -142,6 +144,7 @@ autoshot ../../../src/server/game/Spells autoshot_tests.cpp
 skinloot ../../../src/server/game/Loot skinloot_tests.cpp
 petaura ../../../src/server/game/Spells/Auras petaura_tests.cpp
 pettaunt ../../../src/server/game/AI/CoreAI pettaunt_tests.cpp
+beasts ../src/beasts:../../../src/server/game/AI/CoreAI beasts_tests.cpp
 leash ../src/leash leash_tests.cpp
 statrules ../src/stats:../../../src/server/game/Entities/Unit statrules_tests.cpp
 extraaction ../src/extraaction extraaction_tests.cpp

@@ -19,6 +19,7 @@
 #include "CharmInfo.h"
 #include "Creature.h"
 #include "EmberfallOwnData.h" // EMBERFALL: own data (PATCHES.md)
+#include "EmberfallPetPriority.h" // EMBERFALL: the companion's spells by priority (PATCHES.md #46)
 #include "EmberfallPetTaunt.h" // EMBERFALL: the companion's autocast taunt (PATCHES.md #44)
 #include "Errors.h"
 #include "Group.h"
@@ -246,9 +247,13 @@ void PetAI::UpdateAI(uint32 diff)
         typedef std::vector<std::pair<Unit*, Spell*> > TargetSpellList;
         TargetSpellList targetSpellStore;
 
-        for (uint8 i = 0; i < me->GetPetAutoSpellSize(); ++i)
+        // EMBERFALL: #46 a companion walks its kind's priority list (whatever the toggles) and casts the first that can go
+        thread_local std::vector<uint32> efOrder;
+        bool const efOrdered = Emberfall::PetPriority::List(me, efOrder);
+        std::size_t const efCount = efOrdered ? efOrder.size() : std::size_t(me->GetPetAutoSpellSize());
+        for (std::size_t i = 0; i < efCount; ++i)
         {
-            uint32 spellID = me->GetPetAutoSpellOnPos(i);
+            uint32 spellID = efOrdered ? efOrder[i] : me->GetPetAutoSpellOnPos(uint8(i));
             if (!spellID)
                 continue;
 
@@ -344,7 +349,8 @@ void PetAI::UpdateAI(uint32 diff)
         //found units to cast on to
         if (!targetSpellStore.empty())
         {
-            uint32 index = urand(0, targetSpellStore.size() - 1);
+            // EMBERFALL: #46 the first gathered (the priority's best) for an ordered companion, upstream's random pick else
+            uint32 index = uint32(Emberfall::PetPriority::Pick(efOrdered, efOrdered ? 0 : urand(0, targetSpellStore.size() - 1)));
 
             Spell* spell  = targetSpellStore[index].second;
             Unit*  target = targetSpellStore[index].first;

@@ -622,9 +622,12 @@ void WorldSession::HandleBuyStableSlot(WorldPacket& recvData)
         GetPlayer()->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
 
     PetStable& petStable = GetPlayer()->GetOrInitPetStable();
-    if (petStable.MaxStabledPets < MAX_PET_STABLES)
+    // EMBERFALL: #46 the stable has more stalls than StableSlotPrices.dbc prices (MAX_PET_STABLES 80): a stall without a
+    // price row is not for sale (mod-emberfall opens every stall of a hunter for free)
+    StableSlotPricesEntry const* SlotPrice = petStable.MaxStabledPets < MAX_PET_STABLES
+        ? sStableSlotPricesStore.LookupEntry(petStable.MaxStabledPets + 1) : nullptr;
+    if (SlotPrice)
     {
-        StableSlotPricesEntry const* SlotPrice = sStableSlotPricesStore.LookupEntry(petStable.MaxStabledPets + 1);
         if (_player->HasEnoughMoney(SlotPrice->Price))
         {
             ++petStable.MaxStabledPets;

@@ -23,10 +23,12 @@
 //     Not attackable, no spells, passive; at the stabled beast's own size and growth stage (hunter-taming.md §18). It
 //     hides while the hunter fights, has his companion out or is in a dungeon or battleground, and comes back after; a map change brings it along; cast again, it goes back. The next cast takes
 //     the next stall (EfJourneyLogic.h NextStall).
-//   - Call from the Stable (spell_ef_journey_call, also the step's quest items: call_lesson): 10 s, then the next stabled
-//     beast takes the companion's place (the stable swap of a stable keeper, NPCHandler.cpp HandleStableSwapPet's, with
-//     no keeper); with no companion out it walks at heel instead (no fighting companion for the Ranger and the Spirit
-//     Caller). Not in dungeons. Stable at Hand's Quick Call shortens its cooldown (a spell modifier, the kit's).
+//   - Call from the Stable (spell_ef_journey_call, also the step's quest items: call_lesson; every hunter's from 10 since
+//     2026-11-25, docs/design/hunter-beasts.md §2.2): its button opens the stable list in field mode (emberfall_beasts.cpp,
+//     EFB); the list's Call casts it with the picked beast (3 s), then that beast (the whistle: the next stabled one)
+//     takes the companion's place (the stable swap of a stable keeper, NPCHandler.cpp HandleStableSwapPet's, with no
+//     keeper; beasts/EfBeasts.h SwapWith); with no companion out it walks at heel instead (no fighting companion for the
+//     Ranger and the Spirit Caller). Not in dungeons. Quick Call (step 4) shortens its cooldown (a spell modifier).
 //   - Stable at Hand (spell_ef_journey_stable, also stable_lesson): the open-stable aura (SPELL_AURA_OPEN_STABLE) the
 //     core sends the stable list for, and whose holder may stable, unstable and swap with his own guid as the keeper
 //     (PetHandler.cpp CheckStableMaster); refused in dungeons.
@@ -44,6 +46,7 @@
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
 #include "TemporarySummon.h"
+#include "beasts/EfBeasts.h"
 #include "journeys/EfJourneyLogic.h"
 #include "petsize/EfPetSize.h"
 
@@ -180,43 +183,8 @@ namespace
         return stable->StabledPets[stall]->PetNumber;
     }
 
-    // The stable keeper's swap (NPCHandler.cpp HandleStableSwapPet, the companion-out case) without a keeper: the
-    // companion goes into `stall`, the beast there comes out.
-    bool SwapIn(Player* player, int stall)
-    {
-        PetStable* stable = player->GetPetStable();
-        Pet* old = player->GetPet();
-        if (!stable || !old || !old->IsAlive() || !old->IsHunterPet() || stall < 0 || stall >= int(MAX_PET_STABLES)
-            || !stable->StabledPets[stall])
-            return false;
-        uint32 const petId = stable->StabledPets[stall]->PetNumber;
-        CreatureTemplate const* t = sObjectMgr->GetCreatureTemplate(stable->StabledPets[stall]->CreatureId);
-        if (!t || !t->IsTameable(player->CanTameExoticPets()))
-            return false;
-        player->RemovePet(old, PetSaveMode(PET_SAVE_FIRST_STABLE_SLOT + stall));
-        Pet* pet = new Pet(player, HUNTER_PET);
-        if (!pet->LoadPetFromDB(player, 0, petId, false))
-        {
-            delete pet;
-            if (stable->CurrentPet)
-            {
-                stable->UnslottedPets.push_back(std::move(*stable->CurrentPet));
-                stable->CurrentPet.reset();
-            }
-            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_PET_SLOT_BY_ID);
-            stmt->SetData(0, PET_SAVE_NOT_IN_SLOT);
-            stmt->SetData(1, player->GetGUID().GetCounter());
-            stmt->SetData(2, petId);
-            CharacterDatabase.Execute(stmt);
-            return false;
-        }
-        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_PET_SLOT_BY_ID);
-        stmt->SetData(0, PET_SAVE_AS_CURRENT);
-        stmt->SetData(1, player->GetGUID().GetCounter());
-        stmt->SetData(2, petId);
-        CharacterDatabase.Execute(stmt);
-        return true;
-    }
+    // The stable keeper's swap without a keeper: the shared helper (beasts/EfBeasts.h).
+    bool SwapIn(Player* player, int stall) { return Emberfall::Beasts::SwapWith(player, stall); }
 
     SpellCastResult FieldCheck(Player* player, bool needStabled)
     {
@@ -327,14 +295,31 @@ class spell_ef_journey_call : public SpellScript
 {
     PrepareSpellScript(spell_ef_journey_call);
 
-    SpellCastResult Check() { return FieldCheck(GetCaster() ? GetCaster()->ToPlayer() : nullptr, true); }
+    SpellCastResult Check()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        SpellCastResult const r = FieldCheck(player, true);
+        if (r != SPELL_CAST_OK)
+            return r;
+        // the button (not the quest's whistle) opens the stable list first; its Call casts it with the pick
+        // (hunter-beasts.md §2.2)
+        if (GetSpellInfo()->Id == Emberfall::Beasts::kSpellCallFromTheStable && !Emberfall::Beasts::HasCallPick(player))
+        {
+            Emberfall::Beasts::OpenFieldList(player);
+            return SPELL_FAILED_DONT_REPORT;
+        }
+        return SPELL_CAST_OK;
+    }
 
     void HandleHit(SpellEffIndex /*effIndex*/)
     {
         Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
         if (!player)
             return;
-        int const stall = NextStall(player);
+        // the beast picked in the field list (EFB CALL, hunter-beasts.md §2.2), else the next stall's
+        int stall = Emberfall::Beasts::TakeCallPick(player);
+        if (stall < 0)
+            stall = NextStall(player);
         if (stall < 0)
             return;
         if (Pet* pet = player->GetPet(); pet && pet->IsHunterPet() && pet->IsAlive())

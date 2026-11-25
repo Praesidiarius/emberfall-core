@@ -82,6 +82,7 @@
 #include "petsize/EfPetSize.h"
 #include "journeys/EfJourneyLogic.h"
 #include "journeys/EfJourneys.h"
+#include "beasts/EfBeasts.h"
 #include "taming/EfTameLogic.h"
 #include "taming/EfTameWire.h"
 #include <atomic>
@@ -105,6 +106,7 @@ namespace
     constexpr uint32 kSpellCraftsman = 99522;
     constexpr uint32 kSpellMaster = 99523;
     constexpr uint32 kSpellDrowseShot = 99524;
+    constexpr uint32 kSpellCallFromTheStable = Emberfall::Beasts::kSpellCallFromTheStable;   // learned with Drowse Shot
     constexpr uint32 kSpellOutCold = 99525;
     constexpr uint32 kSpellGentling = 93120;       // retired
     constexpr uint32 kSpellGentlingTame = 93121;
@@ -313,6 +315,10 @@ namespace
             player->learnSpell(kSpellApprentice);
         if (!player->HasSpell(kSpellDrowseShot) && sSpellMgr->GetSpellInfo(kSpellDrowseShot))
             player->learnSpell(kSpellDrowseShot);
+        // Call from the Stable comes with Drowse Shot since the beasts' part 1 (hunter-beasts.md §2.2; the Class Journey's
+        // step 4 taught it at 32 before)
+        if (!player->HasSpell(kSpellCallFromTheStable) && sSpellMgr->GetSpellInfo(kSpellCallFromTheStable))
+            player->learnSpell(kSpellCallFromTheStable);
         if (!player->HasSkill(kSkillBeastcraft))
             return;
         uint32 const skill = player->GetPureSkillValue(kSkillBeastcraft);
@@ -348,62 +354,15 @@ namespace
             player->SendTameFailure(uint8(Emberfall::Journeys::kTameFailureJourney + std::min<uint32>(level, 155)));
             return SPELL_FAILED_DONT_REPORT;
         }
-        // a companion out (or waiting) needs a free stall for the tame (§4.3)
-        if (PetStable const* stable = player->GetPetStable(); stable && (stable->CurrentPet || !stable->UnslottedPets.empty()))
+        // a companion out (or waiting), or a tame "to the stable", needs a free stall (§4.3; hunter-beasts.md §2.2)
+        if (PetStable const* stable = player->GetPetStable(); stable
+            && (stable->CurrentPet || !stable->UnslottedPets.empty() || Emberfall::Beasts::TamePref(player) == Emberfall::Beasts::TameTo::Stable)
+            && Emberfall::Beasts::FreeStall(stable) < 0)
         {
-            bool room = false;
-            for (uint32 i = 0; i < stable->MaxStabledPets && i < MAX_PET_STABLES; ++i)
-                room = room || !stable->StabledPets[i];
-            if (!room)
-            {
-                player->SendTameFailure(PET_TAME_TOO_MANY);
-                return SPELL_FAILED_DONT_REPORT;
-            }
+            player->SendTameFailure(PET_TAME_TOO_MANY);
+            return SPELL_FAILED_DONT_REPORT;
         }
         return SPELL_CAST_OK;
-    }
-
-    // Stables the out (or waiting) companion into a free stall; false: no stall free.
-    bool StableOut(Player* player)
-    {
-        PetStable* stable = player->GetPetStable();
-        if (!stable || (!stable->CurrentPet && stable->UnslottedPets.empty() && !player->GetPet()))
-            return true;
-        uint32 slot = MAX_PET_STABLES;
-        for (uint32 i = 0; i < stable->MaxStabledPets && i < MAX_PET_STABLES; ++i)
-            if (!stable->StabledPets[i])
-            {
-                slot = i;
-                break;
-            }
-        if (slot == MAX_PET_STABLES)
-            return false;
-        if (Pet* pet = player->GetPet())
-        {
-            if (pet->getPetType() != HUNTER_PET)
-                return false;
-            player->RemovePet(pet, PetSaveMode(PET_SAVE_FIRST_STABLE_SLOT + slot));
-            std::swap(stable->StabledPets[slot], stable->CurrentPet);
-            return true;
-        }
-        PetStable::PetInfo info;
-        if (stable->CurrentPet)
-        {
-            info = *stable->CurrentPet;
-            stable->CurrentPet.reset();
-        }
-        else
-        {
-            info = stable->UnslottedPets.back();
-            stable->UnslottedPets.pop_back();
-        }
-        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_PET_SLOT_BY_ID);
-        stmt->SetData(0, uint8(PET_SAVE_FIRST_STABLE_SLOT + slot));
-        stmt->SetData(1, player->GetGUID().GetCounter());
-        stmt->SetData(2, info.PetNumber);
-        CharacterDatabase.Execute(stmt);
-        stable->StabledPets[slot] = std::move(info);
-        return true;
     }
 
     // ---- messages ---------------------------------------------------------------------------------------------------
@@ -750,7 +709,12 @@ namespace
                 }
                 continue;
             }
-            if (!StableOut(player))
+            // the companion out goes into a free stall first (the core's tame brings the new beast out); a tame "to the
+            // stable" with nothing out needs a free stall for the new one (hunter-beasts.md §2.2)
+            Emberfall::Beasts::TameTo const to = Emberfall::Beasts::TamePref(player);
+            int stall = -1;
+            if (!Emberfall::Beasts::PutAway(player, stall)
+                || (to == Emberfall::Beasts::TameTo::Stable && stall < 0 && Emberfall::Beasts::FreeStall(player->GetPetStable()) < 0))
             {
                 if (e.s.phase != T::Phase::WaitStable)
                 {
@@ -780,6 +744,16 @@ namespace
                 // the Class Journey's tame credits by rank (an elite's, a rare's, an old beast's)
                 if (CreatureTemplate const* t = sObjectMgr->GetCreatureTemplate(entry))
                     Emberfall::Journeys::CreditTame(player, t->rank, e.s.level);
+                // "When tamed: send it to the stable": the new beast into the stall the old one took (the old one comes
+                // back out), or into a free stall when nothing was out (hunter-beasts.md §2.2)
+                Emberfall::Beasts::TamePlan const plan = Emberfall::Beasts::PlanTame(to, stall >= 0);
+                if (plan.swapBack)
+                    Emberfall::Beasts::SwapWith(player, stall);
+                else if (plan.stableNew)
+                {
+                    int newStall = -1;
+                    Emberfall::Beasts::PutAway(player, newStall);
+                }
             }
             SendResult(player, e, tamed ? W::kTamed : W::kFailed);
             SendBars(beast, e, now, true);

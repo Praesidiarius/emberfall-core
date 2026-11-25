@@ -53,6 +53,7 @@ void AddEmberfallJourneysScripts();
 void AddEmberfallJourneysHunterScripts();
 void AddEmberfallPetNameScripts();
 void AddEmberfallPetSizeScripts();
+void AddEmberfallBeastsScripts();
 void AddEmberfallSeamScripts();
 void AddEmberfallAccountAchievementsScripts();
 void AddEmberfallSunScripts();
@@ -102,6 +103,7 @@ void Addmod_emberfallScripts()
     AddEmberfallJourneysHunterScripts();
     AddEmberfallPetNameScripts();
     AddEmberfallPetSizeScripts();
+    AddEmberfallBeastsScripts();
     AddEmberfallSeamScripts();
     AddEmberfallAccountAchievementsScripts();
     AddEmberfallSunScripts();

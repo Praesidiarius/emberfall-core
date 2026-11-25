@@ -34,7 +34,10 @@ enum PetType : uint8
     MAX_PET_TYPE                = 4
 };
 
-constexpr auto MAX_PET_STABLES = 4;
+// EMBERFALL: #46 the Hunter's stable holds 80 beasts (Emberfall docs/design/hunter-beasts.md §1; upstream 4). Never lower it:
+// the core deletes a hunter's character_pet rows above the last stall when it saves the current pet (CHAR_DEL_CHAR_PET_BY_SLOT).
+// It stays under PET_SAVE_NOT_IN_SLOT (100) and inside PetSaveMode's int8.
+constexpr auto MAX_PET_STABLES = 80;
 
 // stored in character_pet.slot
 enum PetSaveMode : int8
