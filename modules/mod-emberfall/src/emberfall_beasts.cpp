@@ -107,6 +107,8 @@ namespace
             s.toggledOn = sp->second.active == ACT_ENABLED;
             if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spell))
                 s.cost = info->ManaCost;
+            // the beasts' part 2: a family special its rule holds back now (emberfall_beasts_kin.cpp)
+            s.heldBack = !B::SpecialAllowedNow(pet, spell);
             return s;
         }, out);
         return true;

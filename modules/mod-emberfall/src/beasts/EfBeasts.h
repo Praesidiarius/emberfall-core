@@ -21,8 +21,10 @@
 // The Hunter's beasts (Emberfall docs/design/hunter-beasts.md): the stable helpers every hunter feature shares (the
 // taming, the Class Journey's Call from the Stable and Beast at Heel), and the tame choice. emberfall_beasts.cpp.
 
+#include "beasts/EfBeastKinLogic.h"
 #include "beasts/EfBeastsLogic.h"
 
+class Pet;
 class Player;
 class PetStable;
 
@@ -55,6 +57,22 @@ namespace Emberfall::Beasts
     // Call from the Stable (content/data/classes/hunter.yaml call_from_the_stable): its button opens the list, the
     // list's Call casts it with the pick.
     constexpr unsigned kSpellCallFromTheStable = 103803;
+
+    // ---- the beasts' part 2 (emberfall_beasts_kin.cpp; hunter-beasts.md §4-§5) ----------------------------------------
+
+    // Whether the companion's priority may try `spell` now: false for its family special while the special's rule holds
+    // it back (Throat Nip only at a caster, Web never at a boss); true for every other spell.
+    bool SpecialAllowedNow(Pet const* pet, unsigned spell);
+
+    // The beast family of a hunter's companion (ef_tame_beast by its creature), 0: none known.
+    unsigned CompanionFamily(Pet const* pet);
+
+    // `.efpet make <family>` (the spec bench's companion): the companion out or waiting goes for good and a new one of
+    // that family (its taming/families.yaml key or id) comes out at the hunter's level; `say` what happened.
+    bool MakeCompanion(Player* player, std::string const& family, std::string& say);
+
+    // `.efpet kin`: the companion's family, archetype, passive and special, in a line.
+    std::string KinInfo(Player* player);
 }
 
 #endif // EMBERFALL_BEASTS_H

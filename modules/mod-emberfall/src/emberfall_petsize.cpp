@@ -46,6 +46,7 @@
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
 #include "WorldScript.h"
+#include "beasts/EfBeasts.h"
 #include "encounters/EfEncounterMgr.h"
 #include "petsize/EfPetSize.h"
 #include "petsize/EfPetSizeLogic.h"
@@ -349,6 +350,9 @@ namespace
                 { "info",  HandleInfo,  SEC_GAMEMASTER, Console::No },
                 { "grow",  HandleGrow,  SEC_GAMEMASTER, Console::No },
                 { "stage", HandleStage, SEC_GAMEMASTER, Console::No },
+                // the beasts' part 2 (emberfall_beasts_kin.cpp): a new companion of a beast family; its kin
+                { "make",  HandleMake,  SEC_GAMEMASTER, Console::No },
+                { "kin",   HandleKin,   SEC_GAMEMASTER, Console::No },
                 { "",      HandleInfo,  SEC_GAMEMASTER, Console::No },
             };
             static ChatCommandTable commandTable =
@@ -397,6 +401,24 @@ namespace
             Player* player = handler->GetSession()->GetPlayer();
             AddTime(player, pet, uint32(std::lround(hours * 3600.0f)), true);
             return HandleInfo(handler);
+        }
+
+        static bool HandleMake(ChatHandler* handler, std::string family)
+        {
+            Player* player = handler->GetSession() ? handler->GetSession()->GetPlayer() : nullptr;
+            std::string say;
+            bool const ok = Emberfall::Beasts::MakeCompanion(player, family, say);
+            handler->SendSysMessage(say);
+            if (!ok)
+                handler->SetSentErrorMessage(true);
+            return ok;
+        }
+
+        static bool HandleKin(ChatHandler* handler)
+        {
+            Player* player = handler->GetSession() ? handler->GetSession()->GetPlayer() : nullptr;
+            handler->SendSysMessage(Emberfall::Beasts::KinInfo(player));
+            return true;
         }
 
         static bool HandleStage(ChatHandler* handler, uint32 stage)

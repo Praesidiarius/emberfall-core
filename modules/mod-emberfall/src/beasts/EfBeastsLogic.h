@@ -96,9 +96,11 @@ namespace Emberfall::Beasts
         bool known = false;         // in its spell book (not removed)
         bool toggledOn = false;     // its autocast toggle
         std::uint32_t cost = 0;     // its power cost
+        bool heldBack = false;      // a family special its rule holds back now (the beasts' part 2: EfBeastKinLogic.h)
     };
 
-    // The spells the AI tries this tick, best first: the rows in order, the known ones; a taunt only while toggled on; a
+    // The spells the AI tries this tick, best first: the rows in order, the known ones not held back (a family special
+    // whose rule waits: the beasts' part 2); a taunt only while toggled on; a
     // row with a reserve only when the pet's power covers its cost and the reserve. Everything else (cooldowns, range,
     // a target, the power for the cost itself) is the core's CanAutoCast.
     template <class StateOf>
@@ -108,7 +110,7 @@ namespace Emberfall::Beasts
         for (PriorityRow const& r : rows)
         {
             SpellState const s = stateOf(r.spell);
-            if (!s.known || (r.taunt && !s.toggledOn))
+            if (!s.known || s.heldBack || (r.taunt && !s.toggledOn))
                 continue;
             if (r.reserve && power < s.cost + r.reserve)
                 continue;
